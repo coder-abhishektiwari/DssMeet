@@ -1,0 +1,1017 @@
+﻿package com.prisonconnect.kiosk.ui.call
+
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.material3.windowsizeclass.WindowSizeClass
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.zIndex
+import androidx.core.content.ContextCompat
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.prisonconnect.kiosk.models.call.FamilyLocation
+import com.prisonconnect.kiosk.models.contacts.Contact
+import com.prisonconnect.kiosk.models.inmate.InmateProfile
+import com.prisonconnect.kiosk.models.inmate.InmateStatus
+import com.prisonconnect.kiosk.ui.components.KioskButton
+import com.prisonconnect.kiosk.ui.components.KioskProgressIndicator
+import com.prisonconnect.kiosk.ui.theme.AlertRed
+import com.prisonconnect.kiosk.ui.theme.PrimaryBlue
+import com.prisonconnect.kiosk.ui.theme.PrisonKioskTheme
+import com.prisonconnect.kiosk.ui.theme.TextDark
+import com.prisonconnect.kiosk.ui.theme.TextGray
+import com.prisonconnect.kiosk.ui.theme.WarningOrange
+import kotlinx.coroutines.delay
+import org.webrtc.RendererCommon
+import org.webrtc.SurfaceViewRenderer
+import org.webrtc.VideoTrack
+import kotlin.math.roundToInt
+
+// Color Tokens (AccentGreen kept local — different shade from theme)
+private val DarkControlsBg = Color(0xD90F172A)
+private val AccentGreen = Color(0xFF10B981)
+
+/**
+ * Compose wrapper around a WebRTC [SurfaceViewRenderer] that renders a
+ * [VideoTrack] (local preview or remote peer). Falls back to a black surface
+ * while no track is attached so the layout never collapses.
+ */
+@Composable
+fun WebRtcSurfaceView(
+    videoTrack: VideoTrack?,
+    eglContext: org.webrtc.EglBase.Context?,
+    modifier: Modifier = Modifier,
+    mirror: Boolean = false,
+    fit: Boolean = false
+) {
+    // Track attached to the renderer, so swaps detach the previous sink.
+    val attachedTrack = remember { mutableStateOf<VideoTrack?>(null) }
+    val rendererInit = remember { mutableStateOf(false) }
+
+    AndroidView(
+        modifier = modifier.background(Color.Black),
+        factory = { ctx ->
+            SurfaceViewRenderer(ctx).apply {
+                setMirror(mirror)
+                // FIT shows the WHOLE remote frame (letterboxed); FILL crops.
+                // The remote peer must never be cropped — use FIT there.
+                setScalingType(
+                    if (fit) RendererCommon.ScalingType.SCALE_ASPECT_FIT
+                    else RendererCommon.ScalingType.SCALE_ASPECT_FILL
+                )
+            }
+        },
+        update = { view ->
+            if (!rendererInit.value && eglContext != null) {
+                view.init(eglContext, null)
+                rendererInit.value = true
+                com.prisonconnect.kiosk.core.Logger.d(
+                    "WebRtcSurfaceView: renderer init view=${System.identityHashCode(view)}"
+                )
+            }
+            val previous = attachedTrack.value
+            if (previous !== videoTrack) {
+                if (previous != null) {
+                    previous.removeSink(view)
+                    com.prisonconnect.kiosk.core.Logger.d(
+                        "WebRtcSurfaceView: removeSink track=${System.identityHashCode(previous)} view=${System.identityHashCode(view)}"
+                    )
+                }
+                if (videoTrack != null) {
+                    videoTrack.addSink(view)
+                    com.prisonconnect.kiosk.core.Logger.d(
+                        "WebRtcSurfaceView: addSink track=${System.identityHashCode(videoTrack)} view=${System.identityHashCode(view)} init=$rendererInit"
+                    )
+                }
+                attachedTrack.value = videoTrack
+            }
+            view.setMirror(mirror)
+        },
+        onRelease = { view ->
+            attachedTrack.value?.removeSink(view)
+            com.prisonconnect.kiosk.core.Logger.d(
+                "WebRtcSurfaceView: released view=${System.identityHashCode(view)} hadTrack=${attachedTrack.value != null}"
+            )
+            view.clearImage()
+            view.release()
+            attachedTrack.value = null
+            rendererInit.value = false
+        }
+    )
+}
+
+@Composable
+fun VideoCallScreen(
+    contactName: String,
+    roomId: String,
+    @Suppress("UNUSED_PARAMETER") windowSizeClass: WindowSizeClass,
+    onEndCall: () -> Unit,
+    onBack: () -> Unit = onEndCall,
+    viewModel: CallViewModel = hiltViewModel()
+) {
+    val context = LocalContext.current
+    val timerSeconds by viewModel.timerSeconds.collectAsState()
+    val isMuted by viewModel.isMuted.collectAsState()
+    val isCameraOn by viewModel.isCameraOn.collectAsState()
+    val isSpeakerOn by viewModel.isSpeakerOn.collectAsState()
+    val callState by viewModel.callState.collectAsState()
+    val isNetworkAvailable by viewModel.isNetworkAvailable.collectAsState()
+    val isRecording by viewModel.isRecording.collectAsState()
+    val inmateProfile by viewModel.inmateProfile.collectAsState()
+    val contactProfile by viewModel.contactProfile.collectAsState()
+
+    val localTrack by viewModel.localVideoTrack.collectAsState()
+    val remoteTrack by viewModel.remoteVideoTrack.collectAsState()
+    val liveCost by viewModel.liveCost.collectAsState()
+    val maxCallSeconds by viewModel.maxCallSeconds.collectAsState()
+    val endLabel by viewModel.endLabel.collectAsState()
+    val connectionQuality by viewModel.connectionQuality.collectAsState()
+    val familyLocation by viewModel.familyLocation.collectAsState()
+
+    var hasPermissions by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED &&
+                ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        )
+    }
+
+    var permissionDeniedOnce by remember { mutableStateOf(false) }
+
+    val launcher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val granted = permissions[Manifest.permission.CAMERA] == true &&
+            permissions[Manifest.permission.RECORD_AUDIO] == true
+        hasPermissions = granted
+        if (!granted) permissionDeniedOnce = true
+    }
+
+    LaunchedEffect(roomId, hasPermissions) {
+        if (!hasPermissions && !permissionDeniedOnce) {
+            launcher.launch(arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO))
+        }
+        // NOTE: initCall already happened on CallProgressScreen — the engine
+        // is a singleton, so we just attach to the live session here.
+    }
+
+    // Track whether the call ever reached CONNECTED so a peer-side disconnect
+    // (call ended remotely) exits via the billing summary, while a call that
+    // never connected (join failed / media failed) simply goes back.
+    var everConnected by remember { mutableStateOf(false) }
+
+    LaunchedEffect(callState) {
+        if (callState == CallUIState.CONNECTED) everConnected = true
+    }
+
+    LaunchedEffect(callState) {
+        when (callState) {
+            CallUIState.FAILED -> {
+                delay(2500)
+                onBack()
+            }
+            CallUIState.DISCONNECTED -> {
+                delay(1500)
+                if (everConnected) onEndCall() else onBack()
+            }
+            else -> {}
+        }
+    }
+
+    if (!hasPermissions && permissionDeniedOnce) {
+        PermissionDeniedUI(onRetry = {
+            launcher.launch(arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO))
+        })
+    } else {
+        VideoCallContent(
+            contactName = contactName,
+            timerSeconds = timerSeconds,
+            isMuted = isMuted,
+            isCameraOn = isCameraOn,
+            isSpeakerOn = isSpeakerOn,
+            callState = callState,
+            isNetworkAvailable = isNetworkAvailable,
+            isRecording = isRecording,
+            inmateProfile = inmateProfile,
+            contactProfile = contactProfile,
+            localTrack = localTrack,
+            remoteTrack = remoteTrack,
+            eglContext = viewModel.eglContext,
+            liveCost = liveCost,
+            maxCallSeconds = maxCallSeconds,
+            endLabel = endLabel,
+            connectionQuality = connectionQuality,
+            familyLocation = familyLocation,
+            onMuteToggle = { viewModel.toggleMute() },
+            onVideoToggle = { viewModel.toggleCamera() },
+            onSpeakerToggle = { viewModel.toggleSpeaker() },
+            onSwitchCamera = { viewModel.switchCamera() },
+            onEndCall = {
+                viewModel.endCall()
+                onEndCall()
+            }
+        )
+    }
+}
+
+@Composable
+fun PermissionDeniedUI(onRetry: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF0F172A)),
+        contentAlignment = Alignment.Center
+    ) {
+        Card(
+            modifier = Modifier
+                .padding(24.dp)
+                .fillMaxWidth(0.85f),
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White)
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Security,
+                    contentDescription = null,
+                    tint = AlertRed,
+                    modifier = Modifier.size(56.dp)
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "Permissions Required",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = TextDark
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Access to Camera and Microphone is required for secure video calling.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextGray,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(24.dp))
+                KioskButton(
+                    text = "Grant Permissions",
+                    onClick = onRetry,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun VideoCallContent(
+    contactName: String,
+    timerSeconds: Int,
+    isMuted: Boolean,
+    isCameraOn: Boolean,
+    isSpeakerOn: Boolean,
+    callState: CallUIState,
+    isNetworkAvailable: Boolean,
+    isRecording: Boolean,
+    inmateProfile: InmateProfile?,
+    contactProfile: Contact?,
+    localTrack: VideoTrack?,
+    remoteTrack: VideoTrack?,
+    eglContext: org.webrtc.EglBase.Context?,
+    liveCost: Double,
+    maxCallSeconds: Int,
+    endLabel: String? = null,
+    connectionQuality: String = "unknown",
+    familyLocation: FamilyLocation? = null,
+    onMuteToggle: () -> Unit,
+    onVideoToggle: () -> Unit,
+    onSpeakerToggle: () -> Unit,
+    onSwitchCamera: () -> Unit,
+    onEndCall: () -> Unit
+) {
+    var showInfoDialog by remember { mutableStateOf(false) }
+    var controlsVisible by remember { mutableStateOf(true) }
+    var lastInteractionTime by remember { mutableLongStateOf(System.currentTimeMillis()) }
+
+    val density = LocalDensity.current
+    val configuration = LocalConfiguration.current
+    val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
+    val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
+
+    // Offset positioned strictly BELOW top header to prevent overlap
+    val initialTopOffsetPx = with(density) { 110.dp.toPx().toInt() }
+    var pipOffset by remember { mutableStateOf(IntOffset(0, initialTopOffsetPx)) }
+
+    // Warden-controlled max call length (from the dashboard Settings).
+    val remainingSeconds = (maxCallSeconds - timerSeconds).coerceAtLeast(0)
+
+    val formatTime = { seconds: Int ->
+        val mins = seconds / 60
+        val secs = seconds % 60
+        String.format("%02d:%02d", mins, secs)
+    }
+
+    // Live billing from the engine: ceil(minutes) × actual per-minute rate.
+    // ₹0.00 until the first second of connected talk time.
+    val currentCost = liveCost
+
+    LaunchedEffect(lastInteractionTime) {
+        delay(6000)
+        controlsVisible = false
+    }
+
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .clickable(
+                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                indication = null
+            ) {
+                controlsVisible = true
+                lastInteractionTime = System.currentTimeMillis()
+            }
+    ) {
+        val isTablet = maxWidth >= 600.dp
+
+        // 1. REMOTE FULLSCREEN VIDEO FEED
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0xFF090D16)),
+            contentAlignment = Alignment.Center
+        ) {
+            if (remoteTrack != null && callState == CallUIState.CONNECTED) {
+                WebRtcSurfaceView(
+                    videoTrack = remoteTrack,
+                    eglContext = eglContext,
+                    fit = true,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(24.dp)
+                ) {
+                    KioskProgressIndicator()
+                    Spacer(modifier = Modifier.height(20.dp))
+                    Text(
+                        text = when (callState) {
+                            CallUIState.WAITING -> "Waiting for $contactName..."
+                            CallUIState.RECONNECTING -> "Reconnecting..."
+                            CallUIState.FAILED -> "Call Failed"
+                            CallUIState.DISCONNECTED -> endLabel ?: "Call ended"
+                            else -> "Connecting..."
+                        },
+                        color = Color.White,
+                        fontSize = if (isTablet) 20.sp else 16.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        }
+
+        // 2. DRAGGABLE PIP LOCAL CAMERA PREVIEW
+        val pipWidth = if (isTablet) 160.dp else 105.dp
+        val pipHeight = if (isTablet) 210.dp else 145.dp
+        val pipWidthPx = with(density) { pipWidth.toPx() }
+        val pipHeightPx = with(density) { pipHeight.toPx() }
+
+        Surface(
+            modifier = Modifier
+                .zIndex(3f)
+                .offset { pipOffset }
+                .padding(end = 12.dp)
+                .size(pipWidth, pipHeight)
+                .align(Alignment.TopEnd)
+                .clip(RoundedCornerShape(16.dp))
+                .border(1.5.dp, Color.White.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
+                .pointerInput(Unit) {
+                    detectDragGestures { change, dragAmount ->
+                        change.consume()
+                        val newX = (pipOffset.x + dragAmount.x).coerceIn(-screenWidthPx + pipWidthPx + 24, 0f)
+                        val newY = (pipOffset.y + dragAmount.y).coerceIn(0f, screenHeightPx - pipHeightPx - 80)
+                        pipOffset = IntOffset(newX.roundToInt(), newY.roundToInt())
+                    }
+                },
+            color = Color(0xFF1E293B),
+            shadowElevation = 8.dp
+        ) {
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                if (!isCameraOn) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            imageVector = Icons.Default.VideocamOff,
+                            contentDescription = null,
+                            tint = Color.White.copy(alpha = 0.6f),
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("Off", color = Color.White.copy(alpha = 0.6f), fontSize = 10.sp)
+                    }
+                } else if (localTrack != null) {
+                    WebRtcSurfaceView(
+                        videoTrack = localTrack,
+                        eglContext = eglContext,
+                        mirror = true,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Text("Preview", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+                }
+            }
+        }
+
+        // 3. CLEAN COMPACT TOP HEADER BAR
+        AnimatedVisibility(
+            visible = controlsVisible,
+            enter = fadeIn() + slideInVertically(),
+            exit = fadeOut() + slideOutVertically(),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .zIndex(2f)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(Color.Black.copy(alpha = 0.9f), Color.Transparent)
+                        )
+                    )
+                    .padding(horizontal = 12.dp, vertical = 10.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Left Header Details
+                    Column(modifier = Modifier.weight(1f, fill = false)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (isRecording) {
+                                Surface(
+                                    color = AlertRed,
+                                    shape = RoundedCornerShape(4.dp),
+                                    modifier = Modifier.padding(end = 6.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(6.dp)
+                                                .background(Color.White, CircleShape)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "REC",
+                                            color = Color.White,
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+
+                            Icon(
+                                imageVector = Icons.Default.Security,
+                                contentDescription = null,
+                                tint = AccentGreen,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "MONITORED",
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Text(
+                            text = "Inmate: ${inmateProfile?.displayName ?: "Unknown"} | $contactName",
+                            color = Color.White.copy(alpha = 0.8f),
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    // Live connection quality — sampled from the peer
+                    // connection, so a bad line is visible instead of silent.
+                    QualityChip(connectionQuality)
+                }
+            }
+        }
+
+        // ALWAYS-VISIBLE call duration: the header above auto-hides after a
+        // few idle seconds, but the elapsed time (and the REC dot) must stay
+        // readable for the whole call.
+        Surface(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 70.dp)
+                .zIndex(2f),
+            color = Color.Black.copy(alpha = 0.7f),
+            shape = RoundedCornerShape(14.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+            ) {
+                if (isRecording) {
+                    Box(
+                        modifier = Modifier
+                            .size(7.dp)
+                            .background(AlertRed, CircleShape)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                }
+                Text(
+                    text = formatTime(timerSeconds),
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                if (maxCallSeconds > 0) {
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "/ ${formatTime(maxCallSeconds)}",
+                        color = Color.White.copy(alpha = 0.65f),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+        }
+
+        // Family member's location (from device verification), right under
+        // the always-visible timer.
+        familyLocation?.let { loc ->
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 118.dp)
+                    .zIndex(2f),
+                color = Color.Black.copy(alpha = 0.65f),
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.LocationOn,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(13.dp)
+                    )
+                    Text(
+                        text = loc.displayLabel,
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+        }
+
+        // 4. NETWORK WARNING
+        if (!isNetworkAvailable) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.Center)
+                    .padding(horizontal = 24.dp)
+                    .zIndex(4f),
+                color = WarningOrange,
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Icon(Icons.Default.WifiOff, contentDescription = null, tint = Color.White)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Connection lost. Reconnecting...",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp
+                    )
+                }
+            }
+        }
+
+        // 4b. POOR NETWORK QUALITY (video is still up, audio will break up)
+        if (connectionQuality == "poor") {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.BottomCenter)
+                    .padding(horizontal = 24.dp, vertical = 120.dp)
+                    .zIndex(4f),
+                color = AlertRed,
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Icon(Icons.Default.SignalCellularAlt, contentDescription = null, tint = Color.White)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Poor network quality — audio may break up",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp
+                    )
+                }
+            }
+        }
+
+        // 5. BOTTOM CONTROL BAR
+        AnimatedVisibility(
+            visible = controlsVisible,
+            enter = fadeIn() + slideInVertically(initialOffsetY = { it / 2 }),
+            exit = fadeOut() + slideOutVertically(targetOffsetY = { it / 2 }),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .zIndex(2f)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.95f))
+                        )
+                    )
+                    .padding(bottom = 16.dp, start = 12.dp, end = 12.dp, top = 8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Surface(
+                    color = AccentGreen,
+                    shape = RoundedCornerShape(50)
+                ) {
+                    Text(
+                        text = "Live Billing: \u20B9${String.format("%.2f", currentCost)}",
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                    )
+                }
+
+                // Wrap-content + centered: a full-width bar flings the side
+                // controls to the far edges on a big screen. The container
+                // is only ever as wide as the controls themselves.
+                Surface(
+                    modifier = Modifier.wrapContentWidth(),
+                    shape = RoundedCornerShape(24.dp),
+                    color = DarkControlsBg
+                ) {
+                    // END sits dead-center: mic+cam left of it, speaker/info right.
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        VideoActionButton(
+                            icon = if (isMuted) Icons.Default.MicOff else Icons.Default.Mic,
+                            label = if (isMuted) "Unmute" else "Mute",
+                            isActive = isMuted,
+                            activeColor = AlertRed,
+                            onClick = {
+                                onMuteToggle()
+                                lastInteractionTime = System.currentTimeMillis()
+                            }
+                        )
+
+                        VideoActionButton(
+                            icon = if (!isCameraOn) Icons.Default.VideocamOff else Icons.Default.Videocam,
+                            label = if (!isCameraOn) "Cam Off" else "Cam On",
+                            isActive = !isCameraOn,
+                            activeColor = AlertRed,
+                            onClick = {
+                                onVideoToggle()
+                                lastInteractionTime = System.currentTimeMillis()
+                            }
+                        )
+
+                        VideoActionButton(
+                            icon = Icons.Default.CallEnd,
+                            label = "End",
+                            isActive = true,
+                            activeColor = AlertRed,
+                            isEndCall = true,
+                            onClick = onEndCall
+                        )
+
+                        VideoActionButton(
+                            icon = if (isSpeakerOn) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeOff,
+                            label = "Speaker",
+                            isActive = isSpeakerOn,
+                            activeColor = PrimaryBlue,
+                            onClick = {
+                                onSpeakerToggle()
+                                lastInteractionTime = System.currentTimeMillis()
+                            }
+                        )
+
+                        VideoActionButton(
+                            icon = Icons.Default.Info,
+                            label = "Info",
+                            isActive = showInfoDialog,
+                            activeColor = PrimaryBlue,
+                            onClick = {
+                                showInfoDialog = true
+                                lastInteractionTime = System.currentTimeMillis()
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
+        // 6. CALL INFO DIALOG
+        if (showInfoDialog) {
+            Dialog(onDismissRequest = { showInfoDialog = false }) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(0.95f),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Call Information",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextDark
+                            )
+                            IconButton(
+                                onClick = { showInfoDialog = false },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(Icons.Default.Close, contentDescription = "Close", tint = TextGray)
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color(0xFFF1F5F9), RoundedCornerShape(12.dp))
+                                .padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Inmate:", fontSize = 12.sp, color = TextGray)
+                                Text(inmateProfile?.displayName ?: "Inmate", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextDark)
+                            }
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Contact:", fontSize = 12.sp, color = TextGray)
+                                Text(contactName, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextDark)
+                            }
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Time Remaining:", fontSize = 12.sp, color = TextGray)
+                                Text(formatTime(remainingSeconds), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = AlertRed)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun VideoActionButton(
+    icon: ImageVector,
+    label: String,
+    isActive: Boolean,
+    activeColor: Color,
+    isEndCall: Boolean = false,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Surface(
+            onClick = onClick,
+            shape = CircleShape,
+            color = if (isEndCall) AlertRed else if (isActive) activeColor else Color.White.copy(alpha = 0.15f),
+            modifier = Modifier.size(42.dp)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = label,
+                    tint = Color.White,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(3.dp))
+        Text(
+            text = label,
+            color = Color.White.copy(alpha = 0.8f),
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Medium
+        )
+    }
+}
+
+/**
+ * Compact live-quality pill for the call header. Values come from
+ * [com.prisonconnect.kiosk.ui.call.CallEngine.connectionQuality], which samples
+ * the peer connection once a second — this chip never reports a fixed state.
+ */
+@Composable
+private fun QualityChip(quality: String) {
+    val (label, tint) = when (quality) {
+        "excellent" -> "Excellent" to AccentGreen
+        "good" -> "Stable" to AccentGreen
+        "fair" -> "Fair" to WarningOrange
+        "poor" -> "Poor network" to AlertRed
+        else -> "Measuring…" to TextGray
+    }
+    Surface(
+        color = tint.copy(alpha = 0.22f),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.SignalCellularAlt,
+                contentDescription = null,
+                tint = tint,
+                modifier = Modifier.size(12.dp)
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = label,
+                color = Color.White,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+// ============================================================================
+// PREVIEWS FOR MOBILE & TABLET
+// ============================================================================
+
+/**
+ * 1. MOBILE PREVIEW
+ */
+@Preview(
+    name = "Mobile - Portrait Video Call",
+    device = "spec:width=360dp,height=800dp,dpi=440",
+    showBackground = true
+)
+@Composable
+fun VideoCallContentMobilePreview() {
+    PrisonKioskTheme {
+        VideoCallContent(
+            contactName = "Suresh Kumar",
+            timerSeconds = 145,
+            isMuted = false,
+            isCameraOn = true,
+            isSpeakerOn = true,
+            callState = CallUIState.CONNECTED,
+            isNetworkAvailable = true,
+            isRecording = true,
+            liveCost = 7.50,
+            maxCallSeconds = 300,
+            inmateProfile = InmateProfile(
+                inmateId = "INM123",
+                firstName = "Rahul",
+                lastName = "Kumar",
+                prisonId = "PRIS1",
+                facility = "Central Jail",
+                status = InmateStatus.ACTIVE
+            ),
+            contactProfile = Contact(
+                id = "CON1",
+                name = "Suresh Kumar",
+                phoneNumber = "+919876543210",
+                relationship = "Father"
+            ),
+            localTrack = null,
+            remoteTrack = null,
+            eglContext = null,
+            onMuteToggle = {},
+            onVideoToggle = {},
+            onSpeakerToggle = {},
+            onSwitchCamera = {},
+            onEndCall = {}
+        )
+    }
+}
+
+/*
+/**
+ * 2. TABLET PREVIEW (Commented Out)
+ * Uncomment this block when testing Kiosk / Large Tablet Screen layouts.
+ */
+@Preview(
+    name = "Tablet - Landscape Video Call",
+    device = "spec:width=1280dp,height=800dp,dpi=240",
+    showBackground = true
+)
+@Composable
+fun VideoCallContentTabletPreview() {
+    PrisonKioskTheme {
+        VideoCallContent(
+            contactName = "Suresh Kumar",
+            timerSeconds = 210,
+            isMuted = true,
+            isCameraOn = true,
+            isSpeakerOn = true,
+            callState = CallUIState.CONNECTED,
+            isNetworkAvailable = true,
+            isRecording = true,
+            inmateProfile = InmateProfile(
+                inmateId = "INM123",
+                firstName = "Rahul",
+                lastName = "Kumar",
+                prisonId = "PRIS1",
+                facility = "Central Jail",
+                status = InmateStatus.ACTIVE
+            ),
+            contactProfile = Contact(
+                id = "CON1",
+                name = "Suresh Kumar",
+                phoneNumber = "+919876543210",
+                relationship = "Father"
+            ),
+            localTrack = null,
+            remoteTrack = null,
+            eglContext = null,
+            onMuteToggle = {},
+            onVideoToggle = {},
+            onSpeakerToggle = {},
+            onSwitchCamera = {},
+            onEndCall = {}
+        )
+    }
+}
+*/

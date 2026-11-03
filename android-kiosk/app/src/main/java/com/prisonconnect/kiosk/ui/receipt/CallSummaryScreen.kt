@@ -1,0 +1,373 @@
+package com.prisonconnect.kiosk.ui.receipt
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Print
+import androidx.compose.material3.*
+import androidx.compose.material3.windowsizeclass.WindowSizeClass
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.prisonconnect.kiosk.R
+import com.prisonconnect.kiosk.ui.components.KioskTopBar
+import com.prisonconnect.kiosk.ui.theme.LightBg
+import com.prisonconnect.kiosk.ui.theme.PrimaryNavy
+import com.prisonconnect.kiosk.ui.theme.PrisonKioskTheme
+import com.prisonconnect.kiosk.ui.theme.SuccessGreen
+import com.prisonconnect.kiosk.ui.theme.TextDark
+import com.prisonconnect.kiosk.ui.theme.TextGray
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.util.Locale
+
+
+@Composable
+fun CallSummaryScreen(
+    contactName: String,
+    duration: String,
+    totalCharged: String,
+    callType: String = "video",
+    @Suppress("UNUSED_PARAMETER") windowSizeClass: WindowSizeClass,
+    onBackToHome: () -> Unit,
+    viewModel: SummaryViewModel = hiltViewModel()
+) {
+    val inmateProfile by viewModel.inmateProfile.collectAsState()
+    val balance by viewModel.balance.collectAsState()
+    // Same singleton engine as the call screens: a time-limit cut says so,
+    // an ordinary hangup gets the neutral line.
+    val callViewModel: com.prisonconnect.kiosk.ui.call.CallViewModel = hiltViewModel()
+    val endLabel by callViewModel.endLabel.collectAsState()
+    val defaultSubtitle = stringResource(R.string.call_summary_subtitle)
+
+    CallSummaryContent(
+        // The profile API returns `name` only (firstName/lastName are stripped
+        // server-side), so reading those fields printed a blank inmate name.
+        inmateName = inmateProfile?.displayName ?: "N/A",
+        contactName = contactName,
+        duration = duration,
+        totalCharged = totalCharged,
+        callType = callType,
+        remainingBalance = balance,
+        subtitle = endLabel ?: defaultSubtitle,
+        onPrintReceipt = { viewModel.onPrintReceipt() },
+        onBackToHome = onBackToHome
+    )
+}
+
+@Composable
+fun CallSummaryContent(
+    inmateName: String,
+    contactName: String,
+    duration: String,
+    totalCharged: String,
+    callType: String = "video",
+    remainingBalance: Double = 0.0,
+    subtitle: String = "",
+    onPrintReceipt: () -> Unit,
+    onBackToHome: () -> Unit
+) {
+    Scaffold(
+        topBar = { KioskTopBar( title = "Call Summary") },
+        containerColor = LightBg
+    ) { padding ->
+        BoxWithConstraints(
+            modifier = Modifier
+                .padding(padding)
+                .fillMaxSize()
+        ) {
+            val isTablet = maxWidth >= 600.dp
+            val hPadding = if (isTablet) 32.dp else 16.dp
+            val cardWidthFraction = if (isTablet) 0.65f else 1f
+
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = hPadding, vertical = 20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Spacer(modifier = Modifier.height(if (isTablet) 24.dp else 12.dp))
+
+                // SUCCESS ICON
+                Icon(
+                    imageVector = Icons.Default.CheckCircle,
+                    contentDescription = null,
+                    tint = SuccessGreen,
+                    modifier = Modifier.size(if (isTablet) 80.dp else 64.dp)
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // HEADINGS
+                Text(
+                    text = stringResource(R.string.call_ended_successfully),
+                    fontSize = if (isTablet) 24.sp else 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextDark,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = subtitle,
+                    fontSize = if (isTablet) 14.sp else 12.sp,
+                    color = TextGray,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // RECEIPT CARD
+                Card(
+                    modifier = Modifier.fillMaxWidth(cardWidthFraction),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+                    shape = RoundedCornerShape(20.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(if (isTablet) 28.dp else 18.dp)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.receipt).uppercase(),
+                            modifier = Modifier.fillMaxWidth(),
+                            textAlign = TextAlign.Center,
+                            fontSize = if (isTablet) 16.sp else 14.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 1.sp,
+                            color = TextDark
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Prison Video Kiosk • Call Receipt",
+                            modifier = Modifier.fillMaxWidth(),
+                            textAlign = TextAlign.Center,
+                            fontSize = if (isTablet) 12.sp else 11.sp,
+                            color = TextGray
+                        )
+
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp), color = Color(0xFFE2E8F0))
+
+                        ReceiptRow("Inmate Name", inmateName, isTablet = isTablet)
+                        ReceiptRow("Contact Person", contactName, isTablet = isTablet)
+                        ReceiptRow("Date", LocalDate.now().format(DateTimeFormatter.ofPattern("dd MMM yyyy", Locale.ENGLISH)), isTablet = isTablet)
+                        ReceiptRow("Duration", formatCallDuration(duration), isTablet = isTablet)
+                        ReceiptRow("Call Type", callType.replaceFirstChar { it.uppercase() }, isTablet = isTablet)
+
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp), color = Color(0xFFE2E8F0))
+
+                        ReceiptRow(
+                            label = stringResource(R.string.total_charged),
+                            value = "₹$totalCharged",
+                            isTotal = true,
+                            isTablet = isTablet
+                        )
+                        ReceiptRow(
+                            label = stringResource(R.string.remaining_balance),
+                            value = "₹${String.format("%.2f", remainingBalance / 100.0)}",
+                            isTablet = isTablet
+                        )
+
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp), color = Color(0xFFE2E8F0))
+
+                        Text(
+                            text = "Thank you for using the service.",
+                            modifier = Modifier.fillMaxWidth(),
+                            textAlign = TextAlign.Center,
+                            fontSize = if (isTablet) 12.sp else 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = TextGray
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(28.dp))
+
+                // ACTION BUTTONS (Responsive Layout)
+                if (isTablet) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(cardWidthFraction),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = onPrintReceipt,
+                            modifier = Modifier.weight(1f).height(52.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.5.dp, PrimaryNavy)
+                        ) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Print, contentDescription = null, tint = PrimaryNavy)
+                                Text(
+                                    text = stringResource(R.string.print_receipt),
+                                    fontWeight = FontWeight.Bold,
+                                    color = PrimaryNavy
+                                )
+                            }
+                        }
+
+                        Button(
+                            onClick = onBackToHome,
+                            modifier = Modifier.weight(1f).height(52.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryNavy)
+                        ) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Home, contentDescription = null)
+                                Text(
+                                    text = "Go to Home",
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(cardWidthFraction),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Button(
+                            onClick = onBackToHome,
+                            modifier = Modifier.fillMaxWidth().height(48.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryNavy)
+                        ) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Home, contentDescription = null)
+                                Text(
+                                    text = "Go to Home",
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        OutlinedButton(
+                            onClick = onPrintReceipt,
+                            modifier = Modifier.fillMaxWidth().height(48.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.5.dp, PrimaryNavy)
+                        ) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Print, contentDescription = null, tint = PrimaryNavy)
+                                Text(
+                                    text = stringResource(R.string.print_receipt),
+                                    fontWeight = FontWeight.Bold,
+                                    color = PrimaryNavy
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+        }
+    }
+}
+
+@Composable
+fun ReceiptRow(
+    label: String,
+    value: String,
+    isTotal: Boolean = false,
+    isTablet: Boolean = false
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            fontSize = if (isTotal) (if (isTablet) 15.sp else 13.sp) else (if (isTablet) 13.sp else 11.sp),
+            fontWeight = if (isTotal) FontWeight.Bold else FontWeight.Medium,
+            color = if (isTotal) TextDark else TextGray,
+            modifier = Modifier.weight(1f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = value,
+            fontSize = if (isTotal) (if (isTablet) 18.sp else 15.sp) else (if (isTablet) 14.sp else 12.sp),
+            fontWeight = if (isTotal) FontWeight.Black else FontWeight.Bold,
+            color = if (isTotal) PrimaryNavy else TextDark,
+            textAlign = TextAlign.End,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+// --- PREVIEWS ---
+
+//@Preview(name = "Tablet View", device = "spec:width=800dp,height=1280dp,orientation=portrait", showBackground = true)
+//@Composable
+//fun PreviewCallSummaryTablet() {
+//    PrisonKioskTheme {
+//        CallSummaryContent(
+//            inmateName = "RAHUL KUMAR",
+//            contactName = "Suresh Kumar",
+//            duration = "5:00",
+//            totalCharged = "10.00",
+//            onPrintReceipt = {},
+//            onBackToHome = {}
+//        )
+//    }
+//}
+
+/**
+ * `duration` arrives through the nav route as whole SECONDS and is the engine's
+ * final elapsed count (endSession() no longer zeroes it — initCall() does that
+ * for the next call instead).
+ *
+ * Always prints both units so the row never collapses to a bare "Sec" figure.
+ */
+private fun formatCallDuration(raw: String): String {
+    val totalSeconds = raw.filter { it.isDigit() }.toIntOrNull() ?: return "—"
+    return "${totalSeconds / 60} Min ${totalSeconds % 60} Sec"
+}
+
+@Preview(name = "Mobile View", device = "spec:width=360dp,height=800dp", showBackground = true)
+@Composable
+fun PreviewCallSummaryMobile() {
+    PrisonKioskTheme {
+        CallSummaryContent(
+            inmateName = "RAHUL KUMAR",
+            contactName = "Suresh Kumar",
+            duration = "307",
+            totalCharged = "10.00",
+            callType = "video",
+            remainingBalance = 40.0,
+            onPrintReceipt = {},
+            onBackToHome = {}
+        )
+    }
+}

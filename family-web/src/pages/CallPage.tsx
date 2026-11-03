@@ -1,0 +1,1005 @@
+import { useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
+import { useParams, Navigate } from 'react-router-dom';
+import { ErrorState } from '@/components/States';
+import { CallWalletPopup } from '@/components/CallWalletPopup';
+import { useSession } from '@/context/SessionContext';
+import { useToast } from '@/components/Toast';
+import { socketService } from '@/services/socket';
+import { callApi, callWalletApi } from '@/services/api';
+import { ensureLocationSent } from '@/services/geolocation';
+import { webRtcService, type ConnectionState, type QualitySnapshot } from '@/services/webrtc';
+
+type CallStatus =
+  | 'initializing'
+  | 'waiting'
+  | 'connecting'
+  | 'connected'
+  | 'reconnecting'
+  | 'ended'
+  | 'error';
+
+const RECONNECT_MAX_ATTEMPTS = 6;
+const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+async function waitForSocket(timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (socketService.isConnected()) return true;
+    await wait(250);
+  }
+  return socketService.isConnected();
+}
+
+const rupees = (paise: number) =>
+  (paise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+interface PostCallCardProps {
+  title: string;
+  description?: ReactNode;
+  /** Wallet balance in paise; null when unknown (not loaded or read failed). */
+  balancePaise: number | null;
+  canRecharge: boolean;
+  onRecharge: () => void;
+}
+
+/**
+ * The single card both end-of-call screens share: why the call ended, the
+ * wallet balance with a low/critical chip (below Rs.20 / below Rs.10), and
+ * the two actions — top up the wallet, or exit.
+ */
+function PostCallCard({ title, description, balancePaise, canRecharge, onRecharge }: PostCallCardProps) {
+  const low = balancePaise !== null && balancePaise < 2000; // below Rs.20
+  const critical = balancePaise !== null && balancePaise < 1000; // below Rs.10
+  return (
+    <div className="max-w-md w-full rounded-2xl border border-neutral-700 bg-neutral-800 p-6 text-center shadow-xl">
+      <p className="text-lg font-semibold text-white">{title}</p>
+      {description && <div className="text-sm text-neutral-400 mt-2">{description}</div>}
+
+      {balancePaise !== null && (
+        <div className="mt-4 flex flex-wrap items-center justify-center gap-2 rounded-xl border border-neutral-700 bg-neutral-900/60 px-4 py-3">
+          <span className="text-xs uppercase tracking-wide text-neutral-400">Wallet balance</span>
+          <span className="font-mono text-lg font-bold text-white">&#8377;{rupees(balancePaise)}</span>
+          {low && (
+            <span
+              className={
+                critical
+                  ? 'px-2.5 py-0.5 rounded-full text-xs font-bold bg-red-600 text-white'
+                  : 'px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500 text-black'
+              }
+            >
+              {critical ? 'Critical Low' : 'Balance Low'}
+            </span>
+          )}
+        </div>
+      )}
+
+      <div className="mt-7 flex flex-col gap-3.5">
+        {canRecharge && (
+          <button
+            onClick={onRecharge}
+            className="w-full rounded-xl bg-success px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-90"
+          >
+            Add money to wallet
+          </button>
+        )}
+        <button
+          onClick={() => window.location.replace('/')}
+          className="w-full rounded-xl bg-white px-5 py-3 text-sm font-semibold text-neutral-900 shadow-sm transition hover:bg-neutral-100"
+        >
+          Exit
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export function CallPage() {
+  const { linkToken } = useParams<{ linkToken: string }>();
+  const { session, otpResult } = useSession();
+  const { addToast } = useToast();
+
+  // Call state
+  const [status, setStatus] = useState<CallStatus>('initializing');
+  const [statusMessage, setStatusMessage] = useState('Initializing call...');
+  const [audioEnabled, setAudioEnabled] = useState(true);
+  const [speakerOn, setSpeakerOn] = useState(true);
+  const [callDuration, setCallDuration] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  // The live remote MediaStream object. Kept in state so the audio-sink
+  // re-attach effect can react to it arriving (not just status/speakerOn).
+  const [remoteStreamObj, setRemoteStreamObj] = useState<MediaStream | null>(null);
+
+  // Auto-hiding controls: visible on any interaction, hidden after 3s idle.
+  const [controlsVisible, setControlsVisible] = useState(true);
+  const [endingCall, setEndingCall] = useState(false);
+  // Set when the call is cut by the duration cap (either side), so the user
+  // sees WHY instead of being dumped on a blank page / the home route.
+  const [timeLimitNotice, setTimeLimitNotice] = useState<number | null>(null);
+  // Set when the call is over for any non-timeout reason (kiosk hung up,
+  // family hung up, reconnect exhausted). Drives the end screen with the
+  // post-call wallet recharge option instead of a blank page.
+  const [callEnded, setCallEnded] = useState(false);
+  const [showWalletPopup, setShowWalletPopup] = useState(false);
+  // Balance shown on the end-of-call card with a low/critical chip. Paise,
+  // null until the one read for this card lands (or forever, if it fails —
+  // the card then simply omits the row).
+  const [walletBalance, setWalletBalance] = useState<number | null>(null);
+  // Captured once at OTP verification so the end screen can drive the
+  // recharge popup regardless of when/why the call was torn down.
+  // Null when OTP was never completed.
+  const sessionTokenRef = useRef<string | null>(otpResult?.sessionToken ?? null);
+  // Keep the ref in sync if otpResult arrives/changes after first render.
+  useEffect(() => {
+    if (otpResult?.sessionToken) sessionTokenRef.current = otpResult.sessionToken;
+  }, [otpResult]);
+  // Read the balance once any end-of-call screen shows, and again after the
+  // recharge popup closes so the card reflects what was just credited.
+  const postCallVisible = Boolean(timeLimitNotice) || callEnded || status === 'ended';
+  useEffect(() => {
+    if (!postCallVisible || showWalletPopup) return;
+    const token = sessionTokenRef.current;
+    if (!token) return;
+    let cancelled = false;
+    void callWalletApi.getInfo(token).then(
+      (info) => {
+        if (!cancelled) setWalletBalance(info.balance);
+      },
+      () => {
+        /* card keeps going without the balance row */
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [postCallVisible, showWalletPopup]);
+  // Live inbound quality — drives the header pill and the poor-network banner.
+  const [connectionQuality, setConnectionQuality] =
+    useState<QualitySnapshot['quality']>('unknown');
+  const controlsTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const bumpInteraction = useCallback(() => {
+    setControlsVisible(true);
+    if (controlsTimerRef.current) clearTimeout(controlsTimerRef.current);
+    controlsTimerRef.current = setTimeout(() => setControlsVisible(false), 3000);
+  }, []);
+
+  useEffect(() => {
+    if (status !== 'connected') return;
+    bumpInteraction();
+    window.addEventListener('pointerdown', bumpInteraction);
+    window.addEventListener('pointermove', bumpInteraction);
+    return () => {
+      window.removeEventListener('pointerdown', bumpInteraction);
+      window.removeEventListener('pointermove', bumpInteraction);
+      if (controlsTimerRef.current) clearTimeout(controlsTimerRef.current);
+    };
+  }, [status, bumpInteraction]);
+
+  // Location send retry: the device page fires the first attempt, but a
+  // denied-then-allowed prompt or a flaky network can leave it unsent — the
+  // warden's history then shows "Location not shared" for the call.
+  useEffect(() => {
+    if (!linkToken) return;
+    void ensureLocationSent(linkToken);
+  }, [linkToken]);
+
+  // Refs
+  const localVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement>(null);
+  const callTimerRef = useRef<ReturnType<typeof setInterval>>();
+  /**
+   * Local-clock ms at which billing started, as corrected by the last
+   * heartbeat. `null` until the first sync — the timer then ticks locally so
+   * it never sits at 00:00 while the kiosk already counts.
+   */
+  const billingAnchorRef = useRef<number | null>(null);
+  const peerIdRef = useRef(`family-${Date.now()}`);
+  const joinStartedRef = useRef(false);
+  const statusRef = useRef<CallStatus>('initializing');
+  const wasConnectedRef = useRef(false);
+  const reconnectingRef = useRef(false);
+
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      endCall();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Initialize call
+  useEffect(() => {
+    if (!session || !linkToken) {
+      setStatus('error');
+      setError('Missing session or link token.');
+      return;
+    }
+
+    initializeCall();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, linkToken]);
+
+  // Call timer — driven by the backend's billing clock. The kiosk bills from
+  // the server's own `mediaConnectedAt`, so counting locally from browser-load
+  // time made the two countdowns visibly diverge. Every heartbeat re-derives
+  // the anchor with `serverTime`, so a fast or slow browser clock no longer
+  // matters: both ends show the same elapsed seconds.
+  useEffect(() => {
+    if (status !== 'connected') {
+      if (callTimerRef.current) clearInterval(callTimerRef.current);
+      return;
+    }
+    callTimerRef.current = setInterval(() => {
+      const anchor = billingAnchorRef.current;
+      if (anchor === null) setCallDuration((d) => d + 1);
+      else setCallDuration(Math.max(0, Math.floor((Date.now() - anchor) / 1000)));
+    }, 1000);
+    return () => {
+      if (callTimerRef.current) clearInterval(callTimerRef.current);
+    };
+  }, [status]);
+
+  // Pull the billing clock while connected (every 5s). Best-effort: any
+  // failure just leaves the previous anchor in place and the timer keeps
+  // ticking locally from there.
+  useEffect(() => {
+    if (status !== 'connected' || !linkToken) return;
+    let cancelled = false;
+
+    const sync = async () => {
+      try {
+        const hb = await callApi.heartbeat(linkToken);
+        if (cancelled || !hb) return;
+        const serverMs = Date.parse(hb.serverTime || '');
+        const anchorMs = hb.mediaConnectedAt ? Date.parse(hb.mediaConnectedAt) : NaN;
+        if (!Number.isFinite(serverMs) || !Number.isFinite(anchorMs)) return;
+        // Shift the server's billing anchor onto this machine's clock.
+        billingAnchorRef.current = anchorMs - (serverMs - Date.now());
+      } catch {
+        /* heartbeat is advisory — never break the call over it */
+      }
+    };
+
+    void sync();
+    const id = setInterval(() => void sync(), 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [status, linkToken]);
+
+  // Sample the peer connection for quality while connected.
+  useEffect(() => {
+    if (status !== 'connected') {
+      setConnectionQuality('unknown');
+      return;
+    }
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const snap = await webRtcService.getQualitySnapshot();
+        if (!cancelled) setConnectionQuality(snap.quality);
+      } catch {
+        /* leave the last known quality */
+      }
+    };
+    void poll();
+    const id = setInterval(() => void poll(), 2000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [status]);
+
+  /**
+   * Network dropped mid-call. Probe the signaling room: if the kiosk is still
+   * sitting in it, rebuild the media path automatically; if it is gone, the
+   * call is over — blank the page entirely.
+   */
+  const startReconnect = useCallback(() => {
+    if (reconnectingRef.current || !wasConnectedRef.current) return;
+    reconnectingRef.current = true;
+    setStatus('reconnecting');
+    setStatusMessage('Connection lost. Checking if the call is still active...');
+    void (async () => {
+      for (let attempt = 1; attempt <= RECONNECT_MAX_ATTEMPTS; attempt++) {
+        if (!wasConnectedRef.current) return; // call ended elsewhere
+        try {
+          setStatusMessage(`Restoring your call... (attempt ${attempt}/${RECONNECT_MAX_ATTEMPTS})`);
+          await wait(attempt === 1 ? 1500 : 3000);
+
+          if (!socketService.isConnected()) {
+            socketService.connect(otpResult!.sessionToken);
+            const ok = await waitForSocket(10000);
+            if (!ok) continue;
+          }
+
+          const resp = await socketService.joinRoom(session!.roomId, peerIdRef.current);
+          const peers: string[] = Array.isArray(resp?.existingPeers) ? resp.existingPeers : [];
+          if (!resp?.success || peers.length === 0) {
+            // Kiosk not in the room RIGHT NOW — but its socket may have just
+            // blipped and it may rejoin within seconds (kiosk waits 15s in
+            // grace). Don't blank instantly; retry within this loop and only
+            // blank if it never comes back.
+            console.warn('[Call] Kiosk not in room, retrying...', attempt);
+            continue;
+          }
+
+          // Kiosk still waiting — rebuild the peer connection from scratch.
+          webRtcService.close();
+          try {
+            await webRtcService.setupLocalMedia({ video: true, audio: true });
+          } catch (mediaErr) {
+            console.error('[Call] Reconnect media acquisition failed:', mediaErr);
+            setStatus('error');
+            setError('Camera/microphone access lost. Please grant permissions and try again.');
+            return;
+          }
+          await webRtcService.initialize(session!, []);
+          joinStartedRef.current = true;
+          await webRtcService.handleJoined(resp);
+
+          // Give ICE a chance; if it lands, the 'connected' state handler
+          // clears reconnectingRef and flips us back into the call UI.
+          const deadline = Date.now() + 12000;
+          while (Date.now() < deadline && wasConnectedRef.current) {
+            await wait(500);
+            if (webRtcService.getConnectionState() === 'connected') {
+              reconnectingRef.current = false;
+              return;
+            }
+          }
+        } catch (err) {
+          console.warn('[Call] Reconnect attempt failed:', err);
+        }
+      }
+      // Exhausted every attempt without reaching the kiosk — call is over.
+      setCallEnded(true);
+    })();
+  }, [session, otpResult]);
+
+  // Socket event listeners
+  useEffect(() => {
+    const handlePeerJoined = (_event: string, _data: any) => {
+      console.log('[Call] Peer joined');
+      if (statusRef.current === 'waiting') {
+        setStatus('connecting');
+        setStatusMessage('Connecting...');
+      }
+    };
+
+    const handlePeerLeft = (_event: string, _data: any) => {
+      console.log('[Call] Peer left');
+      // Could be a network blip on the kiosk side — probe the room. If it is
+      // truly gone the reconnect loop blanks the page.
+      startReconnect();
+    };
+
+    const handleCallEnded = (_event: string, data: any) => {
+      // Ignore the echo of OUR OWN hang-up.
+      if (data?.sender && data.sender === peerIdRef.current) return;
+      console.log('[Call] Call ended remotely', data?.reason ?? '');
+      // The kiosk reports `timeout` when the warden's duration cap fired —
+      // say so instead of silently blanking the page.
+      const dueToTimeLimit = data?.reason === 'timeout';
+      if (dueToTimeLimit) setTimeLimitNotice(session?.maxDurationMinutes ?? null);
+      wasConnectedRef.current = false;
+      reconnectingRef.current = true; // stop any in-flight reconnect loop
+      setEndingCall(true);
+      // Show "Ending call..." briefly on the call screen itself, then leave.
+      setTimeout(() => {
+        webRtcService.close();
+        socketService.leaveRoom(session!.roomId, peerIdRef.current);
+        socketService.disconnect();
+        joinStartedRef.current = false;
+        // Never clear() the session here: RouteGuard (require="call") unmounts
+        // CallPage on a null session, so the end screen (time-limit card +
+        // recharge popup) would never render. Exit uses location.replace('/'),
+        // which resets the in-memory session anyway.
+        setCallEnded(true);
+      }, 1500);
+    };
+
+    const handleSystemEvent = (_event: string, data: any) => {
+      switch (data.type) {
+        case 'connected':
+          console.log('[Call] Socket connected');
+          if (!joinStartedRef.current) {
+            joinRoom();
+          } else if (shouldRejoinRoom()) {
+            // Socket.IO reconnects drop room membership server-side, and the
+            // lobby/waiting states never reach startReconnect (it bails unless
+            // the call already reached media). Without this rejoin the family
+            // silently falls out of the room and the call never connects.
+            void rejoinRoom();
+          }
+          break;
+        case 'disconnected':
+          console.log('[Call] Socket disconnected:', data.reason);
+          if (statusRef.current === 'connected' || statusRef.current === 'connecting') {
+            startReconnect();
+          }
+          break;
+        case 'connection_error':
+          console.error('[Call] Socket connection error:', data.error);
+          break;
+      }
+    };
+
+    // Register listeners
+    socketService.on('peer-joined', handlePeerJoined);
+    socketService.on('peer-left', handlePeerLeft);
+    socketService.on('call-ended', handleCallEnded);
+    socketService.on('system', handleSystemEvent);
+
+    return () => {
+      socketService.off('peer-joined', handlePeerJoined);
+      socketService.off('peer-left', handlePeerLeft);
+      socketService.off('call-ended', handleCallEnded);
+      socketService.off('system', handleSystemEvent);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startReconnect]);
+
+  // WebRTC event listeners
+  useEffect(() => {
+    const handleLocalStream = (_event: string, data: unknown) => {
+      const stream = data as MediaStream;
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = stream;
+      }
+    };
+
+    const handleRemoteStream = (_event: string, data: unknown) => {
+      const stream = data as MediaStream;
+      console.log('[Call] Remote stream received');
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = stream;
+      }
+      // Attach the SAME stream to the hidden <audio> sink so remote audio is
+      // audible in audio-only AND video calls (the <video> stays muted). Doing
+      // this here closes the race where the stream arrives before the
+      // status==='connected' effect runs.
+      if (audioElRef.current) {
+        if (audioElRef.current.srcObject !== stream) {
+          audioElRef.current.srcObject = stream;
+        }
+        audioElRef.current.muted = false;
+        audioElRef.current.volume = 1;
+        audioElRef.current.play().catch((e) =>
+          console.warn('[AudioDiag] audio.play() blocked on remote-stream:', e)
+        );
+      }
+      setRemoteStreamObj(stream);
+    };
+
+    const handleConnectionStateChange = (_event: string, data: unknown) => {
+      const state = data as ConnectionState;
+      console.log('[Call] Connection state changed:', state);
+
+      switch (state) {
+        case 'connecting':
+          if (statusRef.current !== 'connected') {
+            setStatus('connecting');
+            setStatusMessage('Establishing connection...');
+          }
+          break;
+        case 'connected':
+          wasConnectedRef.current = true;
+          reconnectingRef.current = false;
+          setStatus('connected');
+          setStatusMessage('Connected');
+          break;
+        case 'disconnected':
+          startReconnect();
+          break;
+        case 'failed':
+          if (wasConnectedRef.current) {
+            startReconnect();
+          } else {
+            setStatus('error');
+            setError('Could not reach the prison kiosk.');
+            addToast('Connection failed', 'error');
+          }
+          break;
+        case 'closed':
+          if (!reconnectingRef.current) {
+            setStatus('ended');
+          }
+          break;
+      }
+    };
+
+    webRtcService.on('local-stream', handleLocalStream);
+    webRtcService.on('remote-stream', handleRemoteStream);
+    webRtcService.on('connection-state', handleConnectionStateChange);
+
+    return () => {
+      webRtcService.off('local-stream', handleLocalStream);
+      webRtcService.off('remote-stream', handleRemoteStream);
+      webRtcService.off('connection-state', handleConnectionStateChange);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startReconnect]);
+
+  // Streams can arrive BEFORE the call UI mounts (tracks fire at
+  // setRemoteDescription, long before ICE reaches 'connected'). Re-attach
+  // them once the video elements actually exist, then force playback so
+  // remote AUDIO is actually audible (autoplay policies can silently block).
+  const audioElRef = useRef<HTMLAudioElement>(null);
+  useEffect(() => {
+    if (status !== 'connected') return;
+    const remote = webRtcService.getRemoteStream() ?? remoteStreamObj;
+    const local = webRtcService.getLocalStream();
+    if (remote && remoteVideoRef.current && remoteVideoRef.current.srcObject !== remote) {
+      remoteVideoRef.current.srcObject = remote;
+    }
+    if (local && localVideoRef.current && localVideoRef.current.srcObject !== local) {
+      localVideoRef.current.srcObject = local;
+    }
+    // Diagnostics: prove whether the kiosk's audio track actually arrived.
+    if (remote) {
+      remote.getTracks().forEach((t) =>
+        console.log(`[AudioDiag] remote ${t.kind}: enabled=${t.enabled} muted=${t.muted} readyState=${t.readyState}`)
+      );
+    }
+    const v = remoteVideoRef.current;
+    const a = audioElRef.current;
+    if (v) {
+      // Video element stays SILENT — the dedicated <audio> element carries
+      // output so the same stream is never played twice.
+      if (remote && v.srcObject !== remote) v.srcObject = remote;
+      v.muted = true;
+      v.play().catch(() => {});
+    }
+    if (a) {
+      if (remote && a.srcObject !== remote) a.srcObject = remote;
+      a.muted = !speakerOn;
+      a.volume = 1;
+      a.play().catch((e) => console.warn('[AudioDiag] audio.play() blocked:', e));
+    }
+  }, [status, speakerOn, remoteStreamObj]);
+
+  // Autoplay fallback: if the browser blocked audible playback, the first tap
+  // or keypress (OTP typing counts) unlocks it — retry once.
+  useEffect(() => {
+    if (status !== 'connected') return;
+    const unlock = () => {
+      const a = audioElRef.current;
+      if (a && (a.paused || a.muted)) {
+        a.muted = !speakerOn;
+        a.play().catch(() => {});
+      }
+    };
+    window.addEventListener('pointerdown', unlock);
+    window.addEventListener('keydown', unlock);
+    return () => {
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
+    };
+  }, [status, speakerOn]);
+
+  const initializeCall = async () => {
+    try {
+      if (!otpResult?.sessionToken) {
+        setStatus('error');
+        setError('Session expired. Please open the call link again.');
+        return;
+      }
+
+      setStatus('initializing');
+      setStatusMessage('Requesting media permissions...');
+
+      // Request media permissions
+      await webRtcService.setupLocalMedia({
+        video: true,
+        audio: true,
+      });
+
+      // Initialize WebRTC
+      await webRtcService.initialize(session!, []);
+
+      // Connect to socket with the verified family session token
+      socketService.connect(otpResult!.sessionToken);
+
+      setStatus('waiting');
+      setStatusMessage(`Calling ${session!.inmateName}...`);
+    } catch (error) {
+      console.error('[Call] Initialization error:', error);
+
+      if (error instanceof Error) {
+        if (error.name === 'NotAllowedError') {
+          setError('Camera and microphone permissions are required for this call.');
+          addToast('Please grant camera and microphone permissions', 'error');
+        } else if (error.name === 'NotFoundError') {
+          setError('No camera or microphone found on this device.');
+          addToast('No camera or microphone found', 'error');
+        } else {
+          setError(error.message);
+          addToast('Failed to initialize call', 'error');
+        }
+      } else {
+        setError('Failed to initialize call');
+        addToast('Failed to initialize call', 'error');
+      }
+
+      setStatus('error');
+    }
+  };
+
+  const joinRoom = async () => {
+    if (joinStartedRef.current) return;
+    joinStartedRef.current = true;
+    try {
+      setStatus('connecting');
+      setStatusMessage('Joining room...');
+
+      // Media join happens over the socket 'join-room' event below — there is
+      // no REST join; the signaling server keeps rooms in memory.
+      const response = await socketService.joinRoom(session!.roomId, peerIdRef.current);
+
+      if (response?.success) {
+        setStatus('connecting');
+        setStatusMessage('Establishing connection...');
+        // Pure P2P: the join ACK carries existingPeers + iceServers (no
+        // routerRtpCapabilities). If the kiosk is already waiting, WE offer.
+        await webRtcService.handleJoined(response);
+      } else {
+        setStatus('error');
+        setError(response?.message || 'Failed to join room');
+        addToast(response?.message || 'Failed to join room', 'error');
+      }
+    } catch (error) {
+      joinStartedRef.current = false;
+      console.error('[Call] Failed to join room:', error);
+      setStatus('error');
+      setError(error instanceof Error ? error.message : 'Failed to join room');
+      addToast('Failed to join room', 'error');
+    }
+  };
+
+  /**
+   * Room membership is socket-scoped: every reconnect silently drops us from
+   * the room. Only the media-connected path notices (startReconnect bails
+   * unless wasConnectedRef), so the lobby has to re-join on its own.
+   * `reconnectingRef` covers both "call is ending" and "startReconnect owns
+   * the rejoin" — never race the two.
+   */
+  const shouldRejoinRoom = (): boolean => {
+    if (reconnectingRef.current) return false;
+    const s = statusRef.current;
+    return s === 'initializing' || s === 'waiting' || s === 'connecting';
+  };
+
+  /** Re-enter the room after a socket reconnect. Safe to re-run handleJoined:
+   *  createPeerConnection() is a no-op once a PC exists and the offer path is
+   *  guarded by `signalingState === 'stable'`. */
+  const rejoinRoom = async () => {
+    if (!session || !shouldRejoinRoom()) return;
+    try {
+      const response = await socketService.joinRoom(session.roomId, peerIdRef.current);
+      if (response?.success) {
+        console.log('[Call] Re-joined room after socket reconnect');
+        await webRtcService.handleJoined(response);
+      } else {
+        console.warn('[Call] Room rejoin rejected:', response?.message || response?.error);
+      }
+    } catch (err) {
+      console.warn('[Call] Room rejoin failed:', err);
+    }
+  };
+
+  const toggleAudio = useCallback(() => {
+    const newState = !audioEnabled;
+    setAudioEnabled(newState);
+    webRtcService.toggleAudio(newState);
+  }, [audioEnabled]);
+
+  /** Speaker toggle = mute/unmute the REMOTE audio output on this device. */
+  const toggleSpeaker = useCallback(() => {
+    setSpeakerOn((prev) => !prev);
+  }, []);
+
+  const endCall = useCallback(async () => {
+    try {
+      wasConnectedRef.current = false;
+      // Tell the kiosk IMMEDIATELY so its call ends at the same moment.
+      socketService.send('call-ended', { reason: 'family hung up' });
+      socketService.leaveRoom(session!.roomId, peerIdRef.current);
+      socketService.disconnect();
+      webRtcService.close();
+      joinStartedRef.current = false;
+      // Do NOT clear() the session: RouteGuard (require="call") sees a null
+      // session and navigates to "/", unmounting CallPage before the end
+      // screen can render — that is why a family-side hang-up never showed
+      // the recharge popup (kiosk-side cut skipped clear() and worked).
+      // The session dies on Exit (location.replace('/')) or tab close.
+      setStatus('ended');
+      setCallEnded(true);
+    } catch (error) {
+      console.error('[Call] Error while ending call:', error);
+    }
+  }, [session]);
+
+  const formatDuration = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  // Enforce the warden-set maximum on THIS client. The kiosk cuts the call
+  // too, but the browser must never be able to talk past the cap if that
+  // signal is missed or arrives late — endCall() also tells the kiosk, so
+  // both sides come down together.
+  const maxCallSeconds = session ? Math.max(0, session.maxDurationMinutes) * 60 : 0;
+  useEffect(() => {
+    if (status !== 'connected' || !maxCallSeconds) return;
+    if (timeLimitNotice) return;
+    if (callDuration < maxCallSeconds) return;
+    console.log(`[Call] Max duration reached (${maxCallSeconds}s) - ending call`);
+    setTimeLimitNotice(session?.maxDurationMinutes ?? null);
+    void endCall();
+  }, [status, callDuration, maxCallSeconds, timeLimitNotice, session, endCall]);
+
+  if (timeLimitNotice) {
+    return (
+      <div className="min-h-screen bg-neutral-900 flex items-center justify-center p-4">
+        <PostCallCard
+          title="Time limit reached"
+          description={`This call has ended because it reached the maximum duration of ${timeLimitNotice} minutes.`}
+          balancePaise={walletBalance}
+          canRecharge={Boolean(sessionTokenRef.current)}
+          onRecharge={() => setShowWalletPopup(true)}
+        />
+        {sessionTokenRef.current && showWalletPopup && (
+          <CallWalletPopup
+            sessionToken={sessionTokenRef.current}
+            onClose={() => setShowWalletPopup(false)}
+          />
+        )}
+      </div>
+    );
+  }
+
+  // End-of-call card MUST be checked before the !session redirect below —
+  // defense in depth: endCall() no longer clears the session (RouteGuard
+  // would unmount the page), but never let a stale null session hide the
+  // recharge option on a family-side hang-up.
+  if (status === 'ended' || callEnded) {
+    return (
+      <div className="min-h-screen bg-neutral-900 flex items-center justify-center p-4">
+        <PostCallCard
+          title="Call ended"
+          balancePaise={walletBalance}
+          canRecharge={Boolean(sessionTokenRef.current)}
+          onRecharge={() => setShowWalletPopup(true)}
+        />
+        {sessionTokenRef.current && showWalletPopup && (
+          <CallWalletPopup
+            sessionToken={sessionTokenRef.current}
+            onClose={() => setShowWalletPopup(false)}
+          />
+        )}
+      </div>
+    );
+  }
+
+  if (!session) {
+    return <Navigate to="/" replace />;
+  }
+
+  if (status === 'error' && error) {
+    return (
+      <div className="flex min-h-screen items-center justify-center p-4 bg-gradient-to-br from-red-50 to-neutral-100">
+        <div className="max-w-md w-full">
+          <ErrorState message={error} onRetry={() => window.location.reload()} />
+        </div>
+      </div>
+    );
+  }
+
+  const isVideoCall = session.callType === 'video';
+  const isConnected = status === 'connected';
+
+  // Live quality chip — same vocabulary and thresholds as the kiosk's badge.
+  const qualityLabel =
+    connectionQuality === 'excellent'
+      ? 'Excellent'
+      : connectionQuality === 'good'
+        ? 'Stable'
+        : connectionQuality === 'fair'
+          ? 'Fair'
+          : connectionQuality === 'poor'
+            ? 'Poor network'
+            : 'Measuring…';
+  const qualityTone =
+    connectionQuality === 'poor'
+      ? 'bg-red-600 text-white'
+      : connectionQuality === 'fair'
+        ? 'bg-amber-500 text-black'
+        : connectionQuality === 'unknown'
+          ? 'bg-neutral-700 text-neutral-300'
+          : 'bg-emerald-600 text-white';
+
+  // ---- Gate: the actual call UI appears ONLY once media is fully connected ----
+  if (!isConnected) {
+    const isReconnecting = status === 'reconnecting';
+    return (
+      <div className="min-h-screen bg-neutral-900 flex items-center justify-center p-4">
+        <div className="max-w-md w-full text-center">
+          <div className="relative w-24 h-24 mx-auto mb-8">
+            <span className="absolute inset-0 rounded-full bg-primary-500 animate-ping opacity-30" />
+            <span className="absolute inset-2 rounded-full bg-neutral-800 flex items-center justify-center">
+              {isReconnecting ? (
+                <div className="w-10 h-10 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <svg className="w-10 h-10 text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                </svg>
+              )}
+            </span>
+          </div>
+          <h1 className="text-xl font-semibold text-white mb-2">
+            {isReconnecting ? 'Hold on...' : 'Connecting'}
+          </h1>
+          <p className="text-sm text-neutral-400">{statusMessage}</p>
+        </div>
+      </div>
+    );
+  }
+
+  // ---- Fully connected: immersive call screen ----
+  // Video fills the whole viewport (portrait gets full height, letterboxed);
+  // header and controls float above it and auto-hide after 3s idle.
+  return (
+    <div className="relative h-[100dvh] w-full bg-black overflow-hidden select-none">
+      {/* Remote video — object-contain: the WHOLE frame is always visible.
+          Output is MUTED here; the hidden <audio> element below carries sound. */}
+      {isVideoCall && (
+        <video
+          ref={remoteVideoRef}
+          autoPlay
+          playsInline
+          muted
+          className="absolute inset-0 w-full h-full object-contain"
+        />
+      )}
+      {/* Hidden audio sink for remote audio (reliable across browsers) */}
+      <audio ref={audioElRef} autoPlay className="hidden" />
+
+      {/* Audio-only call placeholder */}
+      {!isVideoCall && (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="text-center text-white">
+            <div className="w-28 h-28 bg-neutral-800 rounded-full flex items-center justify-center mx-auto mb-4">
+              <svg className="w-14 h-14 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              </svg>
+            </div>
+            <p className="text-lg">{session.inmateName}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Local Video (Picture-in-Picture) — shrinks when controls hide */}
+      {isVideoCall && (
+        <div
+          className={`absolute right-4 bg-neutral-900 rounded-xl overflow-hidden shadow-lg border border-neutral-700 transition-all duration-300 ${
+            controlsVisible ? 'bottom-32 w-28 h-36' : 'bottom-6 w-16 h-20 opacity-70'
+          }`}
+        >
+          <video ref={localVideoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
+        </div>
+      )}
+
+      {/* "Ending call..." overlay when the inmate hangs up */}
+      {endingCall && (
+        <div className="absolute inset-0 z-20 bg-black/80 flex items-center justify-center">
+          <div className="text-center">
+            <div className="w-12 h-12 border-4 border-white border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+            <p className="text-lg font-semibold text-white">Ending call...</p>
+          </div>
+        </div>
+      )}
+
+      {/* Top overlay */}
+      <div
+        className={`absolute top-0 inset-x-0 z-10 flex items-start justify-between px-4 pt-4 pb-10 bg-gradient-to-b from-black/70 to-transparent transition-opacity duration-300 ${
+          controlsVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        }`}
+      >
+        <div className="text-white">
+          <p className="text-base font-semibold leading-tight">{session.inmateName}</p>
+          <p className="text-xs text-neutral-300">Secure monitored call</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className={`px-2 py-1 rounded-full text-[10px] font-semibold ${qualityTone}`}>
+            {qualityLabel}
+          </span>
+          <span className="bg-red-600 text-white px-2.5 py-1 rounded-full text-[10px] font-semibold flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />
+            REC
+          </span>
+          <span className="text-white font-mono text-sm bg-black/40 rounded-md px-2 py-1">
+            {formatDuration(callDuration)}
+          </span>
+        </div>
+      </div>
+
+      {/* Poor network banner — stays visible even once the controls auto-hide,
+          because a chopping-up call is exactly when the user looks away. */}
+      {connectionQuality === 'poor' && (
+        <div className="absolute top-20 inset-x-0 z-10 flex justify-center px-4 pointer-events-none">
+          <span className="bg-red-600 text-white text-xs font-semibold px-4 py-2 rounded-full shadow-lg">
+            Poor network quality — audio may break up
+          </span>
+        </div>
+      )}
+
+      {/* Bottom controls — mic | END (center) | speaker */}
+      <div
+        className={`absolute bottom-0 inset-x-0 z-10 pb-10 pt-14 bg-gradient-to-t from-black/80 to-transparent transition-opacity duration-300 ${
+          controlsVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        }`}
+      >
+        <div className="relative flex items-center justify-center h-16 max-w-md mx-auto">
+          {/* Mic toggle (left) */}
+          <button
+            onClick={toggleAudio}
+            className={`absolute left-8 w-13 h-13 p-3.5 rounded-full flex items-center justify-center transition-colors ${
+              audioEnabled ? 'bg-neutral-800/90 text-white' : 'bg-red-600 text-white'
+            }`}
+            title={audioEnabled ? 'Mute microphone' : 'Unmute microphone'}
+          >
+            {audioEnabled ? (
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+              </svg>
+            ) : (
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+              </svg>
+            )}
+          </button>
+
+          {/* End Call (dead center) — endCall() flips to the end screen with
+              the post-call recharge option (no more blank redirect). */}
+          <button
+            onClick={() => {
+              void endCall();
+            }}
+            className="w-16 h-16 rounded-full bg-red-600 text-white flex items-center justify-center hover:bg-red-700 active:scale-95 transition-all shadow-lg"
+            title="End call"
+          >
+            <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+            </svg>
+          </button>
+
+          {/* Speaker (output) toggle (right) */}
+          <button
+            onClick={toggleSpeaker}
+            className={`absolute right-8 w-13 h-13 p-3.5 rounded-full flex items-center justify-center transition-colors ${
+              speakerOn ? 'bg-neutral-800/90 text-white' : 'bg-red-600 text-white'
+            }`}
+            title={speakerOn ? 'Turn off speaker' : 'Turn on speaker'}
+          >
+            {speakerOn ? (
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+              </svg>
+            ) : (
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15zM17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+              </svg>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

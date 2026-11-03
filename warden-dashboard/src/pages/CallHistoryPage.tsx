@@ -1,0 +1,477 @@
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { createPortal } from 'react-dom';
+import { Card } from '@/components/Card';
+import { SkeletonRows } from '@/components/Skeleton';
+import { wardenApi, cacheKeys } from '@/services/api/wardenApi';
+import { useCachedResource } from '@/hooks/useCachedResource';
+import { useWardenSocket } from '@/hooks/useWardenSocket';
+import { usePageHeader } from '@/context/PageHeaderContext';
+import { FilterDropdown } from '@/components/FilterDropdown';
+import { LocationLink, locationLabel } from '@/components/LocationLink';
+import type { ColumnFilter } from '@/components/FilterDropdown';
+import { inmateLabel, contactLabel } from '@/utils/names';
+import ExcelJS from 'exceljs';
+
+import type { CallHistoryItem, Inmate, CallHistoryParams, PaginatedCallsResponse, PaginatedResponse, KioskItem, ListParams, Pricing, Settings } from '@/services/api/wardenApi';
+
+const PAGE_SIZE = 20;
+
+export function CallHistoryPage() {
+  const [search, setSearch] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [page, setPage] = useState(1);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [selected, setSelected] = useState<CallHistoryItem | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
+
+  const [typeFilter, setTypeFilter] = useState<ColumnFilter>({ value: 'all', open: false });
+  const [statusFilter, setStatusFilter] = useState<ColumnFilter>({ value: 'all', open: false });
+  const [kioskFilter, setKioskFilter] = useState<ColumnFilter>({ value: 'all', open: false });
+  const [qualityFilter, setQualityFilter] = useState<ColumnFilter>({ value: 'all', open: false });
+
+  const params = useMemo<CallHistoryParams>(() => ({
+    limit: PAGE_SIZE,
+    offset: (page - 1) * PAGE_SIZE,
+    search: search || undefined,
+    type: typeFilter.value !== 'all' ? typeFilter.value : undefined,
+    status: statusFilter.value !== 'all' ? statusFilter.value : undefined,
+    kioskId: kioskFilter.value !== 'all' ? kioskFilter.value : undefined,
+    quality: qualityFilter.value !== 'all' ? qualityFilter.value : undefined,
+    dateFrom: dateFrom || undefined,
+    dateTo: dateTo || undefined,
+    sortField: 'date',
+    sortDir,
+  }), [page, search, typeFilter.value, statusFilter.value, kioskFilter.value, qualityFilter.value, dateFrom, dateTo, sortDir]);
+
+  const { data, isLoading, error, refresh } = useCachedResource<PaginatedCallsResponse>(
+    cacheKeys.callHistory(params),
+    () => wardenApi.getCallHistory(params),
+    { ttl: 30_000, pollMs: 20_000 },
+  );
+  const calls = data?.calls ?? [];
+  const total = data?.total ?? 0;
+
+  // Live duration tick: an active call has durationMinutes=0 until the
+  // backend finalizes it, so while any call is live the column is computed
+  // from its media-connect time and re-rendered every second. A call still
+  // in the lobby (created, mediaConnectedAt=null) shows 00:00 instead of
+  // counting from startTime — the clock used to restart the moment the
+  // anchor switched to mediaConnectedAt.
+  const [now, setNow] = useState(() => Date.now());
+  const hasLiveCall = calls.some((c) => c.status === 'active');
+  useEffect(() => {
+    if (!hasLiveCall) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [hasLiveCall]);
+
+  const liveDurationSeconds = (c: CallHistoryItem) => {
+    if (!c.mediaConnectedAt) return 0;
+    const start = new Date(c.mediaConnectedAt).getTime();
+    if (!Number.isFinite(start) || start <= 0) return 0;
+    return Math.max(0, Math.floor((now - start) / 1000));
+  };
+  const fmtSec = (totalSeconds: number) => {
+    const m = Math.floor(totalSeconds / 60);
+    const s = totalSeconds % 60;
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  };
+
+  const inmateParams = useMemo<ListParams>(() => ({ limit: 1000, offset: 0 }), []);
+  const { data: inmatesData } = useCachedResource<PaginatedResponse<Inmate>>(
+    cacheKeys.inmates(inmateParams),
+    () => wardenApi.getInmates(inmateParams),
+    { ttl: 60_000, pollMs: 0 },
+  );
+  const inmates = useMemo(() => {
+    const map: Record<string, Inmate> = {};
+    (inmatesData?.items ?? []).forEach((i) => { map[i.inmateId] = i; });
+    return map;
+  }, [inmatesData]);
+
+  const { data: kiosksData } = useCachedResource<KioskItem[]>(
+    cacheKeys.kiosks(),
+    () => wardenApi.getKiosks(),
+    { ttl: 60_000, pollMs: 0 },
+  );
+  const allKiosks = useMemo(
+    () => (kiosksData ?? []).map((k) => ({ value: k.kioskId, label: k.kioskId })),
+    [kiosksData],
+  );
+
+  const { data: pricingData } = useCachedResource<Pricing>(
+    cacheKeys.pricing(),
+    () => wardenApi.getPricing(),
+    { ttl: 60_000 },
+  );
+  const { data: settingsData } = useCachedResource<Settings>(
+    cacheKeys.settings(),
+    () => wardenApi.getSettings(),
+    { ttl: 60_000 },
+  );
+  const pricing = useMemo(() => ({
+    audioRate: Number(pricingData?.audio?.ratePerMinute ?? 1),
+    videoRate: Number(pricingData?.video?.ratePerMinute ?? 2.5),
+    maxMinutes: settingsData?.callSettings?.maxCallDurationMinutes,
+  }), [pricingData, settingsData]);
+
+  const refreshRef = useRef<() => void>(refresh);
+  refreshRef.current = () => { refresh(); };
+  const onCallUpdate = useCallback(() => { refreshRef.current(); }, []);
+  useWardenSocket(onCallUpdate);
+
+  useEffect(() => { setPage(1); }, [search, dateFrom, dateTo, typeFilter.value, statusFilter.value, kioskFilter.value, qualityFilter.value, sortDir]);
+
+  const exportExcel = async (rows: CallHistoryItem[], filename: string) => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Call Logs');
+    const headers = ['Call ID', 'Date', 'Inmate', 'Family', 'Location', 'Kiosk', 'Type', 'Duration', 'Status', 'Quality'];
+    const colsCount = headers.length;
+
+    ws.mergeCells(1, 1, 1, colsCount);
+    const titleCell = ws.getCell('A1');
+    titleCell.value = 'Call Logs Report';
+    titleCell.font = { name: 'Calibri', size: 18, bold: true, color: { argb: 'FF000000' } };
+    titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    ws.getRow(1).height = 32;
+
+    ws.mergeCells(2, 1, 2, colsCount);
+    const brandCell = ws.getCell('A2');
+    brandCell.value = { text: 'DSS Solutions  |  www.dsssolutions.in', hyperlink: 'http://www.dsssolutions.in', tooltip: 'Visit DSS Solutions' };
+    brandCell.font = { name: 'Calibri', size: 14, color: { argb: 'FF000000' }, underline: true };
+    brandCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    ws.getRow(2).height = 24;
+    ws.getRow(3).height = 10;
+
+    const headerRow = ws.getRow(4);
+    headerRow.height = 26;
+    headers.forEach((h, index) => {
+      const cell = headerRow.getCell(index + 1);
+      cell.value = h;
+      cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF000000' } };
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+    });
+
+    rows.forEach((c) => {
+      const row = ws.addRow([
+        c.callId, fmtDate(c.startTime), inmateLabel(c, inmates[c.inmateId]),
+        contactLabel(c), locationLabel(c.family?.location) || '', c.kioskId, c.type,
+        c.status === 'active' ? fmtSec(liveDurationSeconds(c)) : fmtDur(c.durationMinutes),
+        c.status, c.connectionQuality || ''
+      ]);
+      row.eachCell((cell) => { cell.numFmt = '@'; });
+    });
+
+    const thinBorder: Partial<ExcelJS.Borders> = {
+      top: { style: 'thin', color: { argb: 'D0D0D0' } },
+      left: { style: 'thin', color: { argb: 'D0D0D0' } },
+      bottom: { style: 'thin', color: { argb: 'D0D0D0' } },
+      right: { style: 'thin', color: { argb: 'D0D0D0' } }
+    };
+    ws.eachRow((row, rowNumber) => {
+      if (rowNumber >= 4) {
+        row.eachCell((cell, colNumber) => {
+          cell.border = thinBorder;
+          if (rowNumber > 4) {
+            cell.alignment = { horizontal: [1, 2, 6, 7, 8, 9, 10].includes(colNumber) ? 'center' : 'left', vertical: 'middle' };
+            cell.font = { name: 'Calibri', size: 10, color: { argb: 'FF000000' } };
+          }
+        });
+      }
+    });
+    ws.columns = [{ width: 18 }, { width: 15 }, { width: 22 }, { width: 22 }, { width: 26 }, { width: 15 }, { width: 12 }, { width: 14 }, { width: 15 }, { width: 14 }];
+
+    const buffer = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    window.URL.revokeObjectURL(url);
+  };
+
+  const handleExport = async () => {
+    setIsExporting(true);
+    try {
+      const allResult = await wardenApi.getCallHistory({ ...params, limit: 10000, offset: 0 });
+      const rows = allResult.calls ?? [];
+      const now = new Date();
+      const ts = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}-${String(now.getMinutes()).padStart(2, '0')}-${String(now.getSeconds()).padStart(2, '0')}`;
+      await exportExcel(rows, `call-logs-all_${ts}.xlsx`);
+    } finally { setIsExporting(false); }
+  };
+
+  const headerIcon = useMemo(() => <span className="material-icons text-primary-600 text-xl">schedule</span>, []);
+
+  usePageHeader({
+    title: 'Call Logs',
+    subtitle: isLoading && total === 0 ? 'Loading call history...' : `${total} calls total`,
+    icon: headerIcon,
+    actions: useMemo(() => (
+      <div className="flex items-center gap-2">
+        <button onClick={handleExport} disabled={isExporting} className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-success text-white rounded-xl text-sm font-bold hover:bg-success-700 shadow-sm disabled:opacity-50">
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+          {isExporting ? 'Exporting...' : 'Export Excel'}
+        </button>
+        <div className="px-3.5 py-2 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-semibold shadow-sm">
+          Audio <span className="font-bold text-emerald-950">₹{pricing.audioRate}/min</span>
+        </div>
+        <div className="px-3.5 py-2 bg-cyan-50 border border-cyan-200 text-cyan-800 rounded-xl text-xs font-semibold shadow-sm">
+          Video <span className="font-bold text-cyan-950">₹{pricing.videoRate}/min</span>
+        </div>
+        {pricing.maxMinutes ? (
+          <div className="px-3.5 py-2 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl text-xs font-semibold shadow-sm">
+            Max <span className="font-bold text-amber-950">{pricing.maxMinutes} min/call</span>
+          </div>
+        ) : null}
+      </div>
+    ), [handleExport, isExporting, pricing.audioRate, pricing.videoRate, pricing.maxMinutes]),
+  });
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  const fmtDur = (m: number) => {
+    if (!Number.isFinite(m) || m == null) return '00:00';
+    const totalSeconds = Math.round(m * 60);
+    const mins = Math.floor(totalSeconds / 60);
+    const secs = totalSeconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+  const fmtDate = (iso: string) => { if (!iso) return '—'; const d = new Date(iso); return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }); };
+  const fmtTime = (iso: string) => { if (!iso) return '—'; const d = new Date(iso); return isNaN(d.getTime()) ? '—' : d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }); };
+  const fmtDateTime = (iso: string) => { if (!iso) return '—'; const d = new Date(iso); return isNaN(d.getTime()) ? '—' : d.toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit' }); };
+
+  const getFailReason = (c: CallHistoryItem) => {
+    if (c.endReasonDescription) return c.endReasonDescription;
+    if (c.endReason) return c.endReason;
+    if (c.failReason) return c.failReason;
+    if (!c.mediaConnectedAt) return 'Family member did not join the call';
+    if (c.durationMinutes === 0) return 'Call ended immediately after connecting';
+    return 'Call ended unexpectedly';
+  };
+
+  const emptyTitle = 'No call logs found';
+  const emptySub = 'Try adjusting filters or date range';
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-white border border-neutral-200 rounded-xl p-4 shadow-sm flex gap-3">
+        <div className="flex-1 relative">
+          <svg className="w-5 h-5 text-neutral-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search inmate, family, kiosk..." className="w-full pl-10 pr-4 py-2.5 bg-neutral-50 border border-neutral-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white text-sm" />
+        </div>
+        <div className="flex gap-2 items-center">
+          <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="px-3 py-2.5 bg-white border border-neutral-200 rounded-xl text-sm focus:ring-2 focus:ring-primary-500" />
+          <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="px-3 py-2.5 bg-white border border-neutral-200 rounded-xl text-sm focus:ring-2 focus:ring-primary-500" />
+          {(dateFrom || dateTo) && (
+            <button onClick={() => { setDateFrom(''); setDateTo(''); }} className="px-3 py-2.5 text-error font-bold text-sm hover:bg-error/10 rounded-xl transition-colors">Clear</button>
+          )}
+        </div>
+      </div>
+
+      {/* Table */}
+      <Card className="overflow-hidden">
+          <div className="overflow-auto max-h-[calc(100vh-280px)]">
+            <table className="w-full">
+              <thead className="sticky top-0 z-10">
+                <tr className="border-b bg-neutral-50">
+                  <th className="text-left py-3 px-4"><FilterDropdown label="Type" options={[{ value: 'video', label: 'Video' }, { value: 'audio', label: 'Audio' }]} filter={typeFilter} setFilter={setTypeFilter} /></th>
+                  <th className="text-left py-3 px-4"><button onClick={() => setSortDir((d) => d === 'asc' ? 'desc' : 'asc')} className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-neutral-500 hover:text-primary-600 transition-colors">Date {sortDir === 'asc' ? '↑' : '↓'}</button></th>
+                  <th className="text-left py-3 px-4"><span className="text-xs font-bold uppercase tracking-wider text-neutral-500">Inmate ⇄ Family</span></th>
+                  <th className="text-left py-3 px-4"><FilterDropdown label="Kiosk" options={allKiosks} filter={kioskFilter} setFilter={setKioskFilter} /></th>
+                  <th className="text-left py-3 px-4"><span className="text-xs font-bold uppercase tracking-wider text-neutral-500">Location</span></th>
+                  <th className="text-left py-3 px-4"><span className="text-xs font-bold uppercase tracking-wider text-neutral-500">Duration</span></th>
+                  <th className="text-left py-3 px-4"><FilterDropdown label="Status" options={[{ value: 'completed', label: 'Completed' }, { value: 'missed', label: 'Missed' }, { value: 'failed', label: 'Failed' }, { value: 'cancelled', label: 'Cancelled' }, { value: 'rejected', label: 'Rejected' }, { value: 'active', label: 'Active' }]} filter={statusFilter} setFilter={setStatusFilter} /></th>
+                  <th className="text-left py-3 px-4"><FilterDropdown label="Quality" options={[{ value: 'excellent', label: 'Excellent' }, { value: 'good', label: 'Good' }, { value: 'fair', label: 'Fair' }, { value: 'poor', label: 'Poor' }]} filter={qualityFilter} setFilter={setQualityFilter} /></th>
+                </tr>
+              </thead>
+              <tbody>
+                {isLoading && calls.length === 0 ? (
+                  <SkeletonRows rows={8} cols={8} />
+                ) : error && calls.length === 0 ? (
+                  <tr><td colSpan={8} className="py-16 text-center">
+                    <p className="text-neutral-900 font-semibold">Couldn&apos;t load call logs</p>
+                    <p className="text-sm text-neutral-500 mt-1">{error}</p>
+                    <button onClick={() => refresh()} className="mt-4 px-4 py-2 bg-neutral-900 text-white rounded-xl text-sm font-bold">Retry</button>
+                  </td></tr>
+                ) : calls.length === 0 ? (
+                  <tr><td colSpan={8} className="py-16 text-center">
+                    <div className="w-16 h-16 bg-neutral-100 rounded-2xl flex items-center justify-center mx-auto mb-4"><svg className="w-8 h-8 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg></div>
+                    <p className="text-neutral-900 font-semibold">{emptyTitle}</p>
+                    <p className="text-sm text-neutral-500 mt-1">{emptySub}</p>
+                  </td></tr>
+                ) : calls.map((call) => {
+                  const inmate = inmates[call.inmateId];
+                  const isInmateName = inmateLabel(call, inmate);
+                  const familyName = contactLabel(call);
+                  const isLive = call.status === 'active';
+
+                  return (
+                    <tr key={call.callId} onClick={() => setSelected(call)} className={`border-b border-neutral-100 hover:bg-neutral-50 cursor-pointer ${isLive ? 'bg-success/5' : 'even:bg-neutral-50/50'}`}>
+                      <td className="py-3 px-4">
+                        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold border ${call.type === 'video' ? 'bg-primary-600 text-white border-primary-600' : 'bg-info text-white border-info'}`}>{call.type === 'video' ? '▶ Video' : '● Audio'}</span>
+                      </td>
+                      <td className="py-3 px-4 text-sm text-neutral-900">
+                        {fmtDate(call.startTime)}
+                        <p className="text-xs text-neutral-500 mt-0.5">{fmtTime(call.startTime)}</p>
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-sm font-semibold text-neutral-900 truncate">{isInmateName}</span>
+                          <span className="text-xs text-neutral-400">⇄</span>
+                          <span className="text-sm font-medium text-neutral-700 truncate">{familyName}</span>
+                        </div>
+                        <p className="text-xs text-neutral-500 mt-0.5">{inmate?.prisonerNumber || call.inmateNumber || call.inmateId}</p>
+                      </td>
+                      <td className="py-3 px-4 text-sm text-neutral-900">{call.kioskId}</td>
+                      {/* stopPropagation: opening the map must not open the row drawer */}
+                      <td className="py-3 px-4 text-xs text-neutral-600" onClick={(e) => e.stopPropagation()}>
+                        <LocationLink location={call.family?.location} />
+                      </td>
+                      <td className="py-3 px-4">
+                        {isLive ? (
+                          <span className="inline-flex items-center gap-1.5 text-sm font-bold text-success">
+                            <span className="w-2 h-2 bg-success rounded-full animate-pulse" />
+                            {fmtSec(liveDurationSeconds(call))}
+                          </span>
+                        ) : (
+                          <span className="text-sm text-neutral-900">{fmtDur(call.durationMinutes)}</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4">
+                        {isLive ? (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-success text-white">
+                            <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />
+                            Live
+                          </span>
+                        ) : (call.status === 'missed' || call.status === 'cancelled' || call.status === 'rejected' || call.status === 'failed') ? (
+                          <div className="relative group">
+                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border bg-error/10 text-error border-error/20 cursor-help capitalize">{call.status}</span>
+                            <div className="absolute bottom-full left-0 mb-2 hidden group-hover:block z-50 w-72">
+                              <div className="bg-neutral-900 text-white text-xs rounded-xl p-3 shadow-xl leading-relaxed">
+                                <p className="font-bold mb-1">Reason</p>
+                                <p className="text-neutral-300">{getFailReason(call)}</p>
+                              </div>
+                              <div className="w-2 h-2 bg-neutral-900 transform rotate-45 absolute -bottom-1 left-4" />
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border bg-success/10 text-success border-success/20">Completed</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border ${call.connectionQuality === 'excellent' ? 'bg-success/10 text-success border-success/20' : call.connectionQuality === 'good' ? 'bg-info-100 text-info border-info/20' : call.connectionQuality === 'fair' ? 'bg-warning/10 text-warning border-warning/20' : 'bg-error/10 text-error border-error/20'}`}>{call.connectionQuality || '—'}</span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between px-5 py-4 bg-neutral-50 border-t border-neutral-200">
+            <span className="text-sm text-neutral-600">Showing <span className="font-semibold text-neutral-900">{(page - 1) * PAGE_SIZE + 1}-{Math.min(page * PAGE_SIZE, total)}</span> of <span className="font-semibold text-neutral-900">{total}</span></span>
+            <div className="flex gap-2">
+              <button disabled={page === 1} onClick={() => setPage(1)} className="px-3 py-2 bg-white border border-neutral-200 rounded-xl text-xs font-bold disabled:opacity-40 hover:bg-neutral-50 shadow-sm">«</button>
+              <button disabled={page === 1} onClick={() => setPage((p) => p - 1)} className="px-4 py-2 bg-white border border-neutral-200 rounded-xl text-xs font-bold disabled:opacity-40 hover:bg-neutral-50 shadow-sm">Prev</button>
+              <span className="px-4 py-2 bg-neutral-900 text-white rounded-xl text-xs font-bold shadow-sm">{page} / {totalPages}</span>
+              <button disabled={page === totalPages} onClick={() => setPage((p) => p + 1)} className="px-4 py-2 bg-white border border-neutral-200 rounded-xl text-xs font-bold disabled:opacity-40 hover:bg-neutral-50 shadow-sm">Next</button>
+              <button disabled={page === totalPages} onClick={() => setPage(totalPages)} className="px-3 py-2 bg-white border border-neutral-200 rounded-xl text-xs font-bold disabled:opacity-40 hover:bg-neutral-50 shadow-sm">»</button>
+            </div>
+          </div>
+        )}
+      </Card>
+
+      {createPortal(<>
+        {selected && (
+          <div className="fixed inset-0 bg-black/60 z-[999]" onClick={() => setSelected(null)}>
+            <div className="absolute inset-y-0 right-0 w-full max-w-lg bg-white shadow-2xl flex flex-col" onClick={(e) => e.stopPropagation()}>
+              <div className="flex justify-between items-center px-6 py-4 border-b border-neutral-200 shrink-0">
+                <h3 className="text-lg font-bold text-neutral-900">Call Details</h3>
+                <button onClick={() => setSelected(null)} className="w-8 h-8 rounded-full bg-neutral-100 flex items-center justify-center text-neutral-500 hover:text-neutral-900">✕</button>
+              </div>
+              <div className="flex-1 overflow-y-auto px-6 py-4">
+                <div className="flex gap-2 mb-6">
+                  {selected.status === 'active' ? (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-success text-white"><span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />Live</span>
+                  ) : selected.status === 'completed' ? (
+                    <span className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-bold border bg-success/10 text-success border-success/20">✓ Completed</span>
+                  ) : (
+                    <span className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-bold border bg-error/10 text-error border-error/20">✕ {selected.status}</span>
+                  )}
+                  <span className={`inline-flex items-center px-3 py-1.5 rounded-full text-xs font-bold border ${selected.type === 'video' ? 'bg-primary-600 text-white border-primary-600' : 'bg-info text-white border-info'}`}>{selected.type === 'video' ? '▶ Video' : '● Audio'}</span>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="bg-neutral-50 rounded-xl p-4 border border-neutral-200">
+                    <p className="text-11 font-bold text-primary-600 uppercase tracking-wide mb-2">Participants</p>
+                    <div className="space-y-2">
+                      <div className="flex justify-between"><span className="text-sm text-neutral-600">Inmate</span><span className="text-sm font-semibold text-neutral-900">{inmateLabel(selected, inmates[selected.inmateId])}</span></div>
+                      <div className="flex justify-between"><span className="text-sm text-neutral-600">Inmate No</span><span className="text-sm font-mono text-neutral-900">{inmates[selected.inmateId]?.prisonerNumber || selected.inmateNumber || selected.inmateId}</span></div>
+                      <div className="flex justify-between"><span className="text-sm text-neutral-600">Family Member</span><span className="text-sm font-semibold text-neutral-900">{contactLabel(selected)}</span></div>
+                      <div className="flex justify-between"><span className="text-sm text-neutral-600">Contact ID</span><span className="text-sm font-mono text-neutral-900">{selected.contactId}</span></div>
+                    </div>
+                  </div>
+
+                  <div className="bg-neutral-50 rounded-xl p-4 border border-neutral-200">
+                    <p className="text-11 font-bold text-primary-600 uppercase tracking-wide mb-2">Call Info</p>
+                    <div className="space-y-2">
+                      <div className="flex justify-between"><span className="text-sm text-neutral-600">Call ID</span><span className="text-sm font-mono text-neutral-900">{selected.callId}</span></div>
+                      <div className="flex justify-between"><span className="text-sm text-neutral-600">Room ID</span><span className="text-sm font-mono text-neutral-900">{selected.roomId}</span></div>
+                      <div className="flex justify-between"><span className="text-sm text-neutral-600">Kiosk</span><span className="text-sm font-semibold text-neutral-900">{selected.kioskId}</span></div>
+                      <div className="flex justify-between gap-3"><span className="text-sm text-neutral-600 shrink-0">Location</span><span className="text-sm text-neutral-900 text-right"><LocationLink location={selected.family?.location} /></span></div>
+                      <div className="flex justify-between"><span className="text-sm text-neutral-600">Started</span><span className="text-sm text-neutral-900">{fmtDateTime(selected.startTime)}</span></div>
+                      <div className="flex justify-between"><span className="text-sm text-neutral-600">Ended</span><span className="text-sm text-neutral-900">{selected.endTime ? fmtDateTime(selected.endTime) : '—'}</span></div>
+                      <div className="flex justify-between"><span className="text-sm text-neutral-600">Duration</span><span className="text-sm font-semibold text-neutral-900">{selected.status === 'active' ? fmtSec(liveDurationSeconds(selected)) : fmtDur(selected.durationMinutes)}</span></div>
+                    </div>
+                  </div>
+
+                  <div className="bg-neutral-50 rounded-xl p-4 border border-neutral-200">
+                    <p className="text-11 font-bold text-primary-600 uppercase tracking-wide mb-2">Technical</p>
+                    <div className="space-y-2">
+                      <div className="flex justify-between"><span className="text-sm text-neutral-600">Quality</span><span className={`text-sm font-semibold ${selected.connectionQuality === 'excellent' ? 'text-success' : selected.connectionQuality === 'good' ? 'text-info' : selected.connectionQuality === 'fair' ? 'text-warning' : selected.connectionQuality === 'N/A' ? 'text-neutral-400' : 'text-error'}`}>{selected.connectionQuality || '—'}</span></div>
+                      <div className="flex justify-between"><span className="text-sm text-neutral-600">Media Connected</span><span className="text-sm text-neutral-900">{selected.mediaConnectedAt ? fmtDateTime(selected.mediaConnectedAt) : 'Never'}</span></div>
+                    </div>
+                  </div>
+
+                  {selected.endReasonDescription && (
+                    <div className={`rounded-xl p-4 border ${selected.status === 'completed' ? 'bg-success/5 border-success/20' : 'bg-error/5 border-error/20'}`}>
+                      <p className={`text-11 font-bold uppercase tracking-wide mb-2 ${selected.status === 'completed' ? 'text-success' : 'text-error'}`}>Reason</p>
+                      <p className="text-sm text-neutral-700">{selected.endReasonDescription}</p>
+                    </div>
+                  )}
+
+                  {selected.callIssues && selected.callIssues.length > 0 && (
+                    <div className="bg-warning/5 rounded-xl p-4 border border-warning/20">
+                      <p className="text-11 font-bold text-warning uppercase tracking-wide mb-2">Call Issues ({selected.callIssues.length})</p>
+                      <ul className="space-y-1.5">
+                        {selected.callIssues.map((issue, idx) => (
+                          <li key={idx} className="flex items-start gap-2">
+                            <span className={`mt-0.5 w-2 h-2 rounded-full shrink-0 ${issue.severity === 'critical' ? 'bg-error' : issue.severity === 'major' ? 'bg-warning' : 'bg-neutral-400'}`} />
+                            <span className="text-sm text-neutral-700">{issue.description}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  <div className="bg-neutral-50 rounded-xl p-4 border border-neutral-200">
+                    <p className="text-11 font-bold text-primary-600 uppercase tracking-wide mb-2">Billing</p>
+                    <div className="space-y-2">
+                      <div className="flex justify-between"><span className="text-sm text-neutral-600">Rate</span><span className="text-sm text-neutral-900">₹{selected.ratePerMinute || 0}/min</span></div>
+                      <div className="flex justify-between"><span className="text-sm text-neutral-600">Charge</span><span className="text-sm font-bold text-neutral-900">₹{(Number(selected.chargeAmount || 0) / 100).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </>, document.body)}
+    </div>
+  );
+}

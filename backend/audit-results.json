@@ -1,0 +1,202 @@
+{
+  "total": 40,
+  "passed": 40,
+  "failed": 0,
+  "results": [
+    {
+      "name": "SERVER_BOOT",
+      "status": "PASS",
+      "detail": "server up via /health"
+    },
+    {
+      "name": "GET /health",
+      "status": "PASS",
+      "detail": "status=200"
+    },
+    {
+      "name": "GET /admin (no token) exposes admin list",
+      "status": "PASS",
+      "detail": "status=401, count=n/a"
+    },
+    {
+      "name": "POST /admin (no token) creates admin",
+      "status": "PASS",
+      "detail": "status=401"
+    },
+    {
+      "name": "POST /auth/warden/login (valid)",
+      "status": "PASS",
+      "detail": "status=200"
+    },
+    {
+      "name": "WARDEN_TOKEN_OBTAINED",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "POST /auth/warden/login (bad pw)",
+      "status": "PASS",
+      "detail": "status=401"
+    },
+    {
+      "name": "POST /auth/login (kiosk pin)",
+      "status": "PASS",
+      "detail": "status=200"
+    },
+    {
+      "name": "GET /inmates without token -> 401",
+      "status": "PASS",
+      "detail": "status=401"
+    },
+    {
+      "name": "IDOR: kiosk token reads ALL inmates",
+      "status": "PASS",
+      "detail": "status=403, count=n/a"
+    },
+    {
+      "name": "IDOR: kiosk token reads ALL wallets",
+      "status": "PASS",
+      "detail": "status=403, count=n/a"
+    },
+    {
+      "name": "AUTHZ: kiosk token can PATCH global settings",
+      "status": "PASS",
+      "detail": "status=403"
+    },
+    {
+      "name": "AUTHZ: setup password readable by any authed user",
+      "status": "PASS",
+      "detail": "set=undefined"
+    },
+    {
+      "name": "PUT /kiosks/setup-password (warden sets own prison)",
+      "status": "PASS",
+      "detail": "status=200"
+    },
+    {
+      "name": "POST /kiosks/validate-setup-password correct",
+      "status": "PASS",
+      "detail": "status=200"
+    },
+    {
+      "name": "POST /kiosks/validate-setup-password wrong",
+      "status": "PASS",
+      "detail": "status=401"
+    },
+    {
+      "name": "POST /auth/register warden",
+      "status": "PASS",
+      "detail": "status=201"
+    },
+    {
+      "name": "STORAGE: registered warden password stored bcrypt-hashed",
+      "status": "PASS",
+      "detail": "stored=$2b$10$..."
+    },
+    {
+      "name": "REGISTER: new warden can log in with their password",
+      "status": "PASS",
+      "detail": "status=200"
+    },
+    {
+      "name": "FIXTURE: free inmate + contact for call tests",
+      "status": "PASS",
+      "detail": "inmate=INM-30B0FFAF, busyActive=1, contact=CONT-75C56CF7"
+    },
+    {
+      "name": "POST /calls create",
+      "status": "PASS",
+      "detail": "status=201"
+    },
+    {
+      "name": "CALL STATE: active->ringing rejected",
+      "status": "PASS",
+      "detail": "status=409, code=INVALID_TRANSITION"
+    },
+    {
+      "name": "CALL STATE: active->reconnecting allowed",
+      "status": "PASS",
+      "detail": "status=200"
+    },
+    {
+      "name": "CALL STATE: duplicate active call blocked",
+      "status": "PASS",
+      "detail": "status=409, code=CALL_IN_PROGRESS"
+    },
+    {
+      "name": "POST /auth/refresh rotates token pair",
+      "status": "PASS",
+      "detail": "status=200, hasAccessToken=true"
+    },
+    {
+      "name": "FAMILY: POST /family/secure-call/link/:token exists",
+      "status": "PASS",
+      "detail": "status=404, msg=Invalid or expired call link"
+    },
+    {
+      "name": "FAMILY: POST /family/secure-call/verify-otp/:token exists",
+      "status": "PASS",
+      "detail": "status=404, msg=Invalid or expired call link"
+    },
+    {
+      "name": "FAMILY: POST /family/secure-call/device/:token exists",
+      "status": "PASS",
+      "detail": "status=404, msg=Invalid or expired call link"
+    },
+    {
+      "name": "VENDOR: /auth/login accepts email+password",
+      "status": "PASS",
+      "detail": "status=401, code=INVALID_CREDENTIALS"
+    },
+    {
+      "name": "SOCKET: anonymous connect rejected",
+      "status": "PASS",
+      "detail": "unauthorized"
+    },
+    {
+      "name": "SOCKET: invalid token rejected",
+      "status": "PASS",
+      "detail": "unauthorized"
+    },
+    {
+      "name": "SOCKET: valid warden token accepted",
+      "status": "PASS",
+      "detail": "socket connected"
+    },
+    {
+      "name": "AUTHZ: warden can list prisons (scoped)",
+      "status": "PASS",
+      "detail": "status=200"
+    },
+    {
+      "name": "AUTHZ: warden can list kiosks (scoped)",
+      "status": "PASS",
+      "detail": "status=200"
+    },
+    {
+      "name": "Warden /calls scoped to own prison(s)",
+      "status": "PASS",
+      "detail": "status=200, count=29"
+    },
+    {
+      "name": "STORAGE: seeded warden password bcrypt-hashed",
+      "status": "PASS",
+      "detail": "stored=$2b$10$..."
+    },
+    {
+      "name": "STORAGE: kiosk user password bcrypt-hashed",
+      "status": "PASS",
+      "detail": "stored=$2b$10$..."
+    },
+    {
+      "name": "POST /kiosks/verify (unknown serial) graceful",
+      "status": "PASS",
+      "detail": "status=200, authorized=false"
+    },
+    {
+      "name": "RATE LIMIT: /auth/warden/login returns 429 after limits",
+      "status": "PASS",
+      "detail": "limited=true"
+    }
+  ]
+}

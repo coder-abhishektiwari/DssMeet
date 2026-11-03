@@ -1,0 +1,52 @@
+# Root .gitignore for PrisonConnect
+
+# OS Metadata
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDE & Editor Files
+.idea/
+.vscode/
+*.swp
+*.swo
+*.iml
+
+# Node / Web Dependencies & Builds
+node_modules/
+dist/
+build/
+# Desktop app icons are generated but small (~400KB) and REQUIRED in CI
+# for the installer/window icon - keep them tracked.
+!warden-dashboard/build/
+.cache/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Android Artifacts & Local Settings
+.gradle/
+local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+*.keystore
+
+# Environment Variables & Secrets
+# NOTE: `.env` holds real secrets and is never committed. `.env.example` is the
+# committed template (variable names only, no secrets) and must stay tracked.
+.env
+.env.local
+.env.*.local
+*.pem
+*.crt
+
+# Runtime SMS/OTP audit logs (may contain phone numbers)
+backend/logs/
+
+# Runtime launcher logs + call recordings (uploaded to backend, never committed)
+logs/
+backend/recordings/

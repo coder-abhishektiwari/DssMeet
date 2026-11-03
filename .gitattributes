@@ -1,0 +1,7 @@
+# Executed or parsed on the Linux VPS / inside containers — CRLF breaks these
+# (`sh: ^M: bad interpreter`, coturn/Caddy parse errors). Always LF.
+*.sh text eol=lf
+Caddyfile text eol=lf
+coturn/*.conf text eol=lf
+docker-compose*.yml text eol=lf
+.env.production.example text eol=lf

@@ -1,0 +1,172 @@
+# PrisonConnect — production stack for the Hostinger KVM2 VPS (India).
+#
+#   cp .env.production.example .env    # fill in real values first
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# NOT in this file (on purpose):
+#   family-web        -> Cloudflare Pages (static SPA, CDN)
+#   warden-dashboard  -> future desktop app (repo untouched, not deployed)
+#   vendor-dashboard  -> future desktop app (repo untouched, not deployed)
+#
+# Dev stack stays in docker-compose.yml — this file never touches it.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: prisonconnect-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: prisonconnect
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (openssl rand -hex 16, hex only, no special chars)}
+      POSTGRES_DB: prisonconnect
+    # No host ports: reachable only from the compose network.
+    volumes:
+      - prisonconnect-pgdata:/var/lib/postgresql/data
+      - ./db-setup/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U prisonconnect -d prisonconnect"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [prisonconnect]
+    deploy:
+      resources:
+        limits: { memory: 2g }
+
+  # STUN/TURN for WebRTC NAT traversal (family-web + kiosks behind NAT).
+  # external-ip= and user= are appended at container start from .env so no
+  # secret ever lives in git (see turnserver.conf header).
+  coturn:
+    image: coturn/coturn:latest
+    container_name: prisonconnect-coturn
+    restart: unless-stopped
+    environment:
+      VPS_PUBLIC_IP: ${VPS_PUBLIC_IP:?set VPS_PUBLIC_IP in .env (KVM2 public IP)}
+      TURN_USER: ${TURN_USER:?set TURN_USER in .env}
+      TURN_PASS: ${TURN_PASS:?set TURN_PASS in .env (openssl rand -hex 16 — hex only)}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        { cat /etc/coturn/turnserver.conf; echo; echo "external-ip=$$VPS_PUBLIC_IP"; echo "user=$$TURN_USER:$$TURN_PASS"; } > /tmp/turnserver.conf
+        exec turnserver -c /tmp/turnserver.conf
+    ports:
+      - "3478:3478/udp"
+      - "3478:3478/tcp"
+      - "5349:5349/tcp"
+      - "5349:5349/udp"
+      # coturn relays on 49160-49200 inside the container; publish on host
+      # 41000-41040 (kept out of Windows' excluded UDP ranges in dev).
+      - "41000-41040:49160-49200/udp"
+    volumes:
+      - ./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+      - ./coturn/certs:/etc/coturn/certs:ro
+    networks: [prisonconnect]
+    deploy:
+      resources:
+        limits: { memory: 128m }
+
+  # Signaling server (Socket.IO + WebRTC P2P signaling). No host ports —
+  # Caddy proxies https://signal.<domain> to it (WebSocket included).
+  signaling-server:
+    build: ./signaling-server
+    container_name: prisonconnect-signaling
+    restart: unless-stopped
+    environment:
+      PORT: 3002
+      # Must match backend exactly — kiosk/family tokens are minted by backend
+      # and verified here.
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env (same value as backend)}
+      MEDIA_API_KEY: ${MEDIA_API_KEY:?set MEDIA_API_KEY in .env (same value as backend)}
+      # Family-web origin (Cloudflare Pages). No `*` in production.
+      CORS_ORIGIN: ${CORS_ORIGIN:?set CORS_ORIGIN in .env (e.g. https://example.com)}
+      ROOM_MAX_PARTICIPANTS: ${ROOM_MAX_PARTICIPANTS:-2}
+      DISCONNECT_GRACE_MS: ${DISCONNECT_GRACE_MS:-15000}
+      # Join-ACK ICE list handed to kiosk + family-web — must point at THIS
+      # server's coturn and match the user= appended above.
+      TURN_SERVERS: ${TURN_SERVERS:?set TURN_SERVERS in .env (JSON — see .env.production.example)}
+    networks: [prisonconnect]
+    deploy:
+      resources:
+        limits: { memory: 256m }
+
+  # API / business layer. No host ports — Caddy proxies https://api.<domain>.
+  # SIGNALING_PUBLIC_URL is handed to clients inside the create-call response
+  # so kiosks never hardcode the signaling URL.
+  backend:
+    build: ./backend
+    container_name: prisonconnect-backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DATABASE_URL: postgres://prisonconnect:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (same value as postgres)}@postgres:5432/prisonconnect
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env (same value as signaling)}
+      MEDIA_API_KEY: ${MEDIA_API_KEY:?set MEDIA_API_KEY in .env (same value as signaling)}
+      SIGNALING_URL: http://signaling-server:3002
+      SIGNALING_PUBLIC_URL: ${SIGNALING_PUBLIC_URL:?set SIGNALING_PUBLIC_URL in .env (https://signal.<domain>)}
+      # Cloudflare Pages origin — required in production (familySecurity +
+      # wallet origin checks fail-closed without it).
+      FAMILY_WEB_URL: ${FAMILY_WEB_URL:?set FAMILY_WEB_URL in .env (https://<domain> on Pages)}
+      CORS_ORIGIN: ${CORS_ORIGIN:?set CORS_ORIGIN in .env (same value as signaling)}
+      # Launch with `log` (OTP shows in backend logs) — flip to `fast2sms`
+      # with the FAST2SMS_* keys before real users.
+      SMS_PROVIDER: ${SMS_PROVIDER:-log}
+      SMS_OTP_DOMAIN: ${SMS_OTP_DOMAIN:-}
+      FAST2SMS_API_KEY: ${FAST2SMS_API_KEY:-}
+      FAST2SMS_SENDER_ID: ${FAST2SMS_SENDER_ID:-}
+      FAST2SMS_OTP_SENDER_ID: ${FAST2SMS_OTP_SENDER_ID:-}
+      FAST2SMS_LINK_SENDER_ID: ${FAST2SMS_LINK_SENDER_ID:-}
+      FAST2SMS_SCHEDULED_SENDER_ID: ${FAST2SMS_SCHEDULED_SENDER_ID:-}
+      FAST2SMS_ENTITY_ID: ${FAST2SMS_ENTITY_ID:-}
+      FAST2SMS_OTP_TEMPLATE_ID: ${FAST2SMS_OTP_TEMPLATE_ID:-}
+      FAST2SMS_LINK_TEMPLATE_ID: ${FAST2SMS_LINK_TEMPLATE_ID:-}
+      FAST2SMS_SCHEDULED_TEMPLATE_ID: ${FAST2SMS_SCHEDULED_TEMPLATE_ID:-}
+      # Razorpay — leave empty to disable payments (wallet/OTP flows degrade
+      # gracefully); fill all three to go live.
+      RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
+      RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-}
+      RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:-}
+      ROOM_MAX_PARTICIPANTS: ${ROOM_MAX_PARTICIPANTS:-2}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      signaling-server:
+        condition: service_started
+    networks: [prisonconnect]
+    deploy:
+      resources:
+        limits: { memory: 512m }
+
+  # TLS-terminating reverse proxy: https://api.<domain> + https://signal.<domain>
+  # (auto Let's Encrypt, HTTP->HTTPS, WebSocket for Socket.IO).
+  caddy:
+    image: caddy:2-alpine
+    container_name: prisonconnect-caddy
+    restart: unless-stopped
+    environment:
+      API_HOST: ${API_HOST:?set API_HOST in .env (e.g. api.example.com)}
+      SIGNAL_HOST: ${SIGNAL_HOST:?set SIGNAL_HOST in .env (e.g. signal.example.com)}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp" # HTTP/3
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data # persisted Let's Encrypt certs
+      - caddy_config:/config
+    depends_on:
+      - backend
+      - signaling-server
+    networks: [prisonconnect]
+    deploy:
+      resources:
+        limits: { memory: 128m }
+
+volumes:
+  prisonconnect-pgdata:
+  caddy_data:
+  caddy_config:
+
+networks:
+  prisonconnect:
+    driver: bridge

@@ -1,0 +1,239 @@
+import { useCallback, useMemo, useRef } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { Card } from '@/components/Card';
+import { Skeleton, SkeletonText } from '@/components/Skeleton';
+import { ToastContainer } from '@/components/ToastContainer';
+import { wardenApi, cacheKeys } from '@/services/api/wardenApi';
+import { useCachedResource } from '@/hooks/useCachedResource';
+import { useWardenSocket } from '@/hooks/useWardenSocket';
+import { useToast } from '@/hooks/useToast';
+import { usePageHeader } from '@/context/PageHeaderContext';
+import { inmateLabel, contactLabel } from '@/utils/names';
+import type { ActiveCall, Inmate, Contact, Wallet, Device, CallStatistics, PaginatedResponse } from '@/services/api/wardenApi';
+
+export function MonitorScreenPage() {
+  const { callId } = useParams<{ callId: string }>();
+  const navigate = useNavigate();
+
+  const { toasts, success, error: toastError, removeToast } = useToast();
+
+  const { data: call, isLoading: callLoading, error, refresh: refreshCall } = useCachedResource<ActiveCall>(
+    callId ? cacheKeys.call(callId) : null,
+    () => wardenApi.getCall(callId as string),
+    { ttl: 15_000, pollMs: 15_000 },
+  );
+
+  const { data: inmatesData, isLoading: inmatesLoading, refresh: refreshInmates } = useCachedResource<PaginatedResponse<Inmate>>(
+    cacheKeys.inmates(),
+    () => wardenApi.getInmates(),
+    { ttl: 15_000, pollMs: 0 },
+  );
+  const inmate = call ? (inmatesData?.items ?? []).find((i) => i.inmateId === call.inmateId) || null : null;
+
+  const { data: contactsData, isLoading: contactsLoading, refresh: refreshContacts } = useCachedResource<PaginatedResponse<Contact>>(
+    cacheKeys.contacts(),
+    () => wardenApi.getContacts(),
+    { ttl: 15_000, pollMs: 0 },
+  );
+  const contact = call ? (contactsData?.items ?? []).find((c) => c.contactId === call.contactId) || null : null;
+
+  const { data: walletsData, refresh: refreshWallets } = useCachedResource<PaginatedResponse<Wallet>>(
+    cacheKeys.wallets(),
+    () => wardenApi.getWallets(),
+    { ttl: 15_000, pollMs: 0 },
+  );
+  const wallet = call ? (walletsData?.items ?? []).find((w) => w.inmateId === call.inmateId) || null : null;
+
+  const { data: devicesData, refresh: refreshDevices } = useCachedResource<PaginatedResponse<Device>>(
+    cacheKeys.devices(),
+    () => wardenApi.getDevices(),
+    { ttl: 15_000, pollMs: 0 },
+  );
+  const device = call ? (devicesData?.items ?? []).find((d) => d.deviceId === call.kioskId) || null : null;
+
+  const { data: statisticsData, refresh: refreshStatistics } = useCachedResource<CallStatistics[]>(
+    'statistics',
+    () => wardenApi.getStatistics(),
+    { ttl: 15_000, pollMs: 0 },
+  );
+  const statistics = call ? (statisticsData ?? []).find((s) => s.callId === call.callId) || null : null;
+
+  const refreshAll = () => {
+    refreshCall();
+    refreshInmates();
+    refreshContacts();
+    refreshWallets();
+    refreshDevices();
+    refreshStatistics();
+  };
+  const refreshRef = useRef(refreshAll);
+  refreshRef.current = refreshAll;
+  const onCallUpdate = useCallback(() => { refreshRef.current(); }, []);
+  useWardenSocket(onCallUpdate);
+
+  const headerIcon = useMemo(() => <span className="material-icons text-primary-600 text-xl">videocam</span>, []);
+
+  usePageHeader({
+    title: 'Monitor Screen',
+    subtitle: call ? `Call ${call.callId} — ${inmateLabel(call)}` : 'Loading...',
+    icon: headerIcon,
+    actions: useMemo(() => (
+      <div className="flex items-center gap-3">
+        <span className="inline-flex items-center gap-2 px-3 py-1.5 bg-success/10 text-success rounded-lg text-sm font-medium">
+          <span className="w-2 h-2 bg-success rounded-full animate-pulse" />
+          Live
+        </span>
+        <button onClick={() => navigate('/calls')} className="px-4 py-2 bg-neutral-200 text-neutral-900 rounded-lg text-sm hover:bg-neutral-300">Back</button>
+      </div>
+    ), [navigate]),
+  });
+
+  if (!call && error) {
+    return (
+      <div className="space-y-6">
+        <Card>
+          <div className="text-center py-12">
+            <p className="text-error mb-4">{error}</p>
+            <button onClick={() => refreshCall()} className="px-4 py-2 bg-primary-600 text-white rounded-lg text-sm hover:bg-primary-700">Retry</button>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
+  if (!call && !callLoading) {
+    return (
+      <div className="space-y-6">
+        <Card>
+          <div className="text-center py-12">
+            <p className="text-neutral-600">Call not found or no longer active</p>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
+  if (!call) {
+    return (
+      <div className="space-y-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 space-y-4">
+            <Card title="Video Area" className="border-l-8 border-slate-300 bg-slate-50">
+              <Skeleton className="h-48 w-full" />
+            </Card>
+            <Card title="Call Controls" className="border-l-8 border-slate-300 bg-slate-50">
+              <Skeleton className="h-10 w-full" />
+            </Card>
+          </div>
+          <div className="space-y-4">
+            <Card title="Inmate Information" className="border-l-8 border-slate-300 bg-slate-50">
+              <Skeleton className="h-32" />
+            </Card>
+            <Card title="Family Information" className="border-l-8 border-slate-300 bg-slate-50">
+              <Skeleton className="h-32" />
+            </Card>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const formatDuration = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const handleForceDisconnect = async () => {
+    try {
+      await wardenApi.endCall(call.callId);
+      success('Call force disconnected');
+      navigate('/calls');
+    } catch (err) {
+      console.error('Failed to force disconnect:', err);
+      toastError('Failed to disconnect call');
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 space-y-4">
+          <Card title="Video Area" className="border-l-8 border-slate-300 bg-slate-50">
+            <div className="bg-neutral-900 rounded-lg aspect-video flex items-center justify-center relative">
+              <div className="text-center text-neutral-400">
+                <svg className="w-16 h-16 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
+                <p className="text-sm">Remote Video</p>
+              </div>
+              <div className="absolute top-3 right-3 bg-black/50 text-white px-3 py-1 rounded-full text-xs font-medium">
+                {formatDuration(call.durationMinutes * 60)}
+              </div>
+            </div>
+            <div className="mt-4 bg-neutral-900 rounded-lg aspect-video flex items-center justify-center relative max-h-40">
+              <div className="text-center text-neutral-400">
+                <svg className="w-8 h-8 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
+                <p className="text-xs">Local Preview</p>
+              </div>
+            </div>
+          </Card>
+
+          <Card title="Call Controls" className="border-l-8 border-slate-300 bg-slate-50">
+            <button onClick={handleForceDisconnect} className="w-full px-4 py-3 bg-error text-white rounded-lg text-sm font-bold hover:bg-error-700">Force Disconnect</button>
+          </Card>
+        </div>
+
+        <div className="space-y-4">
+          <Card title="Inmate Information" className="border-l-8 border-slate-300 bg-slate-50">
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-full bg-surface border border-line flex items-center justify-center shrink-0">
+                  <svg className="w-7 h-7 text-muted" fill="currentColor" viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" /></svg>
+                </div>
+                <div>
+                  <p className="font-semibold text-neutral-900">{inmateLabel(call, inmate)}</p>
+                  <p className="text-sm text-neutral-600">{inmate?.prisonerNumber || call.inmateNumber || inmate?.inmateId || call.inmateId}</p>
+                </div>
+              </div>
+              <div className="space-y-1 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-neutral-500">Facility</span>
+                  <span className="font-medium text-neutral-900">{inmatesLoading && !inmate ? <SkeletonText /> : inmate?.facility || '—'}</span>
+                </div>
+              </div>
+            </div>
+          </Card>
+
+          <Card title="Family Information" className="border-l-8 border-slate-300 bg-slate-50">
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-full bg-surface border border-line flex items-center justify-center shrink-0">
+                  <svg className="w-7 h-7 text-muted" fill="currentColor" viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" /></svg>
+                </div>
+                <div>
+                  <p className="font-semibold text-neutral-900">{contactLabel(call, contact)}</p>
+                  <p className="text-sm text-neutral-600">{contactsLoading && !contact ? <SkeletonText /> : contact?.relationship || 'Family Member'}</p>
+                </div>
+              </div>
+              <div className="space-y-1 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-neutral-500">Phone</span>
+                  <span className="font-medium text-neutral-900">{contactsLoading && !contact ? <SkeletonText /> : contact?.phoneNumber || '—'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-neutral-500">Contact ID</span>
+                  <span className="font-medium text-neutral-900">{call.contactId}</span>
+                </div>
+              </div>
+            </div>
+          </Card>
+        </div>
+      </div>
+
+      <ToastContainer toasts={toasts} onDismiss={removeToast} />
+    </div>
+  );
+}

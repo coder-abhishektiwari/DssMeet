@@ -1,0 +1,251 @@
+package com.prisonconnect.kiosk.api
+
+import com.prisonconnect.kiosk.models.admin.*
+import com.prisonconnect.kiosk.models.auth.*
+import com.prisonconnect.kiosk.models.common.ApiResponse
+import com.prisonconnect.kiosk.models.contacts.Contact
+import com.prisonconnect.kiosk.models.inmate.InmateBalance
+import com.prisonconnect.kiosk.models.inmate.InmateProfile
+import com.prisonconnect.kiosk.models.call.ScheduledCall
+import com.prisonconnect.kiosk.models.call.CallHistory
+import com.prisonconnect.kiosk.models.call.CallSession
+import com.prisonconnect.kiosk.models.call.CreateCallRequest
+import com.prisonconnect.kiosk.models.call.EndCallRequest
+import com.prisonconnect.kiosk.models.call.CallStatusSnapshot
+import com.prisonconnect.kiosk.models.call.CallStatsReport
+import com.prisonconnect.kiosk.models.schedule.SlotsResponse
+import com.prisonconnect.kiosk.models.schedule.ScheduleRequest
+import com.prisonconnect.kiosk.models.wallet.WalletStatement
+import retrofit2.http.*
+
+/**
+ * Main API service for the Prison Trust Gateway.
+ * All responses are wrapped in [ApiResponse].
+ */
+interface TrustApiService {
+
+    @POST("auth/login")
+    suspend fun login(@Body request: LoginRequest): ApiResponse<AuthToken>
+
+    @POST("auth/refresh")
+    suspend fun refreshToken(@Body request: RefreshTokenRequest): ApiResponse<AuthToken>
+
+    @POST("auth/logout")
+    suspend fun logout(@Header("Authorization") authorization: String): ApiResponse<Unit>
+
+    @POST("auth/admin/identify")
+    suspend fun adminIdentify(@Body request: LoginRequest): ApiResponse<AdminProfile>
+
+    @POST("auth/admin/verify-pin")
+    suspend fun adminVerifyPassword(@Body request: AdminVerifyPasswordRequest): ApiResponse<AuthToken>
+
+    @GET("admin/profile")
+    suspend fun getAdminProfile(): ApiResponse<AdminProfile>
+
+    @POST("auth/fingerprint-identify")
+    suspend fun identifyFingerprint(
+        @Body request: FingerprintIdentifyRequest
+    ): ApiResponse<InmateProfile>
+
+    @POST("auth/rfid-identify")
+    suspend fun identifyRfid(@Body request: LoginRequest): ApiResponse<InmateProfile>
+
+    @POST("auth/prisoner/identify")
+    suspend fun identifyPrisoner(
+        @Body request: LoginRequest
+    ): ApiResponse<InmateProfile>
+
+    @POST("auth/verify-pin")
+    suspend fun verifyPin(@Body request: PinVerifyRequest): ApiResponse<AuthToken>
+
+    @POST("kiosks/verify")
+    suspend fun verifyKiosk(@Body request: KioskVerifyRequest): ApiResponse<KioskVerifyResponse>
+
+    @POST("kiosks/validate-setup-password")
+    suspend fun validateSetupPassword(@Body request: ValidateSetupPasswordRequest): ApiResponse<ValidateSetupPasswordResponse>
+
+    @POST("kiosks/register")
+    suspend fun registerKiosk(@Body request: KioskRegistrationRequest): ApiResponse<KioskRegistrationResponse>
+
+    @GET("kiosks/registration-status/{serialNumber}")
+    suspend fun getRegistrationStatus(@Path("serialNumber") serialNumber: String): ApiResponse<RegistrationStatusResponse>
+
+    /** Liveness ping — keeps the warden dashboard's Online/Offline and Last Seen honest. */
+    @POST("kiosks/heartbeat")
+    suspend fun heartbeat(@Body request: KioskHeartbeatRequest): ApiResponse<KioskHeartbeatResponse>
+
+
+    @GET("inmate/profile/{id}")
+    suspend fun getInmateProfile(@Path("id") id: String): ApiResponse<InmateProfile>
+
+    @GET("inmate/balance/{id}")
+    suspend fun getInmateBalance(@Path("id") id: String): ApiResponse<InmateBalance>
+
+    @GET("inmate/wallet/{id}")
+    suspend fun getWalletStatement(@Path("id") id: String): ApiResponse<WalletStatement>
+
+    @GET("contacts/{id}")
+    suspend fun getContacts(@Path("id") id: String): ApiResponse<List<Contact>>
+
+    @GET("calls/scheduled/{id}")
+    suspend fun getScheduledCalls(@Path("id") id: String): ApiResponse<List<ScheduledCall>>
+
+    @GET("calls/history/{id}")
+    suspend fun getCallHistory(@Path("id") id: String): ApiResponse<List<CallHistory>>
+
+    /** Paged, filterable kiosk-scoped call history (admin dashboard). */
+    @GET("calls/history")
+    suspend fun getCallHistoryPage(
+        @Query("search") search: String? = null,
+        @Query("type") type: String? = null,
+        @Query("dateFrom") dateFrom: String? = null,
+        @Query("dateTo") dateTo: String? = null,
+        @Query("limit") limit: Int = 50,
+        @Query("offset") offset: Int = 0
+    ): ApiResponse<com.prisonconnect.kiosk.models.call.CallHistoryPage>
+
+    @GET("schedule/slots/{kioskId}/{date}")
+    suspend fun getBookedSlots(@Path("kioskId") kioskId: String, @Path("date") date: String): ApiResponse<com.prisonconnect.kiosk.models.schedule.SlotsResponse>
+
+    @POST("schedule/book")
+    suspend fun bookCall(@Body request: ScheduleRequest): ApiResponse<ScheduledCall>
+
+    @POST("calls")
+    suspend fun createCall(@Body request: CreateCallRequest): ApiResponse<CallSession>
+
+    @GET("calls/{callId}")
+    suspend fun getCallStatus(@Path("callId") callId: String): ApiResponse<CallStatusSnapshot>
+
+    /** Finalize a call (sets endTime/duration) when it ends. */
+    @POST("calls/{callId}/end")
+    suspend fun endCall(@Path("callId") callId: String, @Body request: EndCallRequest = EndCallRequest()): ApiResponse<*>
+
+    /** Periodic stats report during an active call. */
+    @PATCH("calls/{callId}")
+    suspend fun reportCallStats(@Path("callId") callId: String, @Body report: CallStatsReport): ApiResponse<*>
+
+    @PATCH("schedule/cancel/{bookingId}")
+    suspend fun cancelBooking(@Path("bookingId") bookingId: String): ApiResponse<Unit>
+
+    @GET("settings")
+    suspend fun getSettings(): ApiResponse<com.google.gson.JsonObject>
+
+    // ==================== ADMIN ENDPOINTS ====================
+
+    // Inmates
+    @GET("admin/prisoners")
+    suspend fun getAdminPrisoners(): ApiResponse<List<Prisoner>>
+
+    @GET("admin/prisoners/{prisonerId}")
+    suspend fun getAdminPrisoner(@Path("prisonerId") prisonerId: String): ApiResponse<Prisoner>
+
+    @POST("admin/prisoners")
+    suspend fun createPrisoner(@Body request: CreatePrisonerRequest): ApiResponse<Prisoner>
+
+    @PUT("admin/prisoners/{prisonerId}")
+    @JvmSuppressWildcards
+    suspend fun editPrisoner(
+        @Path("prisonerId") prisonerId: String,
+        @Body request: EditPrisonerRequest
+    ): ApiResponse<Prisoner>
+
+    @PUT("admin/prisoners/{prisonerId}")
+    suspend fun updatePrisoner(@Path("prisonerId") prisonerId: String, @Body prisoner: Prisoner): ApiResponse<Prisoner>
+
+    @PATCH("admin/prisoners/{prisonerId}/status")
+    suspend fun updatePrisonerStatus(
+        @Path("prisonerId") prisonerId: String,
+        @Body request: UpdatePrisonerStatusRequest
+    ): ApiResponse<Prisoner>
+
+    @DELETE("admin/prisoners/{prisonerId}")
+    suspend fun deletePrisoner(@Path("prisonerId") prisonerId: String): ApiResponse<Unit>
+
+    @POST("admin/prisoners/{prisonerId}/reset-pin")
+    suspend fun resetPrisonerPin(
+        @Path("prisonerId") prisonerId: String,
+        @Body body: Map<String, String>
+    ): ApiResponse<Map<String, String>>
+
+    // Contacts
+    @GET("admin/prisoners/{prisonerId}/contacts")
+    suspend fun getPrisonerContacts(@Path("prisonerId") prisonerId: String): ApiResponse<List<VerifiedContact>>
+
+    @POST("admin/prisoners/{prisonerId}/contacts")
+    suspend fun createContact(
+        @Path("prisonerId") prisonerId: String,
+        @Body request: CreateContactRequest
+    ): ApiResponse<VerifiedContact>
+
+    @PUT("admin/contacts/{contactId}")
+    suspend fun updateContact(
+        @Path("contactId") contactId: String,
+        @Body request: UpdateContactRequest
+    ): ApiResponse<VerifiedContact>
+
+    @PATCH("admin/contacts/{contactId}/status")
+    suspend fun updateContactStatus(
+        @Path("contactId") contactId: String,
+        @Body request: UpdateContactStatusRequest
+    ): ApiResponse<VerifiedContact>
+
+    @DELETE("admin/contacts/{contactId}")
+    suspend fun deleteContact(@Path("contactId") contactId: String): ApiResponse<Unit>
+
+    // Biometrics
+    @GET("admin/prisoners/{prisonerId}/biometrics")
+    suspend fun getPrisonerBiometrics(@Path("prisonerId") prisonerId: String): ApiResponse<List<BiometricRegistration>>
+
+    @POST("admin/prisoners/{prisonerId}/biometrics")
+    suspend fun registerBiometric(
+        @Path("prisonerId") prisonerId: String,
+        @Body request: RegisterBiometricRequest
+    ): ApiResponse<BiometricRegistration>
+
+    @DELETE("admin/biometrics/{biometricId}")
+    suspend fun deleteBiometric(
+        @Path("biometricId") biometricId: String,
+        @Query("prisonerId") prisonerId: String
+    ): ApiResponse<Unit>
+
+    // Devices
+    @GET("admin/devices")
+    suspend fun getAdminDevices(): ApiResponse<List<KioskDevice>>
+
+    @GET("admin/devices/{deviceId}")
+    suspend fun getAdminDevice(@Path("deviceId") deviceId: String): ApiResponse<KioskDevice>
+
+    @GET("kiosks")
+    suspend fun listKiosks(): ApiResponse<List<KioskDevice>>
+
+    // Kiosk admin staff (same list, create and edit the warden panel offers)
+    @GET("kiosk-admins")
+    suspend fun getKioskAdmins(): ApiResponse<List<com.prisonconnect.kiosk.models.admin.KioskAdmin>>
+
+    @POST("kiosk-admins")
+    suspend fun createKioskAdmin(
+        @Body request: com.prisonconnect.kiosk.models.admin.CreateKioskAdminRequest
+    ): ApiResponse<com.prisonconnect.kiosk.models.admin.KioskAdmin>
+
+    @PATCH("kiosk-admins/{adminId}")
+    suspend fun updateKioskAdmin(
+        @Path("adminId") adminId: String,
+        @Body request: com.prisonconnect.kiosk.models.admin.UpdateKioskAdminRequest
+    ): ApiResponse<com.prisonconnect.kiosk.models.admin.KioskAdmin>
+
+    // ==================== REPORTS ====================
+
+    /**
+     * Calls MIS report for this kiosk session's device. The kiosk id comes from
+     * the access token, so a session can never read another device's numbers.
+     * [tzOffsetMinutes] is the device's UTC offset - the backend uses it to cut
+     * the local day boundaries for the requested from/to dates.
+     */
+    @GET("mis/calls")
+    suspend fun getCallsMisReport(
+        @Query("from") from: String,
+        @Query("to") to: String,
+        @Query("tzOffset") tzOffsetMinutes: Int,
+        @Query("kioskId") kioskId: String? = null
+    ): ApiResponse<com.prisonconnect.kiosk.models.report.CallsMisReport>
+}

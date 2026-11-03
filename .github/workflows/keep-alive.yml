@@ -1,0 +1,30 @@
+# DISABLED — Render is being decommissioned; the stack now runs on the
+# Hostinger VPS + Cloudflare Pages (deploy/RUNBOOK.md). Cron removed so this
+# workflow never pings dead Render URLs again. Kept for reference only —
+# re-enable the schedule only if a Render free-tier service comes back.
+name: keep-alive
+
+on:
+  workflow_dispatch: {} # manual trigger only — no schedule
+
+env:
+  BACKEND: https://prisonconnect-backend-q71g.onrender.com
+  SIGNALING: https://prisonconnect-signaling.onrender.com
+  FAMILY_WEB: https://prisonconnect-familyweb.onrender.com
+  SUPERADMIN: https://prisonconnect-superadmin.onrender.com
+  WARDEN: https://prisonconnect-warden.onrender.com
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping backend
+        run: curl -sf --max-time 30 "$BACKEND/health" > /dev/null && echo "backend OK" || echo "backend ping failed"
+      - name: Ping signaling server
+        run: curl -sf --max-time 30 "$SIGNALING/api/health" > /dev/null && echo "signaling OK" || echo "signaling ping failed"
+      - name: Ping family web
+        run: curl -sf --max-time 30 "$FAMILY_WEB/" > /dev/null && echo "family-web OK" || echo "family-web ping failed"
+      - name: Ping superadmin dashboard
+        run: curl -sf --max-time 30 "$SUPERADMIN/" > /dev/null && echo "superadmin OK" || echo "superadmin ping failed"
+      - name: Ping warden dashboard
+        run: curl -sf --max-time 30 "$WARDEN/" > /dev/null && echo "warden OK" || echo "warden ping failed"

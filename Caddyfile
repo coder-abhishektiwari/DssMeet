@@ -1,0 +1,22 @@
+# PrisonConnect — Caddy reverse proxy (production).
+# Domain names come from env (set in .env, passed by docker-compose.prod.yml):
+#   API_HOST    e.g. api.example.com
+#   SIGNAL_HOST e.g. signal.example.com
+# Caddy fetches/renews Let's Encrypt certs automatically (ports 80+443).
+
+{$API_HOST} {
+	encode gzip
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	}
+	reverse_proxy backend:3001
+}
+
+{$SIGNAL_HOST} {
+	encode gzip
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	}
+	# Caddy handles the WebSocket/HTTP long-polling upgrade natively.
+	reverse_proxy signaling-server:3002
+}
