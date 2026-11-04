@@ -1,4 +1,4 @@
-package com.prisonconnect.warden.models
+package com.dssmeet.warden.models
 
 data class DeviceModel(
     val deviceId: String,

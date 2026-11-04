@@ -270,7 +270,7 @@ export function LoginPage() {
       {/* Register Link */}
       <div className="mt-6 text-center">
         <p className="text-13 text-neutral-500">
-          New to PrisonConnect?{' '}
+          New to DssMeet?{' '}
           <Link
             to="/register"
             className="font-medium text-primary-600 transition-colors hover:text-primary-700"

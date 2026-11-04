@@ -1,6 +1,6 @@
-appId: com.prisonconnect.warden
-productName: PrisonConnect Warden
-copyright: Copyright © PrisonConnect
+appId: com.dssmeet.warden
+productName: DssMeet Warden
+copyright: Copyright © DssMeet
 
 directories:
   output: release
@@ -28,7 +28,7 @@ nsis:
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: always
   createStartMenuShortcut: true
-  shortcutName: PrisonConnect Warden
+  shortcutName: DssMeet Warden
 
 # AppImage runs on Ubuntu/Kali/any modern distro without install; deb covers
 # the Debian/Ubuntu family directly.
@@ -38,7 +38,7 @@ linux:
     - AppImage
     - deb
   category: Office
-  synopsis: PrisonConnect Warden & Admin Console
-  maintainer: PrisonConnect <admin@dsssolutions.in>
+  synopsis: DssMeet Warden & Admin Console
+  maintainer: DssMeet <admin@dsssolutions.in>
   mimeTypes:
     - x-scheme-handler/app

@@ -13,14 +13,14 @@ export function AuthLayout() {
         <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl">
           <img
             src="/ic_icon.webp"
-            alt="PrisonConnect"
+            alt="DssMeet"
             className="h-7 w-7 object-contain"
           />
         </div>
 
         <div className="text-left">
           <h1 className="text-17 font-semibold tracking-[-0.01em] text-neutral-900">
-            PrisonConnect
+            DssMeet
           </h1>
           <p className="text-10 uppercase tracking-[0.28em] text-neutral-500">
             Jail Operations Console
@@ -37,7 +37,7 @@ export function AuthLayout() {
 
       {/* Footer */}
       <footer className="pb-7 text-center text-11 text-neutral-600">
-        © 2026 PrisonConnect <span className="mx-2 text-neutral-600">·</span> Authorized personnel only · All activities are monitored
+        © 2026 DssMeet <span className="mx-2 text-neutral-600">·</span> Authorized personnel only · All activities are monitored
       </footer>
     </div>
   );

@@ -1,4 +1,4 @@
-# coturn — STUN/TURN server for PrisonConnect WebRTC
+# coturn — STUN/TURN server for DssMeet WebRTC
 
 Provides STUN/TURN so family-web browsers and prison kiosks behind NAT/firewalls
 can establish WebRTC calls through the media server.
@@ -7,7 +7,7 @@ can establish WebRTC calls through the media server.
 
 ```
 mkdir certs
-openssl req -x509 -newkey rsa:2048 -keyout certs/turn_server_pkey.pem -out certs/turn_server_cert.pem -days 365 -nodes -subj "/CN=prisonconnect.local"
+openssl req -x509 -newkey rsa:2048 -keyout certs/turn_server_pkey.pem -out certs/turn_server_cert.pem -days 365 -nodes -subj "/CN=dssmeet.local"
 ```
 
 ## Set the shared auth secret
@@ -38,6 +38,6 @@ docker run --rm --network host -v "$PWD/turnserver.conf:/etc/coturn/turnserver.c
 
 ## Clients
 
-Point WebRTC clients at `turn:prisonconnect.local:3478?transport=udp` (and `tcp`),
-tls at `turns:prisonconnect.local:5349`. The media server's announced IP and the
+Point WebRTC clients at `turn:dssmeet.local:3478?transport=udp` (and `tcp`),
+tls at `turns:dssmeet.local:5349`. The media server's announced IP and the
 TURN server must be reachable from both ends of a call.

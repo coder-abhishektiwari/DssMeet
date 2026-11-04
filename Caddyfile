@@ -1,4 +1,4 @@
-# PrisonConnect — Caddy reverse proxy (production).
+# DssMeet — Caddy reverse proxy (production).
 # Domain names come from env (set in .env, passed by docker-compose.prod.yml):
 #   API_HOST    e.g. api.example.com
 #   SIGNAL_HOST e.g. signal.example.com

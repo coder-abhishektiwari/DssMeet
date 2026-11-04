@@ -13,7 +13,7 @@ ENV VITE_API_GATEWAY_URL=$VITE_API_GATEWAY_URL
 ENV VITE_SIGNALING_URL=$VITE_SIGNALING_URL
 ENV VITE_WEBRTC_ICE_SERVERS=$VITE_WEBRTC_ICE_SERVERS
 
-RUN test -n "$VITE_API_GATEWAY_URL" && test -n "$VITE_SIGNALING_URL" || (echo '[build] VITE_API_GATEWAY_URL and VITE_SIGNALING_URL are REQUIRED build args (public Render URLs). No localhost defaults are allowed.' && exit 1)
+RUN test -n "$VITE_API_GATEWAY_URL" && test -n "$VITE_SIGNALING_URL" || (echo '[build] VITE_API_GATEWAY_URL and VITE_SIGNALING_URL are REQUIRED build args (public backend + signaling URLs). No localhost defaults are allowed.' && exit 1)
 
 RUN npm run build
 

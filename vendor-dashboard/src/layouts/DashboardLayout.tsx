@@ -34,7 +34,7 @@ export function DashboardLayout() {
   };
 
   const displayName = user?.name ?? 'Super Admin';
-  const displayEmail = user?.email ?? 'admin@prisonconnect.com';
+  const displayEmail = user?.email ?? 'admin@dssmeet.com';
   const initials = displayName
     .split(' ')
     .map((n) => n[0])
@@ -50,7 +50,7 @@ export function DashboardLayout() {
           <div className="flex items-center gap-2">
             <Shield className="w-8 h-8 text-primary-400" />
             <div>
-              <h1 className="text-xl font-bold text-white tracking-tight">PrisonConnect</h1>
+              <h1 className="text-xl font-bold text-white tracking-tight">DssMeet</h1>
               <p className="text-[10px] uppercase tracking-widest text-primary-400 font-semibold">Vendor Super Admin</p>
             </div>
           </div>

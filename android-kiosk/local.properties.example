@@ -1,5 +1,5 @@
-# Example local configuration for PrisonConnect Kiosk
+# Example local configuration for DssMeet
 sdk.dir=/path/to/android/sdk
 # NOTE: no KIOSK_ID here anymore — kiosk identity is issued by the backend
 # during device registration (/kiosks/verify).
-KIOSK_TRUST_API_HOST=https://trust-api.prisonconnect.internal
+KIOSK_TRUST_API_HOST=https://trust-api.dssmeet.internal

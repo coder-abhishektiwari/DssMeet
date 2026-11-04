@@ -1,4 +1,4 @@
-# PrisonConnect Backend — Real (not mock)
+# DssMeet Backend — Real (not mock)
 
 ## Setup
 ```bash

@@ -176,17 +176,17 @@ export function ThemeEditorPage() {
     const defaults = { ...e.DEFAULTS };
     setCfg(defaults);
     e.apply(defaults, document);
-    showToast('Reset to the default PrisonConnect theme.');
+    showToast('Reset to the default DssMeet theme.');
   };
 
   const exportCss = () => {
     const e = engine();
     if (!e || !cfg) return;
-    const css = `/* PrisonConnect theme export — paste over src/styles/theme.css :root or keep for reference */\n${e.buildVars(cfg)}\n`;
+    const css = `/* DssMeet theme export — paste over src/styles/theme.css :root or keep for reference */\n${e.buildVars(cfg)}\n`;
     const url = URL.createObjectURL(new Blob([css], { type: 'text/css' }));
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'prisonconnect-theme.css';
+    a.download = 'dssmeet-theme.css';
     a.click();
     URL.revokeObjectURL(url);
     showToast('Theme CSS downloaded.');
@@ -215,7 +215,7 @@ export function ThemeEditorPage() {
             </div>
             <div>
               <h1 className="text-15 font-semibold text-neutral-900">Theme Studio</h1>
-              <p className="text-11 uppercase tracking-[0.16em] text-muted">PrisonConnect design settings</p>
+              <p className="text-11 uppercase tracking-[0.16em] text-muted">DssMeet design settings</p>
             </div>
           </div>
           <div className="flex items-center gap-2.5">

@@ -20,11 +20,11 @@ fun appProp(name: String, fallback: String): String =
         ?: fallback
 
 android {
-    namespace = "com.prisonconnect.kiosk"
+    namespace = "com.dssmeet.kiosk"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.prisonconnect.kiosk"
+        applicationId = "com.dssmeet.kiosk"
         minSdk = 26
         targetSdk = 35
         versionCode = 1
@@ -37,14 +37,16 @@ android {
         // NOTE: SIGNALING_URL is only a FALLBACK - at runtime the backend
         // delivers the fresh public signaling URL inside every create-call
         // response, so tunnel changes never require a rebuild.
-        // Defaults point at the real deployed services (Render).
+        // Defaults are LOCAL-ONLY. No deployment host is baked into the
+        // source: set KIOSK_TRUST_API_HOST / API_BASE_URL / SIGNALING_URL /
+        // TURN_* in local.properties (or via -P flags) for a real endpoint.
         // NOTE: there is NO build-time KIOSK_ID anymore — kiosk identity is
         // server-issued via /kiosks/verify after device registration.
-        val trustApiHost = appProp("KIOSK_TRUST_API_HOST", "https://prisonconnect-backend-q71g.onrender.com")
-        val apiBaseUrl = appProp("API_BASE_URL", "https://prisonconnect-backend-q71g.onrender.com")
-        val signalingUrl = appProp("SIGNALING_URL", "https://prisonconnect-signaling.onrender.com")
-        val turnServerUrl = appProp("TURN_SERVER_URL", "turn:tissues-cafeteria.tun.ply.gg:3478")
-        val turnTlsUrl = appProp("TURN_TLS_URL", "turns:tissues-cafeteria.tun.ply.gg:5349")
+        val trustApiHost = appProp("KIOSK_TRUST_API_HOST", "http://127.0.0.1:59354")
+        val apiBaseUrl = appProp("API_BASE_URL", "http://127.0.0.1:59354")
+        val signalingUrl = appProp("SIGNALING_URL", "http://127.0.0.1:3002")
+        val turnServerUrl = appProp("TURN_SERVER_URL", "turn:127.0.0.1:3478?transport=udp")
+        val turnTlsUrl = appProp("TURN_TLS_URL", "turns:127.0.0.1:5349")
         val turnUsername = appProp("TURN_USERNAME", "turnuser")
         val turnCredential = appProp("TURN_CREDENTIAL", "turnpass")
         val autoLogoutMs = appProp("AUTO_LOGOUT_TIMEOUT_MS", "120000")

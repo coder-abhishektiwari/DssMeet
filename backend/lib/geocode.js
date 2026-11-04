@@ -89,7 +89,7 @@ async function viaNominatim(lat, lng) {
   lastNominatimAt = Date.now();
 
   const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}&zoom=12&accept-language=en`;
-  const data = await getJson(url, { 'User-Agent': 'PrisonConnect/1.0 (secure call links)' });
+  const data = await getJson(url, { 'User-Agent': 'DssMeet/1.0 (secure call links)' });
   const a = data?.address || {};
   return placeFrom({
     area: a.suburb || a.neighbourhood || a.quarter || a.city_district || a.village || a.hamlet || null,

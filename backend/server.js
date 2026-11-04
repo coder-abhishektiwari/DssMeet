@@ -873,7 +873,7 @@ module.exports = { app, server, sanitizeForBroadcast };
 
 function startServer() {
   server.listen(PORT, () => {
-    console.log(`PrisonConnect backend running on port ${PORT}`);
+    console.log(`DssMeet backend running on port ${PORT}`);
     console.log(`API: http://localhost:${PORT}`);
     console.log(`Socket.IO: http://localhost:${PORT}`);
   });

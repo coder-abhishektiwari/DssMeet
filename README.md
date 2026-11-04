@@ -1,10 +1,10 @@
-# PrisonConnect — Prison Video Calling & Monitoring System
+# DssMeet — Prison Video Calling & Monitoring System
 
 Centralized, secure video and audio communication platform designed for inmate-to-family calls managed and monitored by Jail Administration.
 
 ## System Architecture Overview
 
-PrisonConnect provides a multi-tenant, secure ecosystem consisting of:
+DssMeet provides a multi-tenant, secure ecosystem consisting of:
 
 - **`android-kiosk/`**: Native Android Application (Kotlin) running on hardware kiosks for inmate multi-modal authentication (RFID, Fingerprint, Prisoner ID), call scheduling, balance checks, WebRTC audio/video streams, live billing, and receipt printing.
 - **`family-web/`**: Browser-based React + TypeScript web client requiring zero application download for verified family members joining scheduled encrypted calls.
@@ -16,7 +16,7 @@ PrisonConnect provides a multi-tenant, secure ecosystem consisting of:
 ## Repository Structure
 
 ```text
-PrisonConnect/
+DssMeet/
  ├── android-kiosk/         # Kotlin Kiosk Client
  ├── family-web/            # React + Vite Family Web Portal
  ├── warden-dashboard/      # React + Vite Warden & SaaS Admin Console
@@ -34,7 +34,7 @@ Every Node app reads a local `.env`. Each component ships a **secret-free**
 is gitignored and must never be committed).
 
 ```bash
-git clone <repo> && cd PrisonConnect
+git clone <repo> && cd DssMeet
 npm install                                   # installs all four workspaces at once
 
 cp backend/.env.example            backend/.env

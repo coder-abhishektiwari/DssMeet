@@ -2,28 +2,28 @@ services:
   # Production-ish PostgreSQL backing the Express API/business layer (backend).
   postgres:
     image: postgres:16-alpine
-    container_name: prisonconnect-postgres
+    container_name: dssmeet-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: prisonconnect
+      POSTGRES_USER: dssmeet
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
-      POSTGRES_DB: prisonconnect
+      POSTGRES_DB: dssmeet
     ports:
       - "55432:5432"
     volumes:
-      - prisonconnect-pgdata:/var/lib/postgresql/data
+      - dssmeet-pgdata:/var/lib/postgresql/data
       - ./db-setup/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U prisonconnect -d prisonconnect"]
+      test: ["CMD-SHELL", "pg_isready -U dssmeet -d dssmeet"]
       interval: 10s
       timeout: 5s
       retries: 5
-    networks: [prisonconnect]
+    networks: [dssmeet]
 
   # STUN/TURN for WebRTC NAT traversal (family-web + kiosks behind NAT/firewalls).
   coturn:
     image: coturn/coturn:latest
-    container_name: prisonconnect-coturn
+    container_name: dssmeet-coturn
     restart: unless-stopped
     depends_on: []
     ports:
@@ -37,12 +37,12 @@ services:
     volumes:
       - ./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
       - ./coturn/certs:/etc/coturn/certs:ro
-    networks: [prisonconnect]
+    networks: [dssmeet]
 
   # Signaling server (Socket.IO + WebRTC P2P signaling) — no mediasoup, no business logic.
   signaling-server:
     build: ./signaling-server
-    container_name: prisonconnect-signaling
+    container_name: dssmeet-signaling
     restart: unless-stopped
     environment:
       PORT: 3002
@@ -52,12 +52,13 @@ services:
       # unexpectedly (client auto-reconnects within this window).
       DISCONNECT_GRACE_MS: ${DISCONNECT_GRACE_MS:-15000}
       # TURN relay (coturn) handed to peers inside the join-room ACK.
-      TURN_URL: ${TURN_URL:-turn:tissues-cafeteria.tun.ply.gg:3478?transport=udp}
-      TURN_TCP_URL: ${TURN_TCP_URL:-turn:tissues-cafeteria.tun.ply.gg:3478?transport=tcp}
+      # Local defaults only - override TURN_URL / TURN_TCP_URL for a real relay.
+      TURN_URL: ${TURN_URL:-turn:127.0.0.1:3478?transport=udp}
+      TURN_TCP_URL: ${TURN_TCP_URL:-turn:127.0.0.1:3478?transport=tcp}
       TURN_STATIC_AUTH_SECRET: ${TURN_STATIC_AUTH_SECRET:-464f02dad3072f5b202da1a8928a07cd94d0b45634e41f57db1ad47c2156d90a}
     ports:
       - "3002:3002"
-    networks: [prisonconnect]
+    networks: [dssmeet]
 
   # API / business layer.
   # Host port 59354 matches the Android kiosk's default API_BASE_URL.
@@ -66,14 +67,14 @@ services:
   # public signaling URL changes.
   backend:
     build: ./backend
-    container_name: prisonconnect-backend
+    container_name: dssmeet-backend
     restart: unless-stopped
     environment:
       # Dev deployment behind tunnels: keep NODE_ENV off "production" so the
       # family-link validator accepts the http://<public-ip>:5173 call links.
       NODE_ENV: development
       PORT: 3001
-      DATABASE_URL: postgres://prisonconnect:${POSTGRES_PASSWORD}@postgres:5432/prisonconnect
+      DATABASE_URL: postgres://dssmeet:${POSTGRES_PASSWORD}@postgres:5432/dssmeet
       JWT_SECRET: ${JWT_SECRET:-dev-only-change-me}
       SIGNALING_URL: http://signaling-server:3002
       SIGNALING_PUBLIC_URL: ${SIGNALING_PUBLIC_URL:-}
@@ -87,59 +88,11 @@ services:
         condition: service_healthy
       signaling-server:
         condition: service_started
-    networks: [prisonconnect]
-
-  # Family web portal (Vite build served by Nginx).
-  family-web:
-    build:
-      context: ./family-web
-      args:
-        VITE_API_GATEWAY_URL: ${VITE_API_GATEWAY_URL:-http://127.0.0.1:3001}
-        VITE_SIGNALING_URL: ${VITE_SIGNALING_URL:-http://127.0.0.1:3002}
-        VITE_WEBRTC_ICE_SERVERS: ${VITE_WEBRTC_ICE_SERVERS:-[{"urls":"turn:127.0.0.1:3478"}]}
-    container_name: prisonconnect-family-web
-    restart: unless-stopped
-    ports:
-      - "8080:80"
-    depends_on:
-      - backend
-      - signaling-server
-    networks: [prisonconnect]
-
-  # Warden & SaaS admin monitoring dashboard.
-  warden-dashboard:
-    build:
-      context: ./warden-dashboard
-      args:
-        VITE_API_GATEWAY_URL: ${VITE_API_GATEWAY_URL:-http://127.0.0.1:3001}
-    container_name: prisonconnect-warden-dashboard
-    restart: unless-stopped
-    ports:
-      - "8081:80"
-    depends_on:
-      - backend
-      - signaling-server
-    networks: [prisonconnect]
-
-  # Vendor dashboard.
-  vendor-dashboard:
-    build:
-      context: ./vendor-dashboard
-      args:
-        VITE_API_GATEWAY_URL: ${VITE_API_GATEWAY_URL:-http://127.0.0.1:3001}
-        VITE_SIGNALING_URL: ${VITE_SIGNALING_URL:-http://127.0.0.1:3002}
-    container_name: prisonconnect-vendor-dashboard
-    restart: unless-stopped
-    ports:
-      - "8082:80"
-    depends_on:
-      - backend
-      - signaling-server
-    networks: [prisonconnect]
+    networks: [dssmeet]
 
 volumes:
-  prisonconnect-pgdata:
+  dssmeet-pgdata:
 
 networks:
-  prisonconnect:
+  dssmeet:
     driver: bridge

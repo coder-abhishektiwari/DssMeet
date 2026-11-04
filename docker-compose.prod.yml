@@ -1,4 +1,4 @@
-# PrisonConnect — production stack for the Hostinger KVM2 VPS (India).
+# DssMeet — production stack for the Hostinger KVM2 VPS (India).
 #
 #   cp .env.production.example .env    # fill in real values first
 #   docker compose -f docker-compose.prod.yml up -d --build
@@ -13,22 +13,22 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: prisonconnect-postgres
+    container_name: dssmeet-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: prisonconnect
+      POSTGRES_USER: dssmeet
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (openssl rand -hex 16, hex only, no special chars)}
-      POSTGRES_DB: prisonconnect
+      POSTGRES_DB: dssmeet
     # No host ports: reachable only from the compose network.
     volumes:
-      - prisonconnect-pgdata:/var/lib/postgresql/data
+      - dssmeet-pgdata:/var/lib/postgresql/data
       - ./db-setup/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U prisonconnect -d prisonconnect"]
+      test: ["CMD-SHELL", "pg_isready -U dssmeet -d dssmeet"]
       interval: 10s
       timeout: 5s
       retries: 5
-    networks: [prisonconnect]
+    networks: [dssmeet]
     deploy:
       resources:
         limits: { memory: 2g }
@@ -38,7 +38,7 @@ services:
   # secret ever lives in git (see turnserver.conf header).
   coturn:
     image: coturn/coturn:latest
-    container_name: prisonconnect-coturn
+    container_name: dssmeet-coturn
     restart: unless-stopped
     environment:
       VPS_PUBLIC_IP: ${VPS_PUBLIC_IP:?set VPS_PUBLIC_IP in .env (KVM2 public IP)}
@@ -60,7 +60,7 @@ services:
     volumes:
       - ./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
       - ./coturn/certs:/etc/coturn/certs:ro
-    networks: [prisonconnect]
+    networks: [dssmeet]
     deploy:
       resources:
         limits: { memory: 128m }
@@ -69,7 +69,7 @@ services:
   # Caddy proxies https://signal.<domain> to it (WebSocket included).
   signaling-server:
     build: ./signaling-server
-    container_name: prisonconnect-signaling
+    container_name: dssmeet-signaling
     restart: unless-stopped
     environment:
       PORT: 3002
@@ -84,7 +84,7 @@ services:
       # Join-ACK ICE list handed to kiosk + family-web — must point at THIS
       # server's coturn and match the user= appended above.
       TURN_SERVERS: ${TURN_SERVERS:?set TURN_SERVERS in .env (JSON — see .env.production.example)}
-    networks: [prisonconnect]
+    networks: [dssmeet]
     deploy:
       resources:
         limits: { memory: 256m }
@@ -94,12 +94,12 @@ services:
   # so kiosks never hardcode the signaling URL.
   backend:
     build: ./backend
-    container_name: prisonconnect-backend
+    container_name: dssmeet-backend
     restart: unless-stopped
     environment:
       NODE_ENV: production
       PORT: 3001
-      DATABASE_URL: postgres://prisonconnect:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (same value as postgres)}@postgres:5432/prisonconnect
+      DATABASE_URL: postgres://dssmeet:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (same value as postgres)}@postgres:5432/dssmeet
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env (same value as signaling)}
       MEDIA_API_KEY: ${MEDIA_API_KEY:?set MEDIA_API_KEY in .env (same value as signaling)}
       SIGNALING_URL: http://signaling-server:3002
@@ -132,7 +132,7 @@ services:
         condition: service_healthy
       signaling-server:
         condition: service_started
-    networks: [prisonconnect]
+    networks: [dssmeet]
     deploy:
       resources:
         limits: { memory: 512m }
@@ -141,7 +141,7 @@ services:
   # (auto Let's Encrypt, HTTP->HTTPS, WebSocket for Socket.IO).
   caddy:
     image: caddy:2-alpine
-    container_name: prisonconnect-caddy
+    container_name: dssmeet-caddy
     restart: unless-stopped
     environment:
       API_HOST: ${API_HOST:?set API_HOST in .env (e.g. api.example.com)}
@@ -157,16 +157,16 @@ services:
     depends_on:
       - backend
       - signaling-server
-    networks: [prisonconnect]
+    networks: [dssmeet]
     deploy:
       resources:
         limits: { memory: 128m }
 
 volumes:
-  prisonconnect-pgdata:
+  dssmeet-pgdata:
   caddy_data:
   caddy_config:
 
 networks:
-  prisonconnect:
+  dssmeet:
     driver: bridge

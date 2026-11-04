@@ -1,5 +1,5 @@
 /**
- * PrisonConnect Warden desktop shell (Electron).
+ * DssMeet Warden desktop shell (Electron).
  *
  * Security posture — this is a thin, hardened window around the built SPA:
  *  - Renderer is fully sandboxed: no Node, no preload bridge, no IPC surface.
@@ -37,8 +37,6 @@ const DEV_URL = 'http://localhost:3001';
  * look-alike http/deep-link URLs — is dropped without being opened.
  */
 const ALLOWED_EXTERNAL_HOSTS = new Set([
-  'prisonconnect-backend-q71g.onrender.com',
-  'warden-dashboard.onrender.com',
   'calls.dsssolutions.in',
   'www.google.com',
   'maps.google.com',
@@ -102,7 +100,7 @@ function createWindow() {
     backgroundColor: '#0B2240',
     ...(existsSync(APP_ICON) ? { icon: APP_ICON } : {}),
     autoHideMenuBar: true,
-    title: 'PrisonConnect Warden',
+    title: 'DssMeet Warden',
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -193,7 +191,7 @@ app.enableSandbox();
 
 // Match the installer's appId so Windows taskbar pinning/groups pick up the
 // app icon instead of Electron's default.
-if (process.platform === 'win32') app.setAppUserModelId('com.prisonconnect.warden');
+if (process.platform === 'win32') app.setAppUserModelId('com.dssmeet.warden');
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {

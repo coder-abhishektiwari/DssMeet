@@ -203,7 +203,7 @@ function linkTemplateVars(familyMemberName, linkUrl) {
  *
  * Template:
  *   "Your OTP to join the call is {#VAR#}. Do not share this OTP with anyone.
- *    @prisonconnect-familyweb.onrender.com #{#VAR#}"
+ *    @calls.dsssolutions.in #{#VAR#}"
  *
  * @param {string|number} otp
  * @returns {string[]}
@@ -252,7 +252,7 @@ function previewSms(kind, vars) {
     return `Dear ${vars[0]}, Your secure video call with DSS Solutions has been scheduled. Click the secure link below to join your video call: ${vars[1]} This link is valid for one session only.`;
   }
   if (kind === 'otp' && vars.length >= 1) {
-    return `Your OTP to join the call is ${vars[0]}. Do not share this OTP with anyone. @prisonconnect-familyweb.onrender.com #${vars[1] || vars[0]}`;
+    return `Your OTP to join the call is ${vars[0]}. Do not share this OTP with anyone. @calls.dsssolutions.in #${vars[1] || vars[0]}`;
   }
   if (kind === 'scheduled' && vars.length >= 6) {
     return `Dear ${vars[0]}, ${vars[1]} has scheduled a ${vars[2]} on ${vars[3]} at ${vars[4]}. Click the secure link below to join the call: ${vars[5]} Please do not share this link with anyone.`;

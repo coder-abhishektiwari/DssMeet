@@ -1,4 +1,4 @@
-# PrisonConnect — Production Deployment Runbook
+# DssMeet — Production Deployment Runbook
 
 Target: **Hostinger KVM2 (Ubuntu 24.04, India)** + **Cloudflare Pages** (family-web).
 Stack: `postgres` · `coturn` · `signaling` · `backend` · `caddy` (Docker Compose).
@@ -15,7 +15,7 @@ Replace `example.com` with YOUR domain everywhere.
 | Domain | GoDaddy (already bought) | DNS |
 | KVM2 VPS | Hostinger (already bought, India DC) | compute |
 | Cloudflare account (free) | cloudflare.com | Pages + DNS |
-| GitHub repo | github.com/coder-abhishektiwari/PrisonConnectPro (public) | code source |
+| GitHub repo | github.com/coder-abhishektiwari/DssMeet (public) | code source |
 | Razorpay (optional) | dashboard.razorpay.com | wallet payments |
 | Fast2SMS | fast2sms.com | OTP SMS (can wait — launch with `SMS_PROVIDER=log`) |
 | UptimeRobot (free) | uptimerobot.com | uptime alerts |
@@ -32,8 +32,8 @@ Replace `example.com` with YOUR domain everywhere.
 
 ```bash
 apt-get update -y && apt-get install -y git curl
-git clone https://github.com/coder-abhishektiwari/PrisonConnectPro.git /opt/PrisonConnect
-bash /opt/PrisonConnect/deploy/setup-vps.sh
+git clone https://github.com/coder-abhishektiwari/DssMeet.git /opt/DssMeet
+bash /opt/DssMeet/deploy/setup-vps.sh
 ```
 
 This installs Docker, ufw (22/80/443/3478/41000-41040), fail2ban, log rotation, sysctl hardening.
@@ -50,7 +50,7 @@ ufw allow from YOUR.IP.HERE to any port 22 proto tcp
 ## 3. Configure `.env`
 
 ```bash
-cd /opt/PrisonConnect
+cd /opt/DssMeet
 cp .env.production.example .env
 chmod 600 .env
 nano .env    # or vim
@@ -98,7 +98,7 @@ Two options — **A is simpler**:
 ## 5. Start the stack
 
 ```bash
-cd /opt/PrisonConnect
+cd /opt/DssMeet
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
@@ -125,7 +125,7 @@ curl -s https://signal.example.com/api/health
 
 ## 6. Cloudflare Pages (family-web)
 
-1. cloudflare.com → **Workers & Pages → Create → Pages → Connect to Git** → pick `PrisonConnectPro`.
+1. cloudflare.com → **Workers & Pages → Create → Pages → Connect to Git** → pick `DssMeetPro`.
 2. Settings → **Build & deployments**:
    - Framework preset: **Vite**
    - Root directory: **`family-web`**
@@ -178,20 +178,20 @@ crontab -e
 Add:
 
 ```
-0 3 * * * /opt/PrisonConnect/deploy/backup.sh >> /var/log/pc-backup.log 2>&1
+0 3 * * * /opt/DssMeet/deploy/backup.sh >> /var/log/pc-backup.log 2>&1
 ```
 
 Layer 2 (automatic): hPanel → VPS → **Backups** — weekly off-server backup is included free. Verify it's enabled.
 
-Test a dump manually: `bash /opt/PrisonConnect/deploy/backup.sh`
+Test a dump manually: `bash /opt/DssMeet/deploy/backup.sh`
 
 ---
 
 ## 10. Restore drill (once, so you know it works)
 
 ```bash
-docker exec -i prisonconnect-postgres pg_restore -U prisonconnect \
-  -d prisonconnect --clean --if-exists < /var/backups/prisonconnect/pc-<DATE>.dump
+docker exec -i dssmeet-postgres pg_restore -U dssmeet \
+  -d dssmeet --clean --if-exists < /var/backups/dssmeet/pc-<DATE>.dump
 ```
 
 ---
@@ -255,7 +255,7 @@ git pull && docker compose -f docker-compose.prod.yml up -d --build
 df -h && docker system df
 ```
 
-Rollback: `git checkout <last-good-commit> && docker compose -f docker-compose.prod.yml up -d --build`. DB is append-only via migrations — restore from `/var/backups/prisonconnect/` only if a bad migration ran.
+Rollback: `git checkout <last-good-commit> && docker compose -f docker-compose.prod.yml up -d --build`. DB is append-only via migrations — restore from `/var/backups/dssmeet/` only if a bad migration ran.
 
 ---
 

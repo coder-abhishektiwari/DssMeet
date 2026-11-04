@@ -18,7 +18,7 @@ export function WelcomePage() {
         <div className="mx-auto flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl border border-primary-100 bg-primary-50">
           <img
             src="/ic_icon.webp"
-            alt="PrisonConnect"
+            alt="DssMeet"
             className="w-10 h-10 object-contain"
             aria-hidden="true"
           />
@@ -29,7 +29,7 @@ export function WelcomePage() {
         </p>
 
         <h1 className="mt-3 text-3xl font-semibold leading-tight tracking-tight text-neutral-900 sm:text-4xl">
-          Welcome to PrisonConnect
+          Welcome to DssMeet
         </h1>
 
         <p className="mx-auto mt-4 max-w-md text-sm leading-6 text-neutral-600 sm:text-base sm:leading-7">

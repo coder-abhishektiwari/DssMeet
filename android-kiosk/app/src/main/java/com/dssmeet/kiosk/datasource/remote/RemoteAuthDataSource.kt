@@ -1,0 +1,61 @@
+package com.dssmeet.kiosk.datasource.remote
+
+import android.util.Base64
+import com.dssmeet.kiosk.api.TrustApiService
+import com.dssmeet.kiosk.core.ApiCache
+import com.dssmeet.kiosk.datasource.AuthDataSource
+import com.dssmeet.kiosk.models.auth.*
+import com.dssmeet.kiosk.models.common.ApiResponse
+import com.dssmeet.kiosk.models.inmate.InmateProfile
+import javax.inject.Inject
+import javax.inject.Singleton
+
+@Singleton
+class RemoteAuthDataSource @Inject constructor(
+    private val apiService: TrustApiService,
+    private val cache: ApiCache
+) : AuthDataSource {
+    override suspend fun login(request: LoginRequest): ApiResponse<AuthToken> =
+        apiService.login(request)
+
+    override suspend fun refreshToken(refreshToken: String): ApiResponse<AuthToken> =
+        apiService.refreshToken(RefreshTokenRequest(refreshToken))
+
+    override suspend fun logout(accessToken: String): ApiResponse<Unit> =
+        apiService.logout("Bearer $accessToken")
+
+    override suspend fun identifyFingerprint(kioskId: String, capture: ByteArray): ApiResponse<InmateProfile> {
+        val captureBase64 = Base64.encodeToString(capture, Base64.NO_WRAP)
+        return apiService.identifyFingerprint(FingerprintIdentifyRequest(kioskId, captureBase64))
+    }
+
+    override suspend fun identifyRfid(request: LoginRequest): ApiResponse<InmateProfile> =
+        apiService.identifyRfid(request)
+
+    override suspend fun identifyPrisoner(kioskId: String, prisonerId: String): ApiResponse<InmateProfile> =
+        apiService.identifyPrisoner(LoginRequest(kioskId = kioskId, prisonerId = prisonerId))
+
+    override suspend fun verifyPin(request: PinVerifyRequest): ApiResponse<AuthToken> =
+        apiService.verifyPin(request)
+
+    override suspend fun verifyKiosk(request: KioskVerifyRequest): ApiResponse<KioskVerifyResponse> =
+        apiService.verifyKiosk(request)
+
+    override suspend fun adminIdentify(request: LoginRequest): ApiResponse<AdminProfile> =
+        apiService.adminIdentify(request)
+
+    override suspend fun adminVerifyPassword(adminId: String, password: String, kioskId: String): ApiResponse<AuthToken> {
+        val request = AdminVerifyPasswordRequest(adminId, password, kioskId)
+        return apiService.adminVerifyPassword(request)
+    }
+
+    override suspend fun validateSetupPassword(request: ValidateSetupPasswordRequest): ApiResponse<ValidateSetupPasswordResponse> =
+        apiService.validateSetupPassword(request)
+
+    override suspend fun registerKiosk(request: KioskRegistrationRequest): ApiResponse<KioskRegistrationResponse> =
+        apiService.registerKiosk(request)
+
+    override suspend fun getRegistrationStatus(serialNumber: String): ApiResponse<RegistrationStatusResponse> =
+        cache.getOrFetch("registration:$serialNumber", ttlMs = 60_000L) { apiService.getRegistrationStatus(serialNumber) }
+}
+

@@ -1,4 +1,4 @@
--- PrisonConnect core schema (PostgreSQL 16).
+-- DssMeet core schema (PostgreSQL 16).
 -- Each collection keeps its full original document in a `data` JSONB column so the
 -- API layer can round-trip records unchanged; relational key columns are kept in
 -- sync by the data-access layer to give us real foreign keys, indexes and

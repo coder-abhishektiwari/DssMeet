@@ -1,0 +1,47 @@
+package com.dssmeet.kiosk.repository
+
+import com.dssmeet.kiosk.models.call.*
+import com.dssmeet.kiosk.models.schedule.SlotsResponse
+import com.dssmeet.kiosk.models.schedule.ScheduleRequest
+import com.dssmeet.kiosk.network.NetworkResult
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.StateFlow
+import org.json.JSONObject
+
+interface CallRepository {
+    val socketStatus: StateFlow<SocketStatus>
+    val roomStatus: StateFlow<RoomStatus>
+    val signalingStatus: StateFlow<SignalingStatus>
+
+    fun getScheduledCalls(id: String): Flow<NetworkResult<List<ScheduledCall>>>
+    fun getCallHistory(id: String): Flow<NetworkResult<List<CallHistory>>>
+    fun getBookedSlots(kioskId: String, date: String): Flow<NetworkResult<com.dssmeet.kiosk.models.schedule.SlotsResponse>>
+    fun bookCall(request: ScheduleRequest): Flow<NetworkResult<ScheduledCall>>
+    fun cancelBooking(bookingId: String): Flow<NetworkResult<Unit>>
+    fun createRoom(
+        inmateId: String, contactId: String, kioskId: String, callType: String,
+        callId: String? = null, roomId: String? = null, scheduleId: String? = null
+    ): Flow<NetworkResult<CallSession>>
+    fun checkSlotAvailability(contactId: String): Flow<NetworkResult<Boolean>>
+
+    // Signaling (pure P2P WebRTC — Socket.IO only relays SDP + ICE)
+    fun initSignaling()
+    fun joinRoom(roomId: String, peerId: String)
+    fun leaveRoom(roomId: String, peerId: String)
+    fun sendOffer(sdp: JSONObject)
+    fun sendAnswer(sdp: JSONObject)
+
+    /** Notify the room that this peer hung up, so the other side ends too. */
+    fun sendCallEnded(reason: String = "hangup")
+    fun sendIceCandidate(candidate: JSONObject)
+    fun getCallStatus(callId: String): Flow<NetworkResult<CallStatusSnapshot>>
+
+    /** Finalize the backend call record (duration/billing) once the call ends. */
+    fun notifyCallEnded(callId: String, request: EndCallRequest = EndCallRequest())
+    fun observeSignalingEvents(): Flow<SignalingEvent>
+
+    /** Periodic stats report during an active call (quality, recording status). */
+    suspend fun reportStats(callId: String, report: CallStatsReport)
+
+    suspend fun getSettings(): NetworkResult<com.google.gson.JsonObject?>
+}

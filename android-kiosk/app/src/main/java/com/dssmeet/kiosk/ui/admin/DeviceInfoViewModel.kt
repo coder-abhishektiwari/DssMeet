@@ -1,0 +1,153 @@
+package com.dssmeet.kiosk.ui.admin
+
+import android.os.Build
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.dssmeet.kiosk.BuildConfig
+import com.dssmeet.kiosk.core.SessionManager
+import com.dssmeet.kiosk.models.admin.HardwareStatus
+import com.dssmeet.kiosk.models.admin.KioskDevice
+import com.dssmeet.kiosk.models.admin.KioskHardware
+import com.dssmeet.kiosk.models.admin.NetworkStatus
+import com.dssmeet.kiosk.network.NetworkResult
+import com.dssmeet.kiosk.repository.AdminRepository
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import javax.inject.Inject
+
+@HiltViewModel
+class DeviceInfoViewModel @Inject constructor(
+    private val adminRepository: AdminRepository,
+    private val deviceInfoProvider: com.dssmeet.kiosk.hardware.DeviceInfoProvider,
+    private val sessionManager: SessionManager
+) : ViewModel() {
+
+    private val _deviceInfo = MutableStateFlow<KioskDevice?>(null)
+    val deviceInfo: StateFlow<KioskDevice?> = _deviceInfo.asStateFlow()
+
+    private val _localDeviceInfo = MutableStateFlow<Map<String, String>>(emptyMap())
+    val localDeviceInfo: StateFlow<Map<String, String>> = _localDeviceInfo.asStateFlow()
+
+    /** Identity this kiosk registered/saved with — matches what the warden sees. */
+    private val _registeredSerial = MutableStateFlow<String?>(null)
+    val registeredSerial: StateFlow<String?> = _registeredSerial.asStateFlow()
+
+    private val _isLoading = MutableStateFlow(false)
+    val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
+
+    private val _error = MutableStateFlow<String?>(null)
+    val error: StateFlow<String?> = _error.asStateFlow()
+
+    /**
+     * Loads device info for the SERVER-issued kiosk id saved at
+     * registration/verify. Without one (device not registered yet) only the
+     * local hardware panel is populated — no remote call is made with a fake
+     * build-time id.
+     */
+    fun loadDeviceInfo() {
+        viewModelScope.launch {
+            val kioskInfo = runCatching { sessionManager.getKioskInfo() }.getOrNull()
+            val registeredSerial = kioskInfo?.deviceSerialNumber?.takeIf { it.isNotBlank() }
+            _registeredSerial.value = registeredSerial
+
+            // Local hardware identity — instant and always available. The
+            // Serial shown here is the one stored at registration/verify (the
+            // same value the warden dashboard lists), not a fresh hardware
+            // read that would fall back to a placeholder id.
+            _localDeviceInfo.value = mapOf(
+                "Serial" to (registeredSerial
+                    ?: deviceInfoProvider.getRegistrationDeviceId()),
+                "IP Address" to (deviceInfoProvider.getIpAddress() ?: "Unavailable")
+            )
+
+            val prisonId = kioskInfo?.prisonId?.takeIf { it.isNotBlank() }
+                ?: runCatching { sessionManager.getRegisteredPrisonId() }.getOrNull()
+            val local = buildLocalDevice(kioskInfo?.kioskId, prisonId, kioskInfo?.prisonName, registeredSerial)
+            _deviceInfo.value = local
+
+            val kioskId = kioskInfo?.kioskId?.takeIf { it.isNotBlank() }
+            if (kioskId == null) {
+                // Hard-fail: never query the server with a placeholder id.
+                _error.value = "Kiosk device is not verified. Please contact administration."
+                _isLoading.value = false
+                return@launch
+            }
+
+            adminRepository.getDevice(kioskId).collect { result ->
+                when (result) {
+                    is NetworkResult.Success -> {
+                        _deviceInfo.value = mergeRemote(local, result.data)
+                        _isLoading.value = false
+                    }
+                    is NetworkResult.Failure -> {
+                        // Local data is already on screen; remote was a bonus.
+                        _error.value = result.error.message
+                        _isLoading.value = false
+                    }
+                    else -> {}
+                }
+            }
+        }
+    }
+
+    /** Everything the device can answer about itself, offline-first. */
+    private fun buildLocalDevice(
+        kioskId: String?,
+        prisonId: String?,
+        prisonName: String?,
+        serialOverride: String?
+    ): KioskDevice {
+        val serial = serialOverride
+            ?: deviceInfoProvider.getDeviceSerialNumber()
+            ?: deviceInfoProvider.getRegistrationDeviceId()
+        val ip = deviceInfoProvider.getIpAddress()
+        return KioskDevice(
+            // Only the SERVER-issued id after a successful verify; never a
+            // build-time constant (every install used to display "KIOSK-001").
+            kioskId = kioskId?.takeIf { it.isNotBlank() } ?: "Not registered yet",
+            deviceId = serial,
+            serialNumber = serial,
+            prisonId = prisonId,
+            prisonName = prisonName,
+            status = "online",
+            location = null,
+            ipAddress = ip,
+            appVersion = BuildConfig.VERSION_NAME,
+            androidVersion = "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
+            model = Build.MODEL,
+            manufacturer = Build.MANUFACTURER,
+            deviceFingerprint = deviceInfoProvider.getDeviceFingerprint(),
+            hardware = KioskHardware(
+                model = Build.MODEL,
+                manufacturer = Build.MANUFACTURER,
+                serialNumber = serial,
+                processor = deviceInfoProvider.getCpuDescription(),
+                ram = deviceInfoProvider.getRamDescription(),
+                storage = deviceInfoProvider.getStorageDescription(),
+                screenSize = deviceInfoProvider.getScreenResolution()
+            ),
+            camera = HardwareStatus(
+                status = if (deviceInfoProvider.hasCamera()) "Available" else "Not available"
+            ),
+            microphone = HardwareStatus(
+                status = if (deviceInfoProvider.hasMicrophone()) "Available" else "Not available"
+            ),
+            network = NetworkStatus(
+                status = if (ip != null) "Connected" else "Not connected"
+            )
+        )
+    }
+
+    /** Remote wins only where it actually knows more than the device does. */
+    private fun mergeRemote(local: KioskDevice, remote: KioskDevice): KioskDevice =
+        local.copy(
+            hardware = remote.hardware?.takeIf { !it.ram.isNullOrBlank() || !it.processor.isNullOrBlank() }
+                ?: local.hardware,
+            camera = remote.camera?.takeIf { !it.status.isNullOrBlank() } ?: local.camera,
+            microphone = remote.microphone?.takeIf { !it.status.isNullOrBlank() } ?: local.microphone,
+            network = remote.network?.takeIf { !it.status.isNullOrBlank() } ?: local.network
+        )
+}

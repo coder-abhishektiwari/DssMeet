@@ -2,7 +2,7 @@ require('dotenv').config();
 const jwt = require('jsonwebtoken');
 const { io: createClient } = require('socket.io-client');
 
-const URL = process.env.PROBE_URL || 'https://prisonconnect-signaling.onrender.com';
+const URL = process.env.PROBE_URL || 'http://127.0.0.1:3002';
 const SECRET = process.env.JWT_SECRET;
 const tokenFor = (sub, role, extra = {}) => jwt.sign({ sub, role, ...extra }, SECRET, { expiresIn: '1h' });
 

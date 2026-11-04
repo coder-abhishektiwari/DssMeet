@@ -27,6 +27,11 @@ jobs:
       - name: Build web bundle
         run: npm run build
         working-directory: warden-dashboard
+        env:
+          # No backend URL is baked into the source. Set the
+          # VITE_API_GATEWAY_URL repository variable for a real endpoint;
+          # otherwise the build uses a non-routable placeholder.
+          VITE_API_GATEWAY_URL: ${{ vars.VITE_API_GATEWAY_URL || 'https://api.example.com' }}
       - name: Package NSIS installer
         run: npx electron-builder --win nsis
         working-directory: warden-dashboard
@@ -48,6 +53,8 @@ jobs:
       - name: Build web bundle
         run: npm run build
         working-directory: warden-dashboard
+        env:
+          VITE_API_GATEWAY_URL: ${{ vars.VITE_API_GATEWAY_URL || 'https://api.example.com' }}
       - name: Package AppImage + deb
         run: npx electron-builder --linux AppImage deb
         working-directory: warden-dashboard

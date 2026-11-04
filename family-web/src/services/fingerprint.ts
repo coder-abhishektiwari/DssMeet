@@ -79,7 +79,7 @@ function canvasHash(): string | null {
     ctx.fillStyle = '#f60';
     ctx.fillRect(0, 0, 220, 30);
     ctx.fillStyle = '#069';
-    ctx.fillText('PrisonConnect\u{1F12F}', 2, 2);
+    ctx.fillText('DssMeet\u{1F12F}', 2, 2);
     return canvas.toDataURL('image/png');
   } catch {
     return null;

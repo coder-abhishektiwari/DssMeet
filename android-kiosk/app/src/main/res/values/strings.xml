@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">PrisonConnect Kiosk</string>
+    <string name="app_name">DssMeet</string>
     <string name="secure_prison_kiosk">SECURE PRISON KIOSK</string>
     <string name="secure_communication_kiosk">Secure Communication Kiosk</string>
     <string name="secure_encrypted_verified">Secure • Encrypted • Verified</string>

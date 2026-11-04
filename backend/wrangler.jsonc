@@ -1,5 +1,5 @@
 {
-  // Cloudflare Workers configuration for PrisonConnect backend
+  // Cloudflare Workers configuration for DssMeet backend
   // WARNING: This backend uses Express, Socket.IO, pg (PostgreSQL TCP) and filesystem ops,
   //          which are NOT COMPATIBLE with Workers.
   //          This config is provided as a starting point for migration work.
@@ -8,7 +8,7 @@
   // To make this work, the backend MUST be rewritten to use Workers-compatible
   // patterns (fetch handler, itty-router/hono, Hyperdrive, R2, etc.)
 
-  "name": "prisonconnect-backend",
+  "name": "dssmeet-backend",
   "main": "server.js",
   "compatibility_date": "2025-09-01",
 

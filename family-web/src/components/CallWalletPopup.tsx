@@ -99,7 +99,7 @@ export function CallWalletPopup({ sessionToken, inmateName, onClose }: CallWalle
         amount: order.amountPaise,
         currency: order.currency,
         order_id: order.orderId,
-        name: 'PrisonConnect',
+        name: 'DssMeet',
         description: `Wallet deposit${info?.inmateName ? ` for ${info.inmateName}` : ''}`,
         handler: (response: RazorpayResponse) => {
           void (async () => {

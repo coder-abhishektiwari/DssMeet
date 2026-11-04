@@ -1,5 +1,5 @@
 /**
- * PrisonConnect theme engine.
+ * DssMeet theme engine.
  * Single runtime that turns a small theme config (brand color, status colors,
  * surfaces, text scale, roundness, font) into the CSS variables the whole app
  * is built on (see src/styles/theme.css). Loaded by:

@@ -18,7 +18,7 @@ export function SplashScreen() {
 
         {/* Brand */}
         <div className="text-center">
-          <h1 className="text-2xl font-bold text-white tracking-tight">PrisonConnect</h1>
+          <h1 className="text-2xl font-bold text-white tracking-tight">DssMeet</h1>
           <p className="text-sm text-slate-500 mt-1 uppercase tracking-[0.2em] text-xs font-semibold">
             Vendor Super Admin
           </p>

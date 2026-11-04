@@ -278,10 +278,10 @@ router.post('/forgot-password', authLimiter, asyncRoute(async (req, res) => {
       try {
         await sendMail({
           to: warden.email,
-          subject: 'PrisonConnect \u2014 your password reset code',
+          subject: 'DssMeet \u2014 your password reset code',
           text:
             `Hi ${warden.name || 'there'},\n\n` +
-            `Your PrisonConnect password reset code is:\n\n    ${code}\n\n` +
+            `Your DssMeet password reset code is:\n\n    ${code}\n\n` +
             `It expires in 10 minutes and can be used once. If you did not request this, you can safely ignore this email.\n`,
         });
       } catch (err) {

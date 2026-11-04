@@ -1,4 +1,4 @@
-// PrisonConnect backend audit integration tests.
+// DssMeet backend audit integration tests.
 // Spawns the real server.js on a test port and verifies behavior with real HTTP.
 // Usage: node audit-tests.mjs
 import { spawn } from 'node:child_process';
@@ -15,7 +15,7 @@ const BASE = `http://127.0.0.1:${PORT}`;
 // The suite needs a warden token for ~30 authorization tests, and the warden
 // account lives in the seed data. The password is a real credential, so it is
 // read from the environment instead of being committed to the repo.
-const WARDEN_EMAIL = process.env.AUDIT_WARDEN_EMAIL || 'rajesh.kumar@prisonconnect.gov.in';
+const WARDEN_EMAIL = process.env.AUDIT_WARDEN_EMAIL || 'abhishektiwari2295@gmail.com';
 const WARDEN_PASSWORD = process.env.AUDIT_WARDEN_PASSWORD || '';
 if (!WARDEN_PASSWORD) {
   console.error('\nAUDIT_WARDEN_PASSWORD is not set.');
@@ -254,7 +254,7 @@ try {
   try {
     const { Pool } = await import('pg');
     const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-    const seeded = await pool.query(`SELECT data->>'password' AS pw FROM wardens WHERE email = $1`, ['rajesh.kumar@prisonconnect.gov.in']);
+    const seeded = await pool.query(`SELECT data->>'password' AS pw FROM wardens WHERE email = $1`, ['abhishektiwari2295@gmail.com']);
     const kioskUser = await pool.query(`SELECT data->>'password' AS pw FROM users ORDER BY id LIMIT 1`);
     await pool.end();
     const sp = seeded.rows[0]?.pw || '';

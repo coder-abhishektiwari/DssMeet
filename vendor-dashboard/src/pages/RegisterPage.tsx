@@ -56,7 +56,7 @@ export function RegisterPage() {
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary-600 mb-4 shadow-lg shadow-primary-500/20">
             <Shield className="w-10 h-10 text-white" />
           </div>
-          <h1 className="text-3xl font-bold text-white tracking-tight">PrisonConnect</h1>
+          <h1 className="text-3xl font-bold text-white tracking-tight">DssMeet</h1>
           <p className="text-slate-400 mt-2 uppercase tracking-[0.2em] text-xs font-semibold">
             Vendor Super Admin Console
           </p>

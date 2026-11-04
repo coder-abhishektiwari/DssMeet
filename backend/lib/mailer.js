@@ -30,7 +30,7 @@ const SMTP_SECURE =
     : SMTP_PORT === 465;
 const SMTP_USER = process.env.SMTP_USER || '';
 const SMTP_PASS = process.env.SMTP_PASS || '';
-const SMTP_FROM = process.env.SMTP_FROM || SMTP_USER || 'PrisonConnect <no-reply@prisonconnect.local>';
+const SMTP_FROM = process.env.SMTP_FROM || SMTP_USER || 'DssMeet <no-reply@dssmeet.local>';
 
 const PROVIDER = (
   process.env.MAIL_PROVIDER || (SMTP_HOST ? 'smtp' : 'log')

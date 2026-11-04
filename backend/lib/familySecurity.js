@@ -20,7 +20,7 @@ const FAMILY_WEB_URL = (process.env.FAMILY_WEB_URL || '').replace(/\/+$/, '');
 console.log(`[family] FAMILY_WEB_URL="${FAMILY_WEB_URL}"`);
 
 if (!FAMILY_WEB_URL) {
-  throw new Error('FAMILY_WEB_URL env var is required - set it to the public family-web base URL (e.g. https://family-web.onrender.com) before starting the server');
+  throw new Error('FAMILY_WEB_URL env var is required - set it to the public family-web base URL (e.g. https://family.example.com) before starting the server');
 }
 if (process.env.NODE_ENV === 'production' && /^https?:\/\/(127\.\d+\.\d+\.\d+|localhost|0\.0\.0\.0)(:\d+)?(\/|$)/i.test(FAMILY_WEB_URL)) {
   throw new Error('FAMILY_WEB_URL must be a public https URL in production (got: ' + FAMILY_WEB_URL + ') - call links would otherwise point at localhost');

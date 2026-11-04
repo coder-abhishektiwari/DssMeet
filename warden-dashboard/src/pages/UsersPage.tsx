@@ -744,7 +744,7 @@ export function UsersPage() {
                     value={adminForm.email}
                     onChange={(e) => setAdminField('email', e.target.value)}
                     className="w-full px-3 py-2 border-2 border-neutral-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-neutral-100 disabled:text-neutral-500 disabled:cursor-not-allowed"
-                    placeholder="name@prisonconnect.io"
+                    placeholder="name@dssmeet.io"
                   />
                   {adminFormErrors.email && <p className="mt-1 text-xs text-error">{adminFormErrors.email}</p>}
                 </div>

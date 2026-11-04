@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PrisonConnect VPS bootstrap — Ubuntu 24.04, run as root.
+# DssMeet VPS bootstrap — Ubuntu 24.04, run as root.
 # Installs Docker, log rotation, ufw, fail2ban, sysctl hardening.
 # Idempotent: safe to re-run.
 set -euo pipefail
@@ -41,7 +41,7 @@ echo "[5/6] fail2ban (SSH brute-force protection)..."
 systemctl enable --now fail2ban
 
 echo "[6/6] kernel hardening..."
-cat > /etc/sysctl.d/99-prisonconnect.conf <<'EOF'
+cat > /etc/sysctl.d/99-dssmeet.conf <<'EOF'
 net.ipv4.tcp_syncookies = 1
 net.ipv4.icmp_echo_ignore_broadcasts = 1
 kernel.kptr_restrict = 1

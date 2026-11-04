@@ -6,8 +6,10 @@ RUN npm install
 
 COPY . .
 
-ARG VITE_API_GATEWAY_URL=http://127.0.0.1:3001
+ARG VITE_API_GATEWAY_URL
 ENV VITE_API_GATEWAY_URL=$VITE_API_GATEWAY_URL
+
+RUN test -n "$VITE_API_GATEWAY_URL" || (echo '[build] VITE_API_GATEWAY_URL is a REQUIRED build arg (public backend URL). No localhost defaults are allowed.' && exit 1)
 
 RUN npm run build
 
