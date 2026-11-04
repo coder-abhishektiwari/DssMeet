@@ -11,6 +11,7 @@ Desktop.ini
 *.swp
 *.swo
 *.iml
+.git1212
 
 # Node / Web Dependencies & Builds
 node_modules/
