@@ -52,3 +52,6 @@ backend/logs/
 # Runtime launcher logs + call recordings (uploaded to backend, never committed)
 logs/
 backend/recordings/
+
+# Personal agent instructions (never committed)
+AGENTS.md

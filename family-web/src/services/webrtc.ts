@@ -1,5 +1,4 @@
 import { socketService } from './socket';
-import { env } from '@/config/env';
 import type { CallSession } from '@/types/call';
 
 export type ConnectionState = 
@@ -65,18 +64,9 @@ class WebRtcService {
   async initialize(_session: CallSession, customIceServers?: RTCIceServer[]): Promise<void> {
     if (customIceServers && customIceServers.length > 0) {
       this.iceServers = customIceServers;
-    } else if (env.webrtcIceServers) {
-      // Deployment-provided STUN/TURN config (build-time). TURN is strictly a
-      // connectivity fallback — media is P2P, never relayed through a server.
-      try {
-        const parsed = JSON.parse(env.webrtcIceServers) as RTCIceServer[];
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          this.iceServers = parsed;
-        }
-      } catch (e) {
-        console.warn('[WebRTC] Invalid VITE_WEBRTC_ICE_SERVERS, keeping defaults:', e);
-      }
     }
+    // TURN arrives in the join ACK from the signaling server (TURN_SERVERS
+    // env) - nothing static is baked into this bundle.
     // Register BEFORE joinRoom(): signaling events that beat handleJoined()
     // must land on a listener, not fall on the floor.
     this.registerSignalingListeners();
