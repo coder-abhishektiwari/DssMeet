@@ -7,6 +7,7 @@ const { requireRole } = require('./middleware/auth');
 const { inAdminScope, adminScopeFilter, jailScopeOf, kioskScopeOf } = require('./lib/scoping');
 const { paginate } = require('./lib/paginate');
 const { inmateDeleteHandler, validateInmateRefs, stripRemovedInmateFields, hashBiometricData } = require('./routes/inmates');
+const { creditWelcomeBonus } = require('./lib/wallets');
 const { isValidRfidNumber, rfidCardNumberFor, biometricValidationError } = require('./lib/biometrics');
 
 const ALL_ROLES = ['admin', 'warden', 'kiosk_admin', 'super-admin', 'super_admin'];
@@ -171,6 +172,9 @@ router.post('/prisoners', requireRole(...ALL_ROLES), async (req, res) => {
   const record = {
     ...inmateData,
     inmateId,
+    // Wallet id is minted here so the welcome credit below (and the call
+    // charge path later) always resolves the same wallet row.
+    walletId: inmateData.walletId || `WAL-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     prisonId: jailId || inmateData.prisonId,
     facility: jailId || inmateData.facility,
     assignedKioskId: kioskId || inmateData.assignedKioskId,
@@ -190,6 +194,12 @@ router.post('/prisoners', requireRole(...ALL_ROLES), async (req, res) => {
     record.lastName = record.name.split(' ').slice(1).join(' ');
   }
   const updated = await updateDb('inmates.json', (inmates) => ({ data: [...inmates, record], result: record }));
+  // Prisoner is committed — provision the wallet with the ₹5 welcome balance.
+  // Same contract as routes/inmates.js: a wallet failure must never 500 a
+  // registration that already succeeded.
+  await creditWelcomeBonus(record.inmateId, record.walletId).catch((err) =>
+    console.error(`[wallet] welcome credit failed for ${record.inmateId}:`, err.message)
+  );
   // Prisoner is committed — now the optional family contacts. A contact/DB
   // failure must never 500 a registration that already succeeded; the warden
   // can always add contacts later from Manage Contacts.

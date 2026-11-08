@@ -1,0 +1,57 @@
+name: Deploy to VPS
+
+# Auto-deploy on push to main, with server-side health-gated rollback
+# (deploy/deploy.sh): a build that fails /health is reverted to the previous
+# commit automatically and the job exits red.
+#
+# Required repository secrets:
+#   VPS_HOST      e.g. 187.127.154.61
+#   VPS_USER      e.g. root
+#   VPS_SSH_KEY   private key whose public half is in the VPS authorized_keys
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'signaling-server/**'
+      - 'coturn/**'
+      - 'docker-compose.prod.yml'
+      - 'Caddyfile'
+      - 'deploy/deploy.sh'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
+
+# Never run two deploys at once; queue behind the running one instead of
+# cancelling mid-deploy (a cancelled docker build leaves mixed images).
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Deploy over SSH (build → health check → auto-rollback)
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          # Bootstrap: the VPS's existing checkout may predate deploy.sh, so
+          # extract the script from the pushed commit itself, then run it.
+          # deploy.sh exits 1 when the new build failed health AND the
+          # rollback completed — the job is marked failed so you get notified.
+          script: |
+            set -e
+            cd /opt/DssMeet
+            git fetch --quiet origin "${{ github.sha }}" 2>/dev/null || git fetch --quiet origin main
+            git show "${{ github.sha }}:deploy/deploy.sh" > /tmp/dssmeet-deploy.sh
+            bash /tmp/dssmeet-deploy.sh /opt/DssMeet "${{ github.sha }}"
+
+      - name: Post-deploy status
+        if: always()
+        run: |
+          echo "Deployed commit: ${{ github.sha }}"
+          echo "Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"

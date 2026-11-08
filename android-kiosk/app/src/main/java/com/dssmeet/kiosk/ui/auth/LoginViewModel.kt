@@ -13,6 +13,7 @@ import com.dssmeet.kiosk.hardware.FingerprintCaptureState
 import com.dssmeet.kiosk.hardware.FingerprintHardwareManager
 import com.dssmeet.kiosk.hardware.RfidReaderManager
 import com.dssmeet.kiosk.hardware.RfidReaderState
+import com.dssmeet.kiosk.models.auth.AdminBootstrapCreateRequest
 import com.dssmeet.kiosk.models.auth.AdminProfile
 import com.dssmeet.kiosk.models.auth.AdminVerifyPasswordRequest
 import com.dssmeet.kiosk.models.auth.LoginRequest
@@ -32,7 +33,8 @@ import javax.inject.Inject
 import kotlin.time.Duration.Companion.milliseconds
 
 enum class LoginStage {
-    METHOD_SELECTION, FINGERPRINT_SCANNING, RFID_SCANNING, PRISONER_ID_ENTRY, PIN_ENTRY, ADMIN_USERNAME_ENTRY, ADMIN_PIN_ENTRY
+    METHOD_SELECTION, FINGERPRINT_SCANNING, RFID_SCANNING, PRISONER_ID_ENTRY, PIN_ENTRY,
+    ADMIN_USERNAME_ENTRY, ADMIN_PIN_ENTRY, ADMIN_CREATE_ENTRY
 }
 
 @HiltViewModel
@@ -51,6 +53,15 @@ class LoginViewModel @Inject constructor(
 
     private val _identifiedAdmin = MutableStateFlow<AdminProfile?>(null)
     val identifiedAdmin = _identifiedAdmin.asStateFlow()
+
+    /**
+     * True while this kiosk's jail has no kiosk admin yet — the welcome screen
+     * swaps its "Admin Login" button for "Create Login". Refreshed on every
+     * entry to METHOD_SELECTION; a failed check simply leaves the normal
+     * Admin Login shown (never blocks signing in).
+     */
+    private val _needsBootstrap = MutableStateFlow(false)
+    val needsBootstrap = _needsBootstrap.asStateFlow()
 
     private val _navigationEvent = MutableSharedFlow<LoginNavigation>()
     val navigationEvent = _navigationEvent.asSharedFlow()
@@ -96,6 +107,7 @@ class LoginViewModel @Inject constructor(
             .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
             .build()
         connectivityManager.registerNetworkCallback(request, networkCallback)
+        refreshBootstrapStatus()
     }
 
     override fun onCleared() {
@@ -275,6 +287,105 @@ class LoginViewModel @Inject constructor(
         _identifiedAdmin.value = null
     }
 
+    /** Welcome screen needs to know which admin button to show — asked silently. */
+    fun refreshBootstrapStatus() {
+        launch {
+            authRepository.adminBootstrapStatus().collect { result ->
+                if (result is NetworkResult.Success) {
+                    Logger.d("LoginViewModel: needsBootstrap=${result.data.needsBootstrap}")
+                    _needsBootstrap.value = result.data.needsBootstrap
+                }
+                // Any failure keeps the current value — the default (false) is the
+                // normal Admin Login, so a flaky status check never blocks sign-in.
+            }
+        }
+    }
+
+    fun startAdminCreate() {
+        Logger.d("LoginViewModel: opening first-admin create form")
+        _loginStage.value = LoginStage.ADMIN_CREATE_ENTRY
+        _identifiedAdmin.value = null
+    }
+
+    /**
+     * Submit the jail's first kiosk admin — same fields and rules as the warden
+     * dashboard's "Add Kiosk Admin" form. On success the backend session in the
+     * response signs the creator straight in, so navigation goes straight to the
+     * admin dashboard.
+     */
+    fun onAdminCreateSubmit(name: String, employeeId: String, email: String, password: String) {
+        if (uiState.value is UiState.Loading) return
+
+        val kioskId = authRepository.getVerifiedKiosk()?.kioskId
+        if (kioskId.isNullOrBlank()) {
+            redirectUnverified()
+            return
+        }
+
+        val trimmedName = name.trim()
+        val trimmedEmployeeId = employeeId.trim()
+        val trimmedEmail = email.trim()
+        // The form applies the same rules live — this is the belt to its braces,
+        // not the primary validation.
+        if (trimmedName.isBlank() || trimmedEmployeeId.isBlank() || password.length < 6) {
+            setError("Please fill all required fields")
+            return
+        }
+
+        Logger.d("LoginViewModel: creating first admin '$trimmedEmployeeId' for kiosk $kioskId")
+
+        launch {
+            setLoading()
+            val request = AdminBootstrapCreateRequest(
+                name = trimmedName,
+                employeeId = trimmedEmployeeId,
+                email = trimmedEmail.ifBlank { null },
+                password = password
+            )
+            authRepository.adminBootstrapCreate(request).collect { result ->
+                when (result) {
+                    is NetworkResult.Success -> {
+                        Logger.i("LoginViewModel: first admin created — ${result.data.adminId} signed in")
+                        setSuccess()
+                        delay(200.milliseconds) // Wait for session persistence
+                        _navigationEvent.emit(LoginNavigation.NavigateToAdminDashboard)
+                    }
+                    is NetworkResult.Failure -> {
+                        if (redirectIfDeviceUnverified(result)) return@collect
+                        Logger.w("LoginViewModel: bootstrap create failed: ${result.error.code} ${result.error.message}")
+                        when (result.error.code) {
+                            "NOT_BOOTSTRAPPABLE" -> {
+                                // Someone (another kiosk, or the warden) won the race —
+                                // the jail has an admin now, so hand them to Admin Login.
+                                _needsBootstrap.value = false
+                                setError(result.error.message)
+                                delay(1500.milliseconds)
+                                setIdle()
+                                _loginStage.value = LoginStage.ADMIN_USERNAME_ENTRY
+                            }
+                            "DUPLICATE", "INVALID_REQUEST" -> {
+                                // Form-level refusals (username taken, bad field): stay on
+                                // the form and show the backend's exact wording.
+                                setError(result.error.message)
+                                delay(1500.milliseconds)
+                                setIdle()
+                            }
+                            else -> {
+                                setError(getFriendlyErrorMessage(
+                                    statusCode = result.statusCode,
+                                    defaultMessage = "Could not create the admin. Please try again."
+                                ))
+                                delay(1500.milliseconds)
+                                setIdle()
+                            }
+                        }
+                    }
+                    else -> {}
+                }
+            }
+        }
+    }
+
     fun onAdminUsernameSubmit(username: String) {
         if (username.isNullOrBlank()) return
         if (uiState.value is UiState.Loading) return
@@ -424,6 +535,8 @@ class LoginViewModel @Inject constructor(
         _identifiedInmate.value = null
         _identifiedAdmin.value = null
         setIdle()
+        // Re-ask: an admin may have been created from elsewhere since entry.
+        refreshBootstrapStatus()
     }
 
     /** Stop both hardware sessions and their collectors (leaving the biometric stages). */

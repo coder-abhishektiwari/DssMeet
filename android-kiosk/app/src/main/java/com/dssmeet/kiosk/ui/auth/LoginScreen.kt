@@ -47,6 +47,7 @@ fun LoginScreen(
     val stage by viewModel.loginStage.collectAsState()
     val inmate by viewModel.identifiedInmate.collectAsState()
     val admin by viewModel.identifiedAdmin.collectAsState()
+    val needsBootstrap by viewModel.needsBootstrap.collectAsState()
     val uiState by viewModel.uiState.collectAsState()
     val isNetworkAvailable by viewModel.isNetworkAvailable.collectAsState()
     val fingerprintCaptureState by viewModel.fingerprintCaptureState.collectAsState()
@@ -100,7 +101,9 @@ fun LoginScreen(
                         onFingerprintClick = { viewModel.startFingerprintAuth() },
                         onRfidClick = { viewModel.startRfidAuth() },
                         onPrisonerIdClick = { viewModel.startPrisonerIdEntry() },
-                        onAdminClick = { viewModel.startAdminAuth() }
+                        onAdminClick = { viewModel.startAdminAuth() },
+                        needsBootstrap = needsBootstrap,
+                        onCreateLoginClick = { viewModel.startAdminCreate() }
                     )
                     LoginStage.FINGERPRINT_SCANNING -> FingerprintScanningLayout(
                         viewModel = viewModel,
@@ -135,6 +138,11 @@ fun LoginScreen(
                         onPinSubmit = { viewModel.onAdminPasswordSubmit(it) },
                         onCancel = { viewModel.resetToSelection() }
                     )
+                    LoginStage.ADMIN_CREATE_ENTRY -> AdminCreateLoginLayout(
+                        uiState = uiState,
+                        onCreateSubmit = { n, u, e, p -> viewModel.onAdminCreateSubmit(n, u, e, p) },
+                        onCancel = { viewModel.resetToSelection() }
+                    )
                 }
             }
 
@@ -143,6 +151,7 @@ fun LoginScreen(
                     message = when (stage) {
                         LoginStage.PRISONER_ID_ENTRY -> "Identifying Prisoner..."
                         LoginStage.ADMIN_USERNAME_ENTRY -> "Identifying Admin..."
+                        LoginStage.ADMIN_CREATE_ENTRY -> "Creating Admin Account..."
                         LoginStage.PIN_ENTRY, LoginStage.ADMIN_PIN_ENTRY -> "Verifying PIN..."
                         LoginStage.FINGERPRINT_SCANNING, LoginStage.RFID_SCANNING -> "Authenticating..."
                         else -> "Please wait..."
@@ -547,7 +556,9 @@ fun WelcomeSelectionLayout(
     onFingerprintClick: () -> Unit,
     onRfidClick: () -> Unit,
     onPrisonerIdClick: () -> Unit,
-    onAdminClick: () -> Unit
+    onAdminClick: () -> Unit,
+    needsBootstrap: Boolean = false,
+    onCreateLoginClick: () -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -593,13 +604,31 @@ fun WelcomeSelectionLayout(
 
         Spacer(modifier = Modifier.height(48.dp))
 
+        // Jail has no kiosk admin yet → this button becomes the bootstrap entry
+        // ("Create Login"); the moment one exists, it flips back to Admin Login.
+        if (needsBootstrap) {
+            Text(
+                text = "No admin account exists for this jail yet",
+                fontSize = 13.sp,
+                color = Color.Gray,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(bottom = 4.dp)
+            )
+        }
+
         TextButton(
-            onClick = onAdminClick,
-            colors = ButtonDefaults.textButtonColors(contentColor = Color.Gray)
+            onClick = if (needsBootstrap) onCreateLoginClick else onAdminClick,
+            colors = ButtonDefaults.textButtonColors(
+                contentColor = if (needsBootstrap) PremiumBlue else Color.Gray
+            )
         ) {
             Icon(Icons.Default.AdminPanelSettings, contentDescription = null, modifier = Modifier.size(20.dp))
             Spacer(modifier = Modifier.width(8.dp))
-            Text("Admin Login", fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            Text(
+                text = if (needsBootstrap) "Create Login" else "Admin Login",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium
+            )
         }
     }
 }
@@ -735,6 +764,168 @@ fun AdminPinEntryLayout(
             enabled = password.isNotEmpty()
         ) {
             Text("Login", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            Spacer(modifier = Modifier.width(8.dp))
+            Icon(Icons.AutoMirrored.Default.ArrowForward, contentDescription = null, tint = Color.White)
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+        TextButton(onClick = onCancel) {
+            Text("<- Back to Login Methods", color = AccentBlue, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+/** Same rule as the backend EMPLOYEE_ID_RE and the warden dashboard's username field. */
+private val EmployeeIdRegex = Regex("^[A-Za-z0-9._-]{3,40}$")
+
+/** Same rule as the warden dashboard's optional email field. */
+private val AdminEmailRegex = Regex("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$")
+
+/**
+ * First-admin bootstrap form — the four fields (and wording) of the warden
+ * dashboard's "Add Kiosk Admin" modal: Full name, Username (employee ID),
+ * Email (optional), Password. Creates this jail's first kiosk admin and
+ * signs the creator straight in.
+ */
+@Composable
+fun AdminCreateLoginLayout(
+    uiState: UiState<Unit>,
+    onCreateSubmit: (name: String, employeeId: String, email: String, password: String) -> Unit,
+    onCancel: () -> Unit
+) {
+    var name by remember { mutableStateOf("") }
+    var employeeId by remember { mutableStateOf("") }
+    var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var submitted by remember { mutableStateOf(false) }
+
+    // Required-field errors appear on submit (the button is always tappable, so
+    // a tap reveals what is missing); format errors show live once a value is
+    // typed — same rules, same messages as the warden dashboard.
+    val nameError = if (submitted && name.isBlank()) "Name is required" else null
+    val employeeIdError = when {
+        submitted && employeeId.isBlank() -> "Username is required"
+        submitted && !EmployeeIdRegex.matches(employeeId.trim()) ->
+            "3-40 characters: letters, digits, dot, dash or underscore"
+        else -> null
+    }
+    val emailError =
+        if (email.isNotBlank() && !AdminEmailRegex.matches(email.trim())) "Enter a valid email" else null
+    val passwordError = when {
+        submitted && password.isEmpty() -> "Password is required"
+        password.isNotEmpty() && password.length < 6 -> "At least 6 characters"
+        else -> null
+    }
+    val isValid = name.isNotBlank() &&
+        EmployeeIdRegex.matches(employeeId.trim()) &&
+        password.length >= 6 &&
+        (email.isBlank() || AdminEmailRegex.matches(email.trim()))
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Icon(
+            imageVector = Icons.Default.AdminPanelSettings,
+            contentDescription = null,
+            tint = PremiumBlue,
+            modifier = Modifier.size(64.dp)
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Text("Create Admin Login", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = PremiumNavy)
+        Text(
+            "Set up the first admin account for this jail",
+            fontSize = 16.sp,
+            color = Color.Gray,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = 8.dp)
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        OutlinedTextField(
+            value = name,
+            onValueChange = { name = it },
+            label = { Text("Full name") },
+            placeholder = { Text("e.g. Neha Gupta") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
+            isError = nameError != null,
+            supportingText = nameError?.let { { Text(it) } }
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        OutlinedTextField(
+            value = employeeId,
+            onValueChange = { employeeId = it },
+            label = { Text("Username (employee ID)") },
+            placeholder = { Text("e.g. empsa003") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            leadingIcon = { Icon(Icons.Default.Badge, contentDescription = null) },
+            isError = employeeIdError != null,
+            supportingText = {
+                Text(employeeIdError ?: "What the operator types on the kiosk to sign in.")
+            }
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        OutlinedTextField(
+            value = email,
+            onValueChange = { email = it },
+            label = { Text("Email (optional)") },
+            placeholder = { Text("name@dssmeet.io") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                keyboardType = androidx.compose.ui.text.input.KeyboardType.Email
+            ),
+            isError = emailError != null,
+            supportingText = emailError?.let { { Text(it) } }
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        OutlinedTextField(
+            value = password,
+            onValueChange = { password = it },
+            label = { Text("Password") },
+            placeholder = { Text("At least 6 characters") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
+            visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                keyboardType = androidx.compose.ui.text.input.KeyboardType.Password
+            ),
+            isError = passwordError != null,
+            supportingText = passwordError?.let { { Text(it) } }
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Button(
+            onClick = {
+                submitted = true
+                if (isValid) onCreateSubmit(name, employeeId, email, password)
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp),
+            shape = RoundedCornerShape(12.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF003366), contentColor = Color.White),
+            enabled = uiState !is UiState.Loading
+        ) {
+            Text("Create & Sign In", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
             Spacer(modifier = Modifier.width(8.dp))
             Icon(Icons.AutoMirrored.Default.ArrowForward, contentDescription = null, tint = Color.White)
         }

@@ -6,8 +6,7 @@
         <domain includeSubdomains="true">127.0.0.1</domain>
         <domain includeSubdomains="true">10.0.2.2</domain> <!-- Android Emulator Loopback -->
     </domain-config>
-    <domain-config cleartextTrafficPermitted="false">
-        <!-- Production endpoints are HTTPS-only; cleartext stays permitted
-             only for the base-config dev hosts above. -->
-    </domain-config>
+    <!-- base-config permits cleartext for local docker endpoints
+         (127.0.0.1 / 10.0.2.2 / LAN IPs). Flip cleartextTrafficPermitted
+         to false here before shipping to production. -->
 </network-security-config>

@@ -1,5 +1,8 @@
 # Example local configuration for DssMeet
 sdk.dir=/path/to/android/sdk
-# NOTE: no KIOSK_ID here anymore — kiosk identity is issued by the backend
+# NOTE: no KIOSK_ID here — kiosk identity is issued by the backend
 # during device registration (/kiosks/verify).
-KIOSK_TRUST_API_HOST=https://trust-api.dssmeet.internal
+# NOTE: no TURN keys either - ICE servers come from the signaling server
+# at runtime. Set API_BASE_URL / SIGNALING_URL for a real endpoint.
+API_BASE_URL=https://your-backend.example.com
+SIGNALING_URL=https://your-signaling.example.com

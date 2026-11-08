@@ -70,4 +70,76 @@ async function ensureWallet(inmateId, walletId) {
   return created && created.walletId ? created : record;
 }
 
-module.exports = { newWalletRecord, pickWallet, ensureWallet };
+/**
+ * One-time welcome credit granted the moment an inmate account is created so
+ * the family can place the first call without a recharge. The ledger row is
+ * the source of truth (routes/wallets.js derives balance from it); the
+ * wallets.balance bump is only the cache the charge path reads.
+ *
+ * Idempotent on `orderId = WELCOME-<inmateId>`: a retried create handler or
+ * a parallel ensure can never double-credit.
+ *
+ * @param {string} inmateId
+ * @param {string} [walletId] Pre-allocated id from the inmate record, if any.
+ * @param {number} [amountPaise] Defaults to ₹5 (500 paise).
+ * @returns {Promise<object|null>} the wallet row, or null on failure.
+ */
+const WELCOME_BONUS_PAISE = 500; // ₹5
+
+async function creditWelcomeBonus(inmateId, walletId, amountPaise = WELCOME_BONUS_PAISE) {
+  if (!inmateId || !(amountPaise > 0)) return null;
+
+  const wallet = await ensureWallet(inmateId, walletId);
+  if (!wallet) return null;
+
+  const orderId = `WELCOME-${inmateId}`;
+  const now = new Date().toISOString();
+
+  // Ledger-first, same crash model as lib/wallet-credit.js: insert the recharge
+  // row under the transactions mutex, then bump the cache guarded by the txn id.
+  const ledgerOut = await updateDb('transactions.json', (all) => {
+    const existing = all.find((t) => t.orderId === orderId);
+    if (existing) return { data: all, result: { inserted: false, transaction: existing } };
+    const transaction = {
+      transactionId: `TXN-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      walletId: wallet.walletId || null,
+      inmateId,
+      type: 'recharge',
+      status: 'completed',
+      amount: amountPaise,
+      grossAmount: amountPaise,
+      fee: 0,
+      tax: 0,
+      gateway: 'welcome',
+      orderId,
+      description: 'Welcome balance on account creation',
+      timestamp: now,
+      performedBy: 'system',
+    };
+    all.push(transaction);
+    return { data: all, result: { inserted: true, transaction } };
+  });
+  const ledger = ledgerOut && typeof ledgerOut === 'object' && 'result' in ledgerOut
+    ? ledgerOut.result
+    : ledgerOut;
+  const transaction = ledger && ledger.transaction;
+  if (!transaction) return wallet;
+
+  await updateDb('wallets.json', (all) => {
+    const idx = all.findIndex((w) => w.walletId === wallet.walletId);
+    if (idx === -1) return { data: all, result: null };
+    const w = all[idx];
+    if (w.lastCreditTxnId === transaction.transactionId) return { data: all, result: w };
+    w.balance = (Number(w.balance) || 0) + amountPaise;
+    w.totalRecharged = (Number(w.totalRecharged) || 0) + amountPaise;
+    w.lastRecharge = now;
+    w.lastRechargeAmount = amountPaise;
+    w.lastCreditTxnId = transaction.transactionId;
+    w.updatedAt = now;
+    return { data: all, result: w };
+  });
+
+  return pickWallet(await readDb('wallets.json'), inmateId, wallet.walletId) || wallet;
+}
+
+module.exports = { newWalletRecord, pickWallet, ensureWallet, creditWelcomeBonus, WELCOME_BONUS_PAISE };

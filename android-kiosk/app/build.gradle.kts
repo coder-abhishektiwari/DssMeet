@@ -38,26 +38,17 @@ android {
         // delivers the fresh public signaling URL inside every create-call
         // response, so tunnel changes never require a rebuild.
         // Defaults are LOCAL-ONLY. No deployment host is baked into the
-        // source: set KIOSK_TRUST_API_HOST / API_BASE_URL / SIGNALING_URL /
-        // TURN_* in local.properties (or via -P flags) for a real endpoint.
-        // NOTE: there is NO build-time KIOSK_ID anymore — kiosk identity is
-        // server-issued via /kiosks/verify after device registration.
-        val trustApiHost = appProp("KIOSK_TRUST_API_HOST", "http://127.0.0.1:59354")
+        // source: set API_BASE_URL / SIGNALING_URL in local.properties (or
+        // via -P flags) for a real endpoint. TURN/ICE credentials are NOT
+        // baked in — the signaling server ships iceServers in every
+        // join-room ACK. NOTE: there is NO build-time KIOSK_ID — kiosk
+        // identity is server-issued via /kiosks/verify after registration.
         val apiBaseUrl = appProp("API_BASE_URL", "http://127.0.0.1:59354")
         val signalingUrl = appProp("SIGNALING_URL", "http://127.0.0.1:3002")
-        val turnServerUrl = appProp("TURN_SERVER_URL", "turn:127.0.0.1:3478?transport=udp")
-        val turnTlsUrl = appProp("TURN_TLS_URL", "turns:127.0.0.1:5349")
-        val turnUsername = appProp("TURN_USERNAME", "turnuser")
-        val turnCredential = appProp("TURN_CREDENTIAL", "turnpass")
         val autoLogoutMs = appProp("AUTO_LOGOUT_TIMEOUT_MS", "120000")
 
-        buildConfigField("String", "TRUST_API_HOST", "\"$trustApiHost\"")
         buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
         buildConfigField("String", "SIGNALING_URL", "\"$signalingUrl\"")
-        buildConfigField("String", "TURN_SERVER_URL", "\"$turnServerUrl\"")
-        buildConfigField("String", "TURN_TLS_URL", "\"$turnTlsUrl\"")
-        buildConfigField("String", "TURN_USERNAME", "\"$turnUsername\"")
-        buildConfigField("String", "TURN_CREDENTIAL", "\"$turnCredential\"")
         buildConfigField("long", "AUTO_LOGOUT_TIMEOUT_MS", "${autoLogoutMs}L")
 
         ndk {

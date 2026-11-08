@@ -5,9 +5,11 @@ const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
 const { v4: uuidv4 } = require('uuid');
+const rateLimit = require('express-rate-limit');
 
 const { readDb, updateDb } = require('./lib/db');
-const { verifyToken, hashSecret } = require('./lib/auth');
+const { verifyToken, hashSecret, signAccessToken } = require('./lib/auth');
+const { createSession } = require('./lib/sessions');
 const { requireAuth, requireRole } = require('./middleware/auth');
 const { sendSuccess, sendError, asyncRoute, deepMerge } = require('./lib/response');
 const { jailScopeOf, inAdminScope, inScopeOf, scopeList, kioskScopeOf } = require('./lib/scoping');
@@ -499,6 +501,160 @@ app.post('/kiosk-admins', requireAuth, requireRole('admin', 'kiosk_admin', 'ward
   void pin;
   void biometricData;
   return sendSuccess(res, safe, 201);
+}));
+
+// ── First-admin bootstrap (kiosk "Create Login") ─────────────────────────────
+// A jail whose kiosk is live but has no kiosk admin yet cannot sign anyone in,
+// so the kiosk swaps its "Admin Login" button for "Create Login". Both routes
+// accept ONLY the device credential from POST /kiosks/verify (365d device
+// token) — a logged-in user session can never call them — and the prison scope
+// always comes from the device's own kiosks.json row, never the request body,
+// so a token can only ever touch its own jail. The zero-admin precondition is
+// re-checked INSIDE the write transaction, so two kiosks of the same jail
+// racing this endpoint cannot both create the "first" admin.
+const bootstrapStatusLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: { code: 'RATE_LIMITED', message: 'Too many attempts, try again later' } }
+});
+const bootstrapCreateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: { code: 'RATE_LIMITED', message: 'Too many attempts, try again later' } }
+});
+
+/** Device-token gate shared by both bootstrap routes. Returns the kiosk, or null (response already sent). */
+async function requireDeviceKiosk(req, res) {
+  if (!req.auth?.device || !req.auth.kioskId) {
+    sendError(res, 'FORBIDDEN', 'Only an authorized kiosk device can do this', 403);
+    return null;
+  }
+  const kiosks = await readDb('kiosks.json');
+  const kiosk = kiosks.find((k) => k.kioskId === req.auth.kioskId);
+  if (!kiosk || kiosk.authorizationStatus !== 'authorized' || kiosk.status === 'unauthorized' || kiosk.status === 'disabled') {
+    sendError(res, 'UNAUTHORIZED', 'Kiosk not authorized', 403);
+    return null;
+  }
+  // A prison-less kiosk has no jail to scope an admin to — that is the
+  // registration gate's problem, not a bootstrap.
+  if (!kiosk.prisonId) {
+    sendError(res, 'FORBIDDEN', 'This kiosk is not linked to a prison yet', 403);
+    return null;
+  }
+  return kiosk;
+}
+
+/**
+ * Same predicate POST /auth/admin/identify uses to decide who may sign in on
+ * this kiosk (active, not a super admin, same jail — a prison-less admin row
+ * counts as reachable, exactly like identify treats it).
+ */
+function prisonHasAdmin(admins, prisonId) {
+  return admins.some((a) =>
+    a.status === 'active' && a.role !== 'super_admin' && (!a.prisonId || a.prisonId === prisonId));
+}
+
+app.get('/kiosk-admins/bootstrap-status', requireAuth, bootstrapStatusLimiter, asyncRoute(async (req, res) => {
+  const kiosk = await requireDeviceKiosk(req, res);
+  if (!kiosk) return;
+  const admins = await readDb('admins.json');
+  return sendSuccess(res, {
+    needsBootstrap: !prisonHasAdmin(admins, kiosk.prisonId),
+    kioskId: kiosk.kioskId,
+    prisonId: kiosk.prisonId
+  });
+}));
+
+app.post('/kiosk-admins/bootstrap', requireAuth, bootstrapCreateLimiter, asyncRoute(async (req, res) => {
+  const kiosk = await requireDeviceKiosk(req, res);
+  if (!kiosk) return;
+
+  // Exactly the four fields + rules the warden dashboard's "Add Kiosk Admin"
+  // form posts — same validation messages, so the two entry points behave
+  // identically from the operator's point of view.
+  const name = String(req.body.name || '').trim();
+  const employeeId = String(req.body.employeeId || '').trim();
+  const email = String(req.body.email || '').trim().toLowerCase();
+  const password = String(req.body.password || '');
+
+  if (!name || !employeeId || !password) {
+    return sendError(res, 'INVALID_REQUEST', 'name, username and password are required', 400);
+  }
+  if (!EMPLOYEE_ID_RE.test(employeeId)) {
+    return sendError(res, 'INVALID_REQUEST', 'username must be 3-40 characters: letters, digits, dot, dash or underscore', 400);
+  }
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return sendError(res, 'INVALID_REQUEST', 'enter a valid email', 400);
+  }
+  if (password.length < 6) return sendError(res, 'INVALID_REQUEST', 'password must be at least 6 characters', 400);
+
+  const prisonId = kiosk.prisonId;
+  const record = {
+    adminId: `ADMIN-${uuidv4().substring(0, 8).toUpperCase()}`,
+    employeeId,
+    name,
+    email: email || null,
+    role: 'kiosk_admin',
+    permissions: ['manage_inmates', 'manage_contacts', 'view_calls', 'view_schedule', 'manage_alerts'],
+    status: 'active',
+    password: await hashSecret(password),
+    kioskId: null,
+    prisonId,
+    createdAt: new Date().toISOString()
+  };
+
+  // Duplicate + zero-admin checks run inside the mutator: with a pool,
+  // updateDb executes the whole write in one transaction, so a concurrent
+  // bootstrap from a second kiosk re-reads this admin and gets rejected.
+  const outcome = await updateDb('admins.json', (all) => {
+    if (prisonHasAdmin(all, prisonId)) return { data: all, result: { rejected: 'NOT_BOOTSTRAPPABLE' } };
+    if (all.some((a) => String(a.employeeId || '').toLowerCase() === employeeId.toLowerCase())) {
+      return { data: all, result: { rejected: 'DUPLICATE_USERNAME' } };
+    }
+    if (email && all.some((a) => String(a.email || '').toLowerCase() === email)) {
+      return { data: all, result: { rejected: 'DUPLICATE_EMAIL' } };
+    }
+    return { data: [...all, record], result: { record } };
+  });
+  // Without a pool updateDb hands back the { data, result } envelope — unwrap
+  // so both storage modes produce the same { record } | { rejected } shape.
+  const created = outcome && typeof outcome === 'object' && Array.isArray(outcome.data) && 'result' in outcome
+    ? outcome.result
+    : outcome;
+
+  if (!created) return sendError(res, 'STORAGE_UNAVAILABLE', 'Could not save the new admin. Please retry.', 500);
+  if (created.rejected === 'NOT_BOOTSTRAPPABLE') {
+    return sendError(res, 'NOT_BOOTSTRAPPABLE', 'This prison already has an admin — use Admin Login instead', 409);
+  }
+  if (created.rejected === 'DUPLICATE_USERNAME') return sendError(res, 'DUPLICATE', 'That username is already taken', 409);
+  if (created.rejected === 'DUPLICATE_EMAIL') return sendError(res, 'DUPLICATE', 'A kiosk admin with this email already exists', 409);
+
+  // The person is standing at the terminal they just bootstrapped — sign them
+  // straight in instead of bouncing them through identify + password again.
+  // Same claims/session/response shape as POST /auth/admin/verify-pin, plus
+  // the identify-shaped profile half so the kiosk can fill its admin session
+  // from this one response.
+  const claims = { sub: record.adminId, role: record.role, kioskId: kiosk.kioskId, prisonId };
+  const session = await createSession(claims, req);
+  const { password: _pw, pin, biometricData, ...safe } = record;
+  void _pw;
+  void pin;
+  void biometricData;
+  return sendSuccess(res, {
+    accessToken: signAccessToken(claims),
+    refreshToken: session.refreshToken,
+    expiresIn: 3600,
+    adminId: record.adminId,
+    role: record.role,
+    permissions: record.permissions,
+    kioskId: kiosk.kioskId,
+    prisonId,
+    profile: { ...safe, email: safe.email || '', kioskId: kiosk.kioskId, prisonId, confidence: 0.95 }
+  }, 201);
 }));
 
 app.patch('/kiosk-admins/:adminId', requireAuth, requireRole('admin', 'kiosk_admin', 'warden', 'super-admin', 'super_admin'), asyncRoute(async (req, res) => {

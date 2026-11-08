@@ -39,6 +39,17 @@ interface TrustApiService {
     @POST("auth/admin/verify-pin")
     suspend fun adminVerifyPassword(@Body request: AdminVerifyPasswordRequest): ApiResponse<AuthToken>
 
+    /**
+     * First-admin bootstrap ("Create Login"): both calls ride the device
+     * credential from kiosks/verify, never a user session — the login screen
+     * has none yet.
+     */
+    @GET("kiosk-admins/bootstrap-status")
+    suspend fun getBootstrapStatus(): ApiResponse<BootstrapStatusResponse>
+
+    @POST("kiosk-admins/bootstrap")
+    suspend fun bootstrapCreateAdmin(@Body request: AdminBootstrapCreateRequest): ApiResponse<AdminBootstrapResponse>
+
     @GET("admin/profile")
     suspend fun getAdminProfile(): ApiResponse<AdminProfile>
 

@@ -49,6 +49,12 @@ class RemoteAuthDataSource @Inject constructor(
         return apiService.adminVerifyPassword(request)
     }
 
+    override suspend fun adminBootstrapStatus(): ApiResponse<BootstrapStatusResponse> =
+        apiService.getBootstrapStatus()
+
+    override suspend fun adminBootstrapCreate(request: AdminBootstrapCreateRequest): ApiResponse<AdminBootstrapResponse> =
+        apiService.bootstrapCreateAdmin(request)
+
     override suspend fun validateSetupPassword(request: ValidateSetupPasswordRequest): ApiResponse<ValidateSetupPasswordResponse> =
         apiService.validateSetupPassword(request)
 

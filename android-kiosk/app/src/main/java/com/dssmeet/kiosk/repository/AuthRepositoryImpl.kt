@@ -9,6 +9,7 @@ import com.dssmeet.kiosk.models.common.ApiResponse
 import com.dssmeet.kiosk.models.inmate.InmateProfile
 import com.dssmeet.kiosk.network.NetworkResult
 import com.dssmeet.kiosk.network.interceptors.AuthInterceptor
+import com.google.gson.Gson
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import retrofit2.HttpException
@@ -406,6 +407,106 @@ class AuthRepositoryImpl @Inject constructor(
             val error = when {
                 statusCode == 401 || statusCode == 403 -> ApiError("UNAUTHORIZED", "Unauthorized access. Please contact administrator.")
                 else -> ApiError("EXCEPTION", "Password verification failed. Please try again.")
+            }
+            emit(NetworkResult.Failure(error, statusCode = statusCode))
+        }
+    }
+
+    /**
+     * Server envelope of a non-2xx bootstrap refusal ({ success:false, error:{ code, message } }).
+     * Lets the caller surface the backend's own wording ("That username is already
+     * taken", "use Admin Login instead") instead of a generic network error.
+     * Parsed the same way KioskAdminsViewModel.describe does — this Gson ships
+     * without JsonParser.parseString.
+     */
+    private fun serverError(e: HttpException): Pair<String, String?>? {
+        val body = runCatching { e.response()?.errorBody()?.string() }.getOrNull() ?: return null
+        val envelope = runCatching { Gson().fromJson(body, ErrorEnvelope::class.java) }.getOrNull() ?: return null
+        val err = envelope.error ?: return null
+        return err.code to err.message
+    }
+
+    private data class ErrorEnvelope(val error: ApiError?)
+
+    /**
+     * GET kiosk-admins/bootstrap-status — decides "Create Login" vs "Admin Login"
+     * on the welcome screen. No Loading emission and no error state: this runs on
+     * screen entry, so any failure must silently leave the button on the normal
+     * "Admin Login" (it is re-checked every time the login screen comes up).
+     */
+    override fun adminBootstrapStatus(): Flow<NetworkResult<BootstrapStatusResponse>> = flow {
+        try {
+            if (verifiedKiosk?.kioskId.isNullOrBlank()) {
+                emit(NetworkResult.Failure(ApiError("DEVICE_NOT_REGISTERED", "Kiosk device is not verified. Please complete device registration.")))
+                return@flow
+            }
+            val response = dataSource.adminBootstrapStatus()
+            if (response.success && response.data != null) {
+                emit(NetworkResult.Success(response.data))
+            } else {
+                Logger.w("AuthRepository: bootstrap status refused: ${response.error?.message}")
+                emit(NetworkResult.Failure(ApiError("STATUS_FAILED", response.error?.message ?: "Could not check admin setup")))
+            }
+        } catch (e: Exception) {
+            Logger.w("AuthRepository: bootstrap status failed: ${e.message}")
+            val statusCode = if (e is HttpException) e.code() else null
+            emit(NetworkResult.Failure(ApiError("STATUS_FAILED", "Could not check admin setup"), statusCode = statusCode))
+        }
+    }
+
+    /**
+     * POST kiosk-admins/bootstrap — creates this jail's first kiosk admin and,
+     * on 201, signs the creator in from the same response (session + profile),
+     * exactly like a successful identify + verify-pin pair would.
+     */
+    override fun adminBootstrapCreate(request: AdminBootstrapCreateRequest): Flow<NetworkResult<AdminBootstrapResponse>> = flow {
+        emit(NetworkResult.Loading)
+        try {
+            if (verifiedKiosk?.kioskId.isNullOrBlank()) {
+                emit(NetworkResult.Failure(ApiError("DEVICE_NOT_REGISTERED", "Kiosk device is not verified. Please complete device registration.")))
+                return@flow
+            }
+            val response = dataSource.adminBootstrapCreate(request)
+            if (response.success && response.data != null) {
+                val data = response.data
+                Logger.i("AuthRepository: first admin created — signing in ${data.adminId}")
+                data.profile?.let { profile ->
+                    currentAdmin = profile
+                    sessionManager.saveAdminProfile(profile)
+                }
+                sessionManager.saveTokens(AuthToken(data.accessToken, data.refreshToken, data.expiresIn))
+                authInterceptor.setToken(data.accessToken)
+                emit(NetworkResult.Success(data))
+            } else {
+                val err = response.error
+                Logger.w("AuthRepository: bootstrap create refused: ${err?.message}")
+                emit(NetworkResult.Failure(err?.let {
+                    when (it.code) {
+                        "NOT_BOOTSTRAPPABLE" -> ApiError("NOT_BOOTSTRAPPABLE", it.message)
+                        "DUPLICATE" -> ApiError("DUPLICATE", it.message)
+                        "INVALID_REQUEST" -> ApiError("INVALID_REQUEST", it.message)
+                        "FORBIDDEN", "UNAUTHORIZED" -> ApiError("UNAUTHORIZED", it.message)
+                        else -> ApiError(it.code, it.message)
+                    }
+                } ?: ApiError("EXCEPTION", "Could not create the admin. Please try again.")))
+            }
+        } catch (e: Exception) {
+            Logger.e("AuthRepository: Exception during adminBootstrapCreate", e)
+            val statusCode = if (e is HttpException) e.code() else null
+            val server = if (e is HttpException) serverError(e) else null
+            val error = when {
+                // 409: another kiosk (or the warden) already made an admin, or the
+                // username/email is taken — carry the backend's exact wording and
+                // code so the ViewModel can flip back to Admin Login when relevant.
+                statusCode == 409 -> when (server?.first) {
+                    "NOT_BOOTSTRAPPABLE" -> ApiError("NOT_BOOTSTRAPPABLE", server?.second ?: "This prison already has an admin — use Admin Login instead")
+                    else -> ApiError("DUPLICATE", server?.second ?: "That username is already taken")
+                }
+                statusCode == 400 -> ApiError("INVALID_REQUEST", server?.second ?: "Please check the form fields")
+                statusCode == 401 || statusCode == 403 ->
+                    ApiError("UNAUTHORIZED", server?.second ?: "Unauthorized access. Please contact administrator.")
+                statusCode == 429 -> ApiError("RATE_LIMITED", "Too many attempts. Please wait and try again.")
+                else -> ApiError("EXCEPTION", "Network error. Please try again.")
             }
             emit(NetworkResult.Failure(error, statusCode = statusCode))
         }

@@ -6,7 +6,7 @@ const { requireAuth, requireRole } = require('../middleware/auth');
 const { sendSuccess, sendError, asyncRoute } = require('../lib/response');
 const { jailScopeOf, inJailScope, kioskScopeOf, inAdminScope, adminScopeFilter, inScopeOf, scopeList } = require('../lib/scoping');
 const { paginate } = require('../lib/paginate');
-const { ensureWallet } = require('../lib/wallets');
+const { ensureWallet, creditWelcomeBonus } = require('../lib/wallets');
 const { biometricValidationError, rfidCardNumberFor } = require('../lib/biometrics');
 
 const router = express.Router();
@@ -259,10 +259,11 @@ async function inmateCreateHandler(req, res) {
       return { data: [...inmates, record], result: record };
     });
     if (!newInmate) return sendError(res, 'NOT_FOUND', 'Inmate not found', 404);
-    // Persist the wallet row. The inmate already carries its walletId, and the
-    // charge path lazily ensures the row too, so a failure here must not fail
-    // the whole creation.
-    await ensureWallet(newInmate.inmateId, newInmate.walletId).catch((err) =>
+    // Persist the wallet row and seed the ₹5 welcome balance so the family
+    // can place the first call without a recharge. The inmate already carries
+    // its walletId, and the charge path lazily ensures the row too, so a
+    // failure here must not fail the whole creation.
+    await creditWelcomeBonus(newInmate.inmateId, newInmate.walletId).catch((err) =>
       console.error(`[wallet] provision failed for ${newInmate.inmateId}:`, err.message)
     );
     // normalizeInmate strips the bcrypt PIN — the raw row must never leave.

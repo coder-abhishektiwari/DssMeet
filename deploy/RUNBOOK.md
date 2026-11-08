@@ -244,12 +244,36 @@ SIGNALING_URL=https://signal.example.com
 
 ## 15. Day-2 operations
 
+**Auto-deploy (default path):** pushes to `main` that touch `backend/`,
+`signaling-server/`, `docker-compose.prod.yml`, `Caddyfile` or `deploy/` trigger
+`.github/workflows/deploy.yml` → SSH into the VPS → `deploy/deploy.sh`:
+
+1. remembers the currently-running commit,
+2. resets to the pushed SHA and `docker compose up -d --build`,
+3. polls backend + signaling health **inside their containers** (no host ports),
+4. healthy → done; unhealthy → **auto-rolls back** to the previous commit,
+   rebuilds, and marks the workflow run **failed** so you get the alert.
+
+One-time setup — repo **Settings → Secrets and variables → Actions**:
+
+| Secret | Value |
+|---|---|
+| `VPS_HOST` | KVM2 public IP |
+| `VPS_USER` | `root` (or your deploy user) |
+| `VPS_SSH_KEY` | private key; public half must be in VPS `~/.ssh/authorized_keys` |
+
+VPS-side `.env` is gitignored and never touched by deploys.
+
+Manual fallback (also how you deploy if Actions is down):
+
 ```bash
 # logs
 docker compose -f docker-compose.prod.yml logs -f backend
 # restart after .env change
 docker compose -f docker-compose.prod.yml up -d
-# update code
+# manual deploy (same script CI runs)
+bash /opt/DssMeet/deploy/deploy.sh /opt/DssMeet
+# update code (script-less fallback)
 git pull && docker compose -f docker-compose.prod.yml up -d --build
 # disk check
 df -h && docker system df

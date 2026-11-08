@@ -1,7 +1,10 @@
 package com.dssmeet.kiosk.datasource
 
+import com.dssmeet.kiosk.models.auth.AdminBootstrapCreateRequest
+import com.dssmeet.kiosk.models.auth.AdminBootstrapResponse
 import com.dssmeet.kiosk.models.auth.AdminProfile
 import com.dssmeet.kiosk.models.auth.AuthToken
+import com.dssmeet.kiosk.models.auth.BootstrapStatusResponse
 import com.dssmeet.kiosk.models.auth.KioskVerifyRequest
 import com.dssmeet.kiosk.models.auth.KioskVerifyResponse
 import com.dssmeet.kiosk.models.auth.LoginRequest
@@ -22,6 +25,10 @@ interface AuthDataSource {
     // Admin authentication
     suspend fun adminIdentify(request: LoginRequest): ApiResponse<AdminProfile>
     suspend fun adminVerifyPassword(adminId: String, password: String, kioskId: String): ApiResponse<AuthToken>
+
+    // First-admin bootstrap (kiosk "Create Login") — device credential only
+    suspend fun adminBootstrapStatus(): ApiResponse<BootstrapStatusResponse>
+    suspend fun adminBootstrapCreate(request: AdminBootstrapCreateRequest): ApiResponse<AdminBootstrapResponse>
 
     // Kiosk Registration & Authorization
     suspend fun validateSetupPassword(request: com.dssmeet.kiosk.models.auth.ValidateSetupPasswordRequest): ApiResponse<com.dssmeet.kiosk.models.auth.ValidateSetupPasswordResponse>
