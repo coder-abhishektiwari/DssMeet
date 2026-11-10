@@ -28,7 +28,7 @@ const { router: adminRouter } = require('./admin-routes');
 const kiosksRouter = require('./routes/kiosks');
 const authRoutesRouter = require('./routes/auth');
 const createCallsRouter = require('./routes/calls');
-const { sweepStaleCalls } = require('./routes/calls');
+const { sweepStaleCalls, sweepExhaustedBalance } = require('./routes/calls');
 const familyRouter = require('./routes/family');
 const inmatesRouter = require('./routes/inmates');
 const createContactsRouter = require('./routes/contacts');
@@ -1036,6 +1036,12 @@ function startServer() {
 
   // Periodic sweep: finalize orphaned active calls every 2 minutes
   setInterval(() => sweepStaleCalls(broadcastEvent), 2 * 60 * 1000);
+
+  // Balance enforcement: cut live calls the wallet can no longer pay for.
+  // 60s tick = at most ~1 billed minute of overage at the per-minute rate;
+  // the allowance itself is re-read from the LIVE balance every tick, so a
+  // mid-call top-up keeps the call alive.
+  setInterval(() => sweepExhaustedBalance(broadcastEvent, signaling), 60 * 1000);
 
 // Razorpay reconciliation: catch payments the gateway captured while this
 // server could not process the webhook (downtime, restart). 15-min interval

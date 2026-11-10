@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <title>Family location</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
+  <style>
+    /* Fixed positioning fills the viewport directly — no html/body % height
+       chain, which can collapse when the WebView's viewport is stale. */
+    #map { position: fixed; left: 0; top: 0; right: 0; bottom: 0; background: #dfe7ee; }
+    html, body { margin: 0; padding: 0; background: #dfe7ee; }
+    .label-chip {
+      position: absolute; z-index: 1000; top: 10px; left: 50%; transform: translateX(-50%);
+      background: rgba(11, 34, 64, 0.9); color: #fff; padding: 6px 14px; border-radius: 999px;
+      font: 600 13px/1.2 system-ui, -apple-system, sans-serif; max-width: 90%;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .map-error {
+      position: fixed; left: 0; top: 0; right: 0; bottom: 0;
+      display: flex; align-items: center; justify-content: center;
+      color: #687a8f; font: 500 15px/1.4 system-ui, sans-serif; padding: 24px; text-align: center;
+    }
+    .map-banner {
+      position: absolute; z-index: 3000; top: 0; left: 0; right: 0;
+      background: #c62828; color: #fff; font: 12px/1.4 system-ui, sans-serif;
+      padding: 6px 10px;
+    }
+    .leaflet-control-attribution { font-size: 10px; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    // Same recipe as the warden dashboard's LocationMapModal: Leaflet with
+    // keyless Esri World Street Map tiles (no API key, no Google Maps — the
+    // kiosk cannot hand off to another app, everything stays in this WebView).
+    //
+    // The AndroidView WebView loads this page BEFORE its first layout pass,
+    // so #map can still be 0px tall when the page runs. Leaflet measures the
+    // container exactly once at init — a 0px container clips everything it
+    // draws (tiles, controls, marker) behind overflow:hidden. So: wait until
+    // the container has a real size, then init, then invalidateSize again
+    // after the WebView settles.
+
+    function banner(text) {
+      var d = document.createElement('div');
+      d.className = 'map-banner';
+      d.textContent = text;
+      document.body.appendChild(d);
+    }
+
+    // Any JS failure becomes visible instead of a silent gray box.
+    window.onerror = function (msg, src, line) {
+      banner('Map error: ' + msg + ' (line ' + line + ')');
+      return true;
+    };
+
+    var params = new URLSearchParams(window.location.search);
+    var lat = parseFloat(params.get('lat'));
+    var lng = parseFloat(params.get('lng'));
+    var label = params.get('label') || 'Family location';
+
+    function showStaticError(text) {
+      var err = document.createElement('div');
+      err.className = 'map-error';
+      err.textContent = text;
+      document.body.appendChild(err);
+    }
+
+    if (!isFinite(lat) || !isFinite(lng)) {
+      showStaticError('No coordinates were shared for this call.');
+    } else if (typeof L === 'undefined') {
+      showStaticError('Map library failed to load (no network?).');
+    } else {
+      var attempts = 0;
+      var tileFailures = 0;
+
+      function initMap() {
+        attempts++;
+        var mapDiv = document.getElementById('map');
+        if (mapDiv.clientHeight < 50) {
+          // WebView not measured yet — try again shortly.
+          if (attempts < 40) setTimeout(initMap, 100);
+          else showStaticError(
+            'Map surface did not get a size. (viewport ' +
+            window.innerWidth + 'x' + window.innerHeight +
+            ', map ' + mapDiv.clientWidth + 'x' + mapDiv.clientHeight + ')'
+          );
+          return;
+        }
+
+        var map = L.map(mapDiv, { zoomControl: true }).setView([lat, lng], 16);
+        var tiles = L.tileLayer(
+          'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+          {
+            maxZoom: 19,
+            attribution: '&copy; <a href="https://www.esri.com/">Esri</a>, Maxar, Earthstar Geographics, OpenStreetMap contributors'
+          }
+        ).addTo(map);
+        tiles.on('tileerror', function () {
+          tileFailures++;
+          if (tileFailures === 8) banner('Basemap tiles could not load (network blocked?).');
+        });
+
+        L.marker([lat, lng]).addTo(map).bindPopup(label).openPopup();
+
+        var chip = document.createElement('div');
+        chip.className = 'label-chip';
+        chip.textContent = label;
+        document.body.appendChild(chip);
+
+        // The WebView relayouts right after load on some devices.
+        setTimeout(function () { map.invalidateSize(); }, 300);
+        setTimeout(function () { map.invalidateSize(); }, 1200);
+        window.addEventListener('resize', function () { map.invalidateSize(); });
+      }
+
+      if (document.readyState === 'complete') initMap();
+      else window.addEventListener('load', initMap);
+    }
+  </script>
+</body>
+</html>

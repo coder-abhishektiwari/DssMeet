@@ -57,6 +57,19 @@ function publicCall(call, { keepSignalingToken = false } = {}) {
   return out;
 }
 
+// The inmate role never receives the family's location in list/history
+// responses — the inmate-facing history screen must not expose where the
+// family member was. Admin/warden/kiosk-admin callers keep it (their history
+// screens render it), and GET /:callId deliberately keeps it too: that is
+// the live call chip the call screen shows while the call is running.
+function stripFamilyLocation(call) {
+  if (!call || !call.family || typeof call.family !== 'object') return call;
+  if (!Object.prototype.hasOwnProperty.call(call.family, 'location')) return call;
+  const family = { ...call.family };
+  delete family.location;
+  return { ...call, family };
+}
+
 /**
  * Complete a call record and charge the inmate's wallet in one shot (the
  * balance is ledger-derived and clamped at zero — never negative). Shared by
@@ -105,6 +118,7 @@ function buildEndReasonDescription(status, reason, call, neverConnected, extra) 
   // Connected calls
   if (reason === 'warden_ended') return 'Call force ended by warden';
   if (reason === 'timeout') return 'Call ended — maximum duration reached';
+  if (reason === 'insufficient_balance') return 'Call ended — wallet balance exhausted';
   if (reason === 'sweep') return 'Call ended — session timed out (kiosk may have disconnected)';
   if (reason === 'completed') return 'Call completed successfully';
   if (reason === 'kiosk_cancelled') return 'Call ended by kiosk';
@@ -502,10 +516,13 @@ function createCallsRouter(broadcastEvent, signaling) {
     const total = calls.length;
     const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 100);
     const offset = Math.max(parseInt(req.query.offset) || 0, 0);
-    const paged = calls.slice(offset, offset + limit).map((c) => ({
-      ...publicCall(c),
-      contactName: contactName(c.contactId, c.inmateId) || c.familyMemberName || null
-    }));
+    const paged = calls.slice(offset, offset + limit).map((c) => {
+      const pub = req.auth.role === 'inmate' ? stripFamilyLocation(publicCall(c)) : publicCall(c);
+      return {
+        ...pub,
+        contactName: contactName(c.contactId, c.inmateId) || c.familyMemberName || null
+      };
+    });
 
     return sendSuccess(res, { calls: paged, total, limit, offset });
   }));
@@ -561,7 +578,10 @@ function createCallsRouter(broadcastEvent, signaling) {
     const history = scoped
       .filter((c) => c.status === 'completed' && (c.mediaConnectedAt || c.durationMinutes > 0))
       .sort((a, b) => new Date(b.startTime || 0) - new Date(a.startTime || 0))
-      .map((c) => ({ ...publicCall(c), contactName: contactName(c.contactId, c.inmateId) || c.familyMemberName || null }));
+      .map((c) => {
+        const pub = req.auth.role === 'inmate' ? stripFamilyLocation(publicCall(c)) : publicCall(c);
+        return { ...pub, contactName: contactName(c.contactId, c.inmateId) || c.familyMemberName || null };
+      });
     return sendSuccess(res, history);
   }));
 
@@ -947,5 +967,87 @@ async function sweepStaleCalls(broadcastEvent) {
   }
 }
 
+/**
+ * Periodic sweep: cut active calls the wallet can no longer afford.
+ *
+ * The allowance is re-derived from the LIVE wallet balance on every tick, so
+ * a top-up during the call extends the talk time and a drained wallet ends
+ * it on the next tick. Billing time is measured from media connect (exactly
+ * like finalizeCall's billingStart), so lobby/verification time is never
+ * counted against the balance. A missing wallet or a zero rate must never
+ * kill a live call - those rows are skipped, not cut.
+ *
+ * The room close carries reason 'insufficient_balance' so both clients can
+ * say WHY the call ended instead of showing a generic hangup.
+ */
+async function sweepExhaustedBalance(broadcastEvent, signaling) {
+  try {
+    const calls = await readDb('calls.json');
+    const active = calls.filter((c) => c.status === 'active' && c.mediaConnectedAt);
+    if (active.length === 0) return;
+
+    const [wallets, inmates] = await Promise.all([
+      readDb('wallets.json'),
+      readDb('inmates.json'),
+    ]);
+    const now = Date.now();
+    let cut = 0;
+
+    for (const call of active) {
+      const rate = Number(call.ratePerMinute) || 0;
+      if (rate <= 0) continue;
+
+      const inmate = inmates.find((i) => i.inmateId === call.inmateId) ||
+        inmates.find((i) => i.assignedKioskId === call.inmateId) || null;
+      const wallet = pickWallet(wallets, call.inmateId, inmate?.walletId);
+      if (!wallet) continue;
+
+      const balance = Math.max(0, Number(wallet.balance) || 0);
+      // paise / (rupees-per-min * 100) = minutes of talk time left
+      const allowedMs = (balance / (rate * 100)) * 60000;
+      const billingStartMs = new Date(call.mediaConnectedAt).getTime();
+      if (now - billingStartMs <= allowedMs) continue;
+
+      console.warn(
+        `[calls] balance sweep: cutting ${call.callId} — wallet ${wallet.walletId} has ` +
+        `₹${(balance / 100).toFixed(2)} left (allowed ${Math.round(allowedMs / 60000)}min @ ` +
+        `₹${rate}/min, connected ${Math.round((now - billingStartMs) / 60000)}min ago)`
+      );
+      const claimed = await finalizeCall(call, now, broadcastEvent, 'insufficient_balance');
+      if (!claimed || claimed._alreadyFinalized) continue;
+      cut++;
+
+      // Best effort: tell both live clients why they were cut, then let the
+      // dashboard know. A signaling outage must not fail the sweep itself.
+      try {
+        if (call.roomId) {
+          await signaling('POST', `/api/rooms/${encodeURIComponent(call.roomId)}/close`, { reason: 'insufficient_balance' });
+        }
+      } catch (err) {
+        if (err.code !== 'SIGNALING_ERROR' && err.code !== 'MEDIA_CONFIG') {
+          console.error('[calls] balance sweep room close failed:', err.message);
+        }
+      }
+      // Same room-membership reset the /end route does — otherwise the row
+      // keeps claiming the room is busy for the next call.
+      await updateDb('rooms.json', (rooms) => {
+        const room = rooms.find((r) => r.roomId === call.roomId) ||
+          rooms.find((r) => r.callId === call.callId);
+        if (!room) return { data: rooms, result: null };
+        room.status = 'idle';
+        room.participants = [];
+        room.participantCount = 0;
+        room.activeCallId = null;
+        return { data: rooms, result: room };
+      });
+      broadcastEvent('call-ended', { callId: call.callId, status: claimed.status || 'completed', reason: 'insufficient_balance' });
+    }
+    if (cut > 0) console.log(`[calls] balance sweep cut ${cut} call(s)`);
+  } catch (err) {
+    console.error('[calls] balance sweep failed:', err.message);
+  }
+}
+
 module.exports = createCallsRouter;
 module.exports.sweepStaleCalls = sweepStaleCalls;
+module.exports.sweepExhaustedBalance = sweepExhaustedBalance;

@@ -3,6 +3,7 @@ package com.dssmeet.kiosk.ui.admin
 import android.media.MediaPlayer
 import android.net.Uri
 import android.widget.VideoView
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -29,7 +30,9 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.dssmeet.kiosk.models.call.CallHistory
 import com.dssmeet.kiosk.models.call.CallType
+import com.dssmeet.kiosk.models.call.FamilyLocation
 import com.dssmeet.kiosk.ui.components.KioskTopBar
+import com.dssmeet.kiosk.ui.components.LocationMapDialog
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -100,6 +103,9 @@ fun CallHistoryContent(
 
     val visibleCalls = if (state.recordedOnly) state.calls.filter { hasLocal(it) } else state.calls
     val recordedCount = state.calls.count { hasLocal(it) }
+
+    // Non-null while the in-app location map dialog is open (admin-only view).
+    var mapLocation by remember { mutableStateOf<FamilyLocation?>(null) }
 
     Scaffold(
         topBar = {
@@ -287,11 +293,25 @@ fun CallHistoryContent(
                     hasRecording = hasLocal(call),
                     isPreparing = state.preparingCallId == call.callId,
                     prepareProgress = state.playbackProgress,
-                    onPlay = { onPlay(call) }
+                    onPlay = { onPlay(call) },
+                    onLocationClick = { mapLocation = it }
                 )
             }
 
             item { Spacer(Modifier.height(8.dp)) }
+        }
+    }
+
+    mapLocation?.let { loc ->
+        val la = loc.lat
+        val lo = loc.lng
+        if (la != null && lo != null) {
+            LocationMapDialog(
+                lat = la,
+                lng = lo,
+                label = loc.displayLabel,
+                onDismiss = { mapLocation = null }
+            )
         }
     }
 }
@@ -302,7 +322,8 @@ private fun CallHistoryCard(
     hasRecording: Boolean,
     isPreparing: Boolean,
     prepareProgress: Float,
-    onPlay: () -> Unit
+    onPlay: () -> Unit,
+    onLocationClick: (FamilyLocation) -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -350,6 +371,48 @@ private fun CallHistoryCard(
                     )
                 }
                 StatusChip(status = call.status)
+            }
+
+            // Family member's location for this call — admin-only view; the
+            // backend never sends family.location to an inmate-role token.
+            // Tapping opens the in-app map dialog (Leaflet + Esri, no Google
+            // Maps app — the kiosk cannot hand off to another application).
+            call.family?.location?.let { loc ->
+                val hasCoords = loc.lat != null && loc.lng != null
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(
+                            if (hasCoords) Modifier.clickable { onLocationClick(loc) }
+                            else Modifier
+                        )
+                        .padding(vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.LocationOn,
+                        contentDescription = null,
+                        tint = Color(0xFF1565C0),
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Text(
+                        text = loc.displayLabel,
+                        fontSize = 12.sp,
+                        color = Color(0xFF687A8F),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (hasCoords) {
+                        Icon(
+                            imageVector = Icons.Default.Map,
+                            contentDescription = "Show on map",
+                            tint = Color(0xFF1565C0),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
             }
 
             Row(

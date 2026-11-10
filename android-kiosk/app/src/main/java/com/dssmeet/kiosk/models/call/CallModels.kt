@@ -81,8 +81,15 @@ data class CallHistory(
     @SerializedName("durationMinutes") val durationMinutes: Int? = null,
     @SerializedName("duration") val duration: Int? = null,
     @SerializedName("recordingId") val recordingId: String? = null,
-    @SerializedName("recordingStatus") val recordingStatus: String? = null
-)
+    @SerializedName("recordingStatus") val recordingStatus: String? = null,
+    /** Family data for THIS call. The backend strips family.location from
+     *  inmate-role responses, so only the admin history screen ever sees it. */
+    @SerializedName("family") val family: FamilyRef? = null
+) {
+    data class FamilyRef(
+        @SerializedName("location") val location: FamilyLocation? = null
+    )
+}
 
 /** Paged response of `GET /calls/history` (kiosk-scoped for a kiosk admin). */
 data class CallHistoryPage(

@@ -253,7 +253,18 @@ class CallEngine @Inject constructor(
                         peerLeftGraceJob?.cancel(); peerLeftGraceJob = null
                         if (callSessionActive) {
                             Logger.d("Call ended remotely (call-ended) - stopping session")
-                            endSession()
+                            // The backend balance sweep tags its room close with
+                            // this reason so the receipt explains WHY the call
+                            // was cut instead of a generic hangup.
+                            val remoteReason = (event.data as? org.json.JSONObject)?.optString("reason").orEmpty()
+                            if (remoteReason == "insufficient_balance") {
+                                endSession(
+                                    reason = remoteReason,
+                                    description = "Call ended — wallet balance exhausted",
+                                )
+                            } else {
+                                endSession()
+                            }
                         }
                     }
                     // A socket blip on the OTHER side triggers peer-left well
@@ -668,10 +679,15 @@ class CallEngine @Inject constructor(
         }
 
         // What the receipt and the call screen tell the inmate. Only a time
-        // limit earns a specific label — everything else stays "Call ended".
-        _endLabel.value = if (wasActive && endReason == "timeout") {
-            context.getString(R.string.max_duration_reached, (maxCallSeconds.value + 59) / 60)
-        } else null
+        // limit or an exhausted wallet earns a specific label — everything
+        // else stays "Call ended".
+        _endLabel.value = when {
+            wasActive && endReason == "timeout" ->
+                context.getString(R.string.max_duration_reached, (maxCallSeconds.value + 59) / 60)
+            wasActive && endReason == "insufficient_balance" ->
+                context.getString(R.string.wallet_balance_exhausted)
+            else -> null
+        }
 
         callSessionActive = false
         pollJob?.cancel(); pollJob = null

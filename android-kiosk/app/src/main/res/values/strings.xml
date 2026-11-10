@@ -56,6 +56,7 @@
     <string name="call_ended_successfully">Call Ended Successfully</string>
     <string name="call_summary_subtitle">Your call has ended</string>
     <string name="max_duration_reached">Reached Max Duration: %1$d Minutes</string>
+    <string name="wallet_balance_exhausted">Wallet Balance Exhausted</string>
     <string name="receipt">RECEIPT</string>
     <string name="total_charged">Total Charged</string>
     <string name="remaining_balance">Remaining Balance</string>

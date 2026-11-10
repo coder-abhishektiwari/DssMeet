@@ -115,6 +115,9 @@ export function CallPage() {
   // Set when the call is cut by the duration cap (either side), so the user
   // sees WHY instead of being dumped on a blank page / the home route.
   const [timeLimitNotice, setTimeLimitNotice] = useState<number | null>(null);
+  // Set when the server cut the call because the wallet ran dry — the end
+  // card then says WHY and offers the recharge button (same as time limit).
+  const [balanceNotice, setBalanceNotice] = useState(false);
   // Set when the call is over for any non-timeout reason (kiosk hung up,
   // family hung up, reconnect exhausted). Drives the end screen with the
   // post-call wallet recharge option instead of a blank page.
@@ -134,7 +137,7 @@ export function CallPage() {
   }, [otpResult]);
   // Read the balance once any end-of-call screen shows, and again after the
   // recharge popup closes so the card reflects what was just credited.
-  const postCallVisible = Boolean(timeLimitNotice) || callEnded || status === 'ended';
+  const postCallVisible = Boolean(timeLimitNotice) || balanceNotice || callEnded || status === 'ended';
   useEffect(() => {
     if (!postCallVisible || showWalletPopup) return;
     const token = sessionTokenRef.current;
@@ -386,6 +389,8 @@ export function CallPage() {
       // say so instead of silently blanking the page.
       const dueToTimeLimit = data?.reason === 'timeout';
       if (dueToTimeLimit) setTimeLimitNotice(session?.maxDurationMinutes ?? null);
+      // Backend balance sweep cut us off — surface it as its own end card.
+      if (data?.reason === 'insufficient_balance') setBalanceNotice(true);
       wasConnectedRef.current = false;
       reconnectingRef.current = true; // stop any in-flight reconnect loop
       setEndingCall(true);
@@ -743,6 +748,26 @@ export function CallPage() {
     setTimeLimitNotice(session?.maxDurationMinutes ?? null);
     void endCall();
   }, [status, callDuration, maxCallSeconds, timeLimitNotice, session, endCall]);
+
+  if (balanceNotice) {
+    return (
+      <div className="min-h-screen bg-neutral-900 flex items-center justify-center p-4">
+        <PostCallCard
+          title="Wallet balance exhausted"
+          description="This call has ended because the wallet balance ran out. Recharge the wallet to talk again."
+          balancePaise={walletBalance}
+          canRecharge={Boolean(sessionTokenRef.current)}
+          onRecharge={() => setShowWalletPopup(true)}
+        />
+        {sessionTokenRef.current && showWalletPopup && (
+          <CallWalletPopup
+            sessionToken={sessionTokenRef.current}
+            onClose={() => setShowWalletPopup(false)}
+          />
+        )}
+      </div>
+    );
+  }
 
   if (timeLimitNotice) {
     return (
