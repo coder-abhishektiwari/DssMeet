@@ -43,8 +43,49 @@ class MainActivity : FragmentActivity() {
     @Inject lateinit var sessionManager: SessionManager
     @Inject lateinit var networkMonitor: com.dssmeet.kiosk.core.NetworkMonitor
     @Inject lateinit var authRepository: com.dssmeet.kiosk.repository.AuthRepository
+    @Inject lateinit var updateManager: com.dssmeet.kiosk.core.UpdateManager
+    @Inject lateinit var updateInstaller: com.dssmeet.kiosk.core.UpdateInstaller
 
     private var inactivityJob: Job? = null
+
+    // Update install progress (shown on the mandatory update gate).
+    @Volatile private var updateWorkInProgress = false
+    @Volatile private var updateProgressText: String? = null
+    @Volatile private var updateErrorText: String? = null
+
+    /**
+     * Download the published APK, verify it and hand it to the installer.
+     * On a device-owner kiosk this is a silent install — the new version is
+     * live after the system restarts the app.
+     */
+    fun startUpdateInstall(info: com.dssmeet.kiosk.models.appupdate.AppUpdateInfo) {
+        if (updateWorkInProgress) return
+        updateWorkInProgress = true
+        updateProgressText = "Downloading update…"
+        updateErrorText = null
+        lifecycleScope.launch {
+            val downloaded = updateInstaller.download(info)
+            downloaded.onFailure { err ->
+                updateWorkInProgress = false
+                updateProgressText = null
+                updateErrorText = err.message ?: "Download failed"
+                Logger.w("MainActivity: update download failed: ${err.message}")
+                return@launch
+            }
+            val file = downloaded.getOrThrow().file
+            updateProgressText = "Installing update…"
+            val installed = updateInstaller.install(file)
+            installed.onSuccess {
+                updateProgressText = "Update installed — restarting…"
+                Logger.i("MainActivity: update install handed off")
+            }.onFailure { err ->
+                updateWorkInProgress = false
+                updateProgressText = null
+                updateErrorText = err.message ?: "Install failed"
+                Logger.w("MainActivity: update install failed: ${err.message}")
+            }
+        }
+    }
 
     /**
      * The kiosk's inactivity logout is a LOCAL, FIXED policy — 2 minutes by
@@ -81,6 +122,7 @@ class MainActivity : FragmentActivity() {
             PrisonKioskTheme {
                 val windowSizeClass = calculateWindowSizeClass(this)
                 val isOnline by networkMonitor.isOnline.collectAsState()
+                val updateState by updateManager.state.collectAsState()
                 Surface(modifier = Modifier.fillMaxSize()) {
                     Box(modifier = Modifier.fillMaxSize()) {
                         // One-time setup gate: nothing runs until every runtime
@@ -103,6 +145,20 @@ class MainActivity : FragmentActivity() {
                         // instant it returns (driven by NetworkMonitor's callback).
                         if (!isOnline) {
                             NoInternetScreen(onRetry = { networkMonitor.refresh() })
+                        }
+
+                        // Mandatory update gate: a published build that says
+                        // "mandatory" blocks the kiosk completely — the screen
+                        // stays unusable until the new APK is installed.
+                        val mandatory = updateState as? com.dssmeet.kiosk.core.UpdateManager.State.Mandatory
+                        if (mandatory != null) {
+                            com.dssmeet.kiosk.ui.update.MandatoryUpdateScreen(
+                                info = mandatory.info,
+                                isWorking = updateWorkInProgress,
+                                progressText = updateProgressText,
+                                errorText = updateErrorText,
+                                onInstall = { startUpdateInstall(mandatory.info) }
+                            )
                         }
                     }
                 }
@@ -168,6 +224,11 @@ class MainActivity : FragmentActivity() {
             com.dssmeet.kiosk.core.SessionEvents.notifyExpired(reason)
             recreate()
         }
+    }
+
+    /** The user dismissed an optional update notice. */
+    fun dismissOptionalUpdate() {
+        updateManager.dismissOptional()
     }
 
     override fun onPause() {

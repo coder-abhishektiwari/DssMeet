@@ -37,6 +37,7 @@ const createContactsRouter = require('./routes/contacts');
 const createStatisticsRouter = require('./routes/statistics');
 const prisonsRouter = require('./routes/prisons');
 const createSettingsRouter = require('./routes/settings');
+const createAppReleasesRouter = require('./routes/app-releases');
 const misRouter = require('./routes/mis');
 const auditRouter = require('./routes/audit');
 
@@ -195,6 +196,7 @@ async function signaling(method, path, body) {
 }
 
 const settingsRouter = createSettingsRouter(broadcastEvent);
+const appReleasesRouter = createAppReleasesRouter(broadcastEvent);
 const walletsRouter = require('./routes/wallets');
 const callWalletRouter = require('./routes/call-wallet');
 
@@ -210,6 +212,7 @@ app.use('/contacts', createContactsRouter());
 app.use('/statistics', createStatisticsRouter());
 app.use('/prisons', prisonsRouter);
 app.use('/settings', settingsRouter);
+app.use('/app-releases', appReleasesRouter);
 app.use('/wallets', walletsRouter);
 app.use('/mis', misRouter);
 app.use('/audit', auditRouter);

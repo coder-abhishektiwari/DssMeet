@@ -10,5 +10,8 @@
         <encrypted-storage />
         <disable-camera />
         <disable-keyguard-features />
+        <!-- Lets a device-owner kiosk install an update APK without a
+             human tapping through the installer. -->
+        <install-update-packages />
     </uses-policies>
 </device-admin>

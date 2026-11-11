@@ -2,7 +2,9 @@
  * DssMeet Warden desktop shell (Electron).
  *
  * Security posture — this is a thin, hardened window around the built SPA:
- *  - Renderer is fully sandboxed: no Node, no preload bridge, no IPC surface.
+ *  - Renderer is fully sandboxed: no Node, no arbitrary IPC surface. The only
+ *    bridge is a small preload that exposes the app version and opens
+ *    allowlisted https URLs in the OS browser.
  *  - UI is served from the local `app://` custom scheme (standard + secure),
  *    so the renderer never loads remote document content and localStorage
  *    lives on an isolated app origin.
@@ -11,7 +13,8 @@
  *    by default; only an allowlist of our own https hosts may open externally.
  *  - DevTools, reload and refresh accelerators are disabled in production.
  */
-import { app, BrowserWindow, Menu, protocol, session, shell, net } from 'electron';
+import { app, BrowserWindow, Menu, protocol, session, shell, net, ipcMain } from 'electron';
+import { autoUpdater } from 'electron-updater';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
@@ -41,6 +44,10 @@ const ALLOWED_EXTERNAL_HOSTS = new Set([
   'www.google.com',
   'maps.google.com',
   'google.com',
+  // Update downloads are published as GitHub Release assets.
+  'github.com',
+  'objects.githubusercontent.com',
+  'release-assets.githubusercontent.com',
 ]);
 
 protocol.registerSchemesAsPrivileged([
@@ -101,20 +108,23 @@ function createWindow() {
     ...(existsSync(APP_ICON) ? { icon: APP_ICON } : {}),
     autoHideMenuBar: true,
     title: 'DssMeet Warden',
-    webPreferences: {
-      contextIsolation: true,
-      nodeIntegration: false,
-      nodeIntegrationInWorker: false,
-      nodeIntegrationInSubFrames: false,
-      sandbox: true,
-      webSecurity: true,
-      allowRunningInsecureContent: false,
-      experimentalFeatures: false,
-      webviewTag: false,
-      spellcheck: false,
-      devTools: isDev || isSmoke,
-      navigateOnDragDrop: false,
-    },
+      webPreferences: {
+        contextIsolation: true,
+        nodeIntegration: false,
+        nodeIntegrationInWorker: false,
+        nodeIntegrationInSubFrames: false,
+        sandbox: true,
+        webSecurity: true,
+        allowRunningInsecureContent: false,
+        experimentalFeatures: false,
+        webviewTag: false,
+        spellcheck: false,
+        devTools: isDev || isSmoke,
+        navigateOnDragDrop: false,
+        // Minimal, validated bridge (app version + opening an allowlisted
+        // https URL in the OS browser) — see electron/preload.mjs.
+        preload: path.join(__dirname, 'preload.mjs'),
+      },
   });
 
   Menu.setApplicationMenu(null);
@@ -188,6 +198,101 @@ function hardenWebContents(contents) {
 
 // Renderer sandbox must be locked before any window exists.
 app.enableSandbox();
+
+// ==================== PRELOAD BRIDGE (validated, minimal) ====================
+// The renderer may ask for its own version/platform and for an allowlisted
+// https URL to be opened in the OS browser (the update download). Nothing
+// else crosses the bridge.
+ipcMain.handle('dss:app-info', () => ({
+  version: app.getVersion(),
+  platform: process.platform,
+}));
+
+ipcMain.handle('dss:open-external', async (_event, url) => {
+  try {
+    const parsed = new URL(String(url));
+    if (parsed.protocol !== 'https:') return false;
+    if (!ALLOWED_EXTERNAL_HOSTS.has(parsed.hostname)) return false;
+    await shell.openExternal(parsed.toString());
+    return true;
+  } catch {
+    return false;
+  }
+});
+
+// ==================== AUTO UPDATE (electron-updater) ====================
+// The update FEED is the GitHub Releases page (see electron-builder.yml).
+// The download itself is handled by electron-updater — the renderer only
+// sees the progress through the events below.
+//
+// In dev (unpackaged app) electron-updater cannot work — it needs the
+// published app metadata. The renderer falls back to the release registry
+// in that case.
+const isPackaged = app.isPackaged;
+
+autoUpdater.autoDownload = false;
+autoUpdater.autoInstallOnAppQuit = true;
+autoUpdater.logger = null;
+
+function sendUpdateEvent(type, payload) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('dss:update-event', { type, ...payload });
+  }
+}
+
+ipcMain.handle('dss:update-check', async () => {
+  if (!isPackaged) return { available: false, reason: 'dev' };
+  try {
+    const result = await autoUpdater.checkForUpdates();
+    return {
+      available: !!result?.updateInfo && result.updateInfo.version !== app.getVersion(),
+      version: result?.updateInfo?.version ?? null,
+      releaseNotes: result?.updateInfo?.releaseNotes ?? null,
+      releaseDate: result?.updateInfo?.releaseDate ?? null,
+    };
+  } catch (err) {
+    return { available: false, reason: String(err?.message || err) };
+  }
+});
+
+ipcMain.handle('dss:update-download', async () => {
+  if (!isPackaged) return { ok: false };
+  try {
+    await autoUpdater.downloadUpdate();
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: String(err?.message || err) };
+  }
+});
+
+ipcMain.handle('dss:update-quit-install', async () => {
+  if (!isPackaged) return { ok: false };
+  // Close the window first so a restart is clean.
+  setImmediate(() => {
+    autoUpdater.quitAndInstall(false, true);
+  });
+  return { ok: true };
+});
+
+autoUpdater.on('checking-for-update', () => sendUpdateEvent('checking'));
+autoUpdater.on('update-available', (info) =>
+  sendUpdateEvent('available', { version: info?.version ?? null })
+);
+autoUpdater.on('update-not-available', () => sendUpdateEvent('not-available'));
+autoUpdater.on('download-progress', (progress) =>
+  sendUpdateEvent('progress', {
+    percent: Math.round(progress?.percent ?? 0),
+    transferred: progress?.transferred ?? 0,
+    total: progress?.total ?? 0,
+    bytesPerSecond: progress?.bytesPerSecond ?? 0,
+  })
+);
+autoUpdater.on('update-downloaded', (info) =>
+  sendUpdateEvent('downloaded', { version: info?.version ?? null })
+);
+autoUpdater.on('error', (err) =>
+  sendUpdateEvent('error', { message: String(err?.message || err) })
+);
 
 // Match the installer's appId so Windows taskbar pinning/groups pick up the
 // app icon instead of Electron's default.

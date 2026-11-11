@@ -15,6 +15,7 @@ import { KioskRegistrationPage } from '@/pages/KioskRegistrationPage';
 import { KiosksPage } from '@/pages/KiosksPage';
 import { UsersPage } from '@/pages/UsersPage';
 import { CallConfigurationPage } from '@/pages/CallConfigurationPage';
+import { UpdatesPage } from '@/pages/UpdatesPage';
 import { RequireAuth, RedirectIfAuthenticated } from '@/components/auth/RouteGuards';
 
 export const RoutePaths = {
@@ -31,6 +32,7 @@ export const RoutePaths = {
   kiosks: '/kiosks',
   users: '/users',
   callConfiguration: '/call-configuration',
+  updates: '/updates',
 } as const;
 
 export const router = createBrowserRouter([
@@ -81,6 +83,7 @@ export const router = createBrowserRouter([
       { path: RoutePaths.kiosks, element: <KiosksPage /> },
       { path: RoutePaths.users, element: <UsersPage /> },
       { path: RoutePaths.callConfiguration, element: <CallConfigurationPage /> },
+      { path: RoutePaths.updates, element: <UpdatesPage /> },
       { path: '*', element: <Navigate to="/calls" replace /> },
     ],
   },

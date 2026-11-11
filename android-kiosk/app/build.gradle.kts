@@ -19,6 +19,28 @@ fun appProp(name: String, fallback: String): String =
         ?: localProperties.getProperty(name)?.trim()?.takeIf { it.isNotEmpty() }
         ?: fallback
 
+// Release signing. The keystore is NEVER in the repo: CI passes it through
+// environment variables (DSM_KEYSTORE_PATH + passwords) and a local build
+// can put the same four keys in local.properties. Without them the release
+// build stays UNSIGNED (fine for a fresh install, useless for an in-app
+// update — a different key can never overwrite an installed APK).
+val signingKeystorePath: String? =
+    System.getenv("DSM_KEYSTORE_PATH")
+        ?: localProperties.getProperty("KEYSTORE_PATH")?.trim()?.takeIf { it.isNotEmpty() }
+val signingStorePassword: String? =
+    System.getenv("DSM_KEYSTORE_PASSWORD")
+        ?: localProperties.getProperty("KEYSTORE_PASSWORD")?.trim()?.takeIf { it.isNotEmpty() }
+val signingKeyAlias: String? =
+    System.getenv("DSM_KEY_ALIAS")
+        ?: localProperties.getProperty("KEY_ALIAS")?.trim()?.takeIf { it.isNotEmpty() }
+val signingKeyPassword: String? =
+    System.getenv("DSM_KEY_PASSWORD")
+        ?: localProperties.getProperty("KEY_PASSWORD")?.trim()?.takeIf { it.isNotEmpty() }
+val hasReleaseSigning = signingKeystorePath != null &&
+    signingStorePassword != null &&
+    signingKeyAlias != null &&
+    signingKeyPassword != null
+
 android {
     namespace = "com.dssmeet.kiosk"
     compileSdk = 35
@@ -27,8 +49,10 @@ android {
         applicationId = "com.dssmeet.kiosk"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        // versionCode drives the in-app updater (it compares versionCode, so
+        // it MUST increase with every release). CI passes it via -P.
+        versionCode = (project.findProperty("versionCode") as String?)?.toIntOrNull() ?: 1
+        versionName = (project.findProperty("versionName") as String?)?.trim()?.takeIf { it.isNotEmpty() } ?: "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -56,8 +80,23 @@ android {
         }
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(signingKeystorePath!!)
+                storePassword = signingStorePassword
+                keyAlias = signingKeyAlias
+                keyPassword = signingKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
+            // Without the keystore the APK stays unsigned (fresh installs
+            // only). The build prints a warning so nobody ships one by
+            // accident.
+            signingConfig = signingConfigs.findByName("release")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -79,6 +118,14 @@ android {
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.10"
     }
+}
+
+if (!hasReleaseSigning) {
+    logger.warn(
+        "[signing] No release keystore configured (DSM_KEYSTORE_PATH / KEYSTORE_PATH) — " +
+            "the release APK will be UNSIGNED. It can only be side-loaded fresh, " +
+            "never update an already installed kiosk."
+    )
 }
 
 dependencies {

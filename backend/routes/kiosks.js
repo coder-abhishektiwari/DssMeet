@@ -8,6 +8,7 @@ const { jailScopeOf, inAdminScope, adminScopeFilter, inScopeOf, scopeList } = re
 const { paginate } = require('../lib/paginate');
 const { buildInmateIndex } = require('../lib/kioskView');
 const { checkRateLimit } = require('../lib/rateLimitStore');
+const { latestRelease } = require('../lib/appReleases');
 const { auditFromReq } = require('../lib/audit');
 
 const router = express.Router();
@@ -277,7 +278,10 @@ router.post('/heartbeat', asyncRoute(async (req, res) => {
     ok: true,
     kioskId: updated.kioskId,
     status: kioskDisplayStatus(updated),
-    lastSeen: updated.lastSeen
+    lastSeen: updated.lastSeen,
+    // Update manifest piggyback: the kiosk already heartbeats every 30s, so
+    // the app learns about a new APK WITHOUT any extra request.
+    update: await latestRelease('kiosk', 'android'),
   });
 }));
 

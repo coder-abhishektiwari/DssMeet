@@ -26,8 +26,12 @@ class DashboardViewModel @Inject constructor(
     private val contactRepository: ContactRepository,
     private val callRepository: CallRepository,
     private val authRepository: AuthRepository,
-    private val jailBalanceSync: JailBalanceSync
+    private val jailBalanceSync: JailBalanceSync,
+    private val updateManager: com.dssmeet.kiosk.core.UpdateManager
 ) : BaseViewModel() {
+
+    /** Optional/mandatory update state (fed by the heartbeat). */
+    val updateState = updateManager.state
 
     private val _dashboardState = MutableStateFlow<UiState<DashboardData>>(UiState.Loading)
     val dashboardState = _dashboardState.asStateFlow()

@@ -11,6 +11,10 @@ function unauthorized(res, message) {
 
 /** Requires a valid Bearer JWT. Populates req.auth = { sub, role, kioskId, ... }. */
 function requireAuth(req, res, next) {
+  // A route-level guard may already have established the principal (the CI
+  // publisher token in routes/app-releases.js) — never re-authenticate it.
+  if (req.auth) return next();
+
   const header = req.headers.authorization || '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : null;
 

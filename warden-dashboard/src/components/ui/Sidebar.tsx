@@ -17,6 +17,7 @@ const navItems: NavItem[] = [
   { to: '/kiosk-registrations', label: 'Kiosk Registration Requests', icon: 'security' },
   { to: '/users', label: 'Admin Management', icon: 'people' },
   { to: '/call-configuration', label: 'Configurations', icon: 'tune' },
+  { to: '/updates', label: 'Updates', icon: 'system_update_alt' },
 ];
 
 export function Sidebar() {

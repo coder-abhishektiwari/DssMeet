@@ -84,6 +84,7 @@ const REGISTRY = {
   'wallet-payments.json': { table: 'wallet_payments',      idKey: 'paymentId', cols: { orderId: 'order_id', contactId: 'contact_id', inmateId: 'inmate_id', walletId: 'wallet_id' } },
   'alerts.json':       { table: 'alerts',                  idKey: 'alertId', cols: { prisonId: 'prison_id', kioskId: 'kiosk_id', callId: 'call_id' } },
   'incidents.json':    { table: 'incidents',               idKey: 'incidentId', cols: { prisonId: 'prison_id', inmateId: 'inmate_id', kioskId: 'kiosk_id', callId: 'call_id', wardenId: 'warden_id' } },
+  'app-releases.json': { table: 'app_releases',            idKey: 'releaseId', cols: { app: 'app', platform: 'platform', version: 'version', versionCode: 'version_code', mandatory: 'mandatory', downloadUrl: 'download_url', releasedAt: 'released_at' } },
   'devices.json':      { table: 'devices',                 idKey: 'deviceId', cols: { kioskId: 'kiosk_id', prisonId: 'prison_id' } },
   'statistics.json':   { table: 'statistics',              idKey: null, idKeyFn: (d) => `${d.callId}:${d.timestamp}`, cols: { callId: 'call_id' } },
   'admins.json':       { table: 'admins',                  idKey: 'adminId', cols: { kioskId: 'kiosk_id', prisonId: 'prison_id' } },

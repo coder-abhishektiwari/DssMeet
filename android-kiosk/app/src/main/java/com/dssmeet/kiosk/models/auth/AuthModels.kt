@@ -127,5 +127,7 @@ data class KioskHeartbeatResponse(
     @SerializedName("ok") val ok: Boolean = false,
     @SerializedName("kioskId") val kioskId: String? = null,
     @SerializedName("status") val status: String? = null,
-    @SerializedName("lastSeen") val lastSeen: String? = null
+    @SerializedName("lastSeen") val lastSeen: String? = null,
+    /** Release manifest piggybacked on the heartbeat — no extra request. */
+    @SerializedName("update") val update: com.dssmeet.kiosk.models.appupdate.AppUpdateInfo? = null
 )

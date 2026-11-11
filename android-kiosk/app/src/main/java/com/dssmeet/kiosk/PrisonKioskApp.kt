@@ -29,6 +29,7 @@ class PrisonKioskApp : Application(), Configuration.Provider {
      *  survives navigation across every screen. */
     @Inject lateinit var networkMonitor: com.dssmeet.kiosk.core.NetworkMonitor
     @Inject lateinit var authRepository: com.dssmeet.kiosk.repository.AuthRepository
+@Inject lateinit var updateManager: com.dssmeet.kiosk.core.UpdateManager
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -95,6 +96,9 @@ class PrisonKioskApp : Application(), Configuration.Provider {
                     appVersion = com.dssmeet.kiosk.BuildConfig.VERSION_NAME
                 )
             )
+            // The heartbeat carries the release manifest — so learning about
+            // an update costs NO extra request.
+            updateManager.apply(response.data?.update)
             true
         } catch (t: Throwable) {
             Logger.w("Heartbeat failed: ${t.message}")

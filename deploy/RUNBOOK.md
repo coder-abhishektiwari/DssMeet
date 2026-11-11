@@ -232,7 +232,6 @@ SIGNALING_URL=https://signal.example.com
 - Build: Android Studio → Build → Generate Signed APK. Install on kiosk device.
 
 ### Dashboard auto logout (inactivity) — server-stored setting
-
 The warden dashboard can sign itself out after an idle period. The VALUE is
 stored on the server; the countdown runs locally in the browser (no polling,
 no server round trip):
@@ -248,6 +247,98 @@ PATCH /settings/auto-logout   { "enabled": true, "timeoutMinutes": 5 }
 - The **inmate kiosk is not affected** by this setting — the kiosk app has its
   own fixed 2-minute inactivity logout (`AUTO_LOGOUT_TIMEOUT_MS` in
   `android-kiosk/local.properties`), entirely local to the device.
+
+---
+
+## 13b. Builds & app updates (manual, on demand)
+
+### Building (GitHub → Actions → Run workflow)
+
+| Workflow | What it builds | Notes |
+|---|---|---|
+| **Android Kiosk APK** | signed release APK | inputs: `version_code` (MUST be higher than the installed one), `version_name`, `publish_release` |
+| **Warden Desktop Builds** | Windows `.exe` + Linux `AppImage`/`.deb` | input: `publish_release` |
+
+Both are **manual-only** — nothing is built on push. Tick `publish_release`
+to also create a GitHub Release; its asset URL + sha256 are what you publish
+in the dashboard.
+
+The APK is signed with the release keystore stored in the repo SECRETS
+(`DSM_KEYSTORE_BASE64`, `DSM_KEYSTORE_PASSWORD`, `DSM_KEY_ALIAS`,
+`DSM_KEY_PASSWORD`). Without that secret the build produces an **unsigned**
+APK (fresh installs only — it can never update an installed one).
+
+### Warden desktop: electron-updater (real auto-update)
+
+The installed desktop app updates itself through **electron-updater**:
+
+- Feed: the GitHub Releases page of this repo (`electron-builder.yml` →
+  `publish.provider: github`). The repo is public, so no token is needed.
+- The release **tag must be `v<version>`** and the version must match
+  `warden-dashboard/package.json` — **bump the version in package.json before
+  building**, otherwise the updater has nothing newer to offer.
+- The release MUST contain `latest.yml` (Windows) / `latest-linux.yml`
+  (Linux) plus the `*.blockmap` files — the CI uploads them. Without
+  `latest.yml` the updater cannot find the new build.
+- Flow in the app: check on start + every 15 min → banner (optional) or a
+  blocking gate (mandatory) → download (progress shown) → **Restart &
+  install** → the app restarts into the new version.
+- In a browser tab (not the installed app) there is no updater — the UI
+  falls back to the release registry and opens the download URL.
+
+### Publishing an update
+
+**The version is written in ONE place — the build.** The workflow publishes
+the release to the registry itself; you never type the version twice.
+
+**Kiosk APK:**
+1. Actions → **Android Kiosk APK** → **Run workflow**
+2. `version_code` = the number the devices will compare against (must be
+   HIGHER than the installed one), `version_name` = `1.1.0`
+3. Tick `publish_release` → the workflow creates the GitHub Release **and**
+   publishes the registry entry (version, versionCode, sha256, download URL)
+4. Tick `mandatory` if kiosks must be blocked until they update
+
+**Warden desktop:**
+1. Bump the version in `warden-dashboard/package.json` (e.g. 1.0.0 → 1.1.0)
+2. Actions → **Warden Desktop Builds** → **Run workflow** → tick
+   `publish_release` (+ `mandatory` if the console must be blocked)
+3. The workflow tags the release `v1.1.0` and publishes the registry entry
+
+Both need the repo secret `RELEASE_PUBLISH_TOKEN` (same value as the
+backend env `RELEASE_PUBLISH_TOKEN`). Without it the build still creates the
+GitHub Release, but no registry entry — so the *mandatory* flag and the
+browser fallback would not work.
+
+The dashboard's **Updates** page stays available for manual publishing and
+for flipping an existing release to mandatory.
+
+### How the clients learn about it
+
+- **Kiosk**: the manifest rides on the heartbeat it already sends every
+  30s → **no extra request**. The app compares the registry's `versionCode`
+  with its own `BuildConfig.VERSION_CODE`:
+  - higher + mandatory → the screen is blocked with "UPDATE REQUIRED", the
+    APK is downloaded, its sha256 verified and installed **silently**
+    (device-owner kiosk), then the app restarts
+  - higher + optional → a dismissible banner on the dashboard
+  - equal/lower → nothing happens
+- **Warden console**: electron-updater checks the GitHub feed on start and
+  every 15 minutes. A mandatory release shows a blocking overlay; an
+  optional one a dismissible banner. The installer is downloaded, verified
+  and installed on restart.
+
+### Release registry (server side)
+
+```
+GET  /app-releases/latest?app=kiosk|warden&platform=android|windows|linux   (no auth)
+GET  /app-releases                                                           (warden/admin)
+POST /app-releases                                                           (warden/admin)
+PATCH /app-releases/:releaseId                                               (mandatory toggle)
+```
+
+Publishing a new build supersedes the previous one for that app + platform.
+The registry stores METADATA ONLY — the binaries live in GitHub Releases.
 
 ---
 

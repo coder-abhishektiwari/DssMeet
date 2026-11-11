@@ -16,6 +16,9 @@
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     <uses-permission android:name="android.permission.USE_FINGERPRINT" />
     <uses-permission android:name="android.permission.MANAGE_DEVICE_ADMIN" />
+    <!-- Installing an update APK: the app downloads the new build and hands
+         it to the package installer (silently on device-owner kiosks). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:name=".PrisonKioskApp"
@@ -57,6 +60,26 @@
                 <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
             </intent-filter>
         </receiver>
+
+        <receiver
+            android:name=".core.UpdateInstallReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.dssmeet.kiosk.action.UPDATE_INSTALL_STATUS" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Hands the downloaded update APK to the package installer without
+             exposing a file:// path (the installer needs a content:// URI). -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
         <!-- WorkManager is configured by PrisonKioskApp, so the default
              startup initializer must not race it. -->

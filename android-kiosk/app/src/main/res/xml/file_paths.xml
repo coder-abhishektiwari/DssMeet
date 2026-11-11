@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Paths the update installer may share with the package installer.
+     Only the app's own cache (where a downloaded APK lands) is exposed. -->
+<paths>
+    <cache-path
+        name="updates"
+        path="updates/" />
+</paths>

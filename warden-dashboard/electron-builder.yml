@@ -13,6 +13,19 @@ files:
 asar: true
 npmRebuild: false
 
+# Update feed for electron-updater. The repository is public, so the GitHub
+# provider reads the release assets without any token. electron-builder writes
+# latest.yml (Windows) / latest-linux.yml next to the installers — those files
+# MUST be uploaded to the release as well, otherwise the updater cannot find
+# the new version.
+publish:
+  provider: github
+  owner: coder-abhishektiwari
+  repo: DssMeet
+  releaseType: release
+  # The updater looks for the release whose tag matches the app version.
+  channel: latest
+
 # Windows 10/11 (Electron 45 does not support Windows 7/8 — ship the web URL
 # on those machines instead).
 win:
@@ -23,6 +36,9 @@ win:
         - x64
 
 nsis:
+  # The file name MUST match what electron-updater's latest.yml references —
+  # the default productName-based name contains spaces and does not line up.
+  artifactName: "DssMeet-Warden-Setup-${version}.${ext}"
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
@@ -34,6 +50,8 @@ nsis:
 # the Debian/Ubuntu family directly.
 linux:
   icon: build/icon.png
+  # Same rule as NSIS: the artifact name has to match latest-linux.yml.
+  artifactName: "DssMeet-Warden-${version}.${ext}"
   target:
     - AppImage
     - deb

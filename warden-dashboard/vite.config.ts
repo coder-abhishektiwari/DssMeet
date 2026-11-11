@@ -1,6 +1,7 @@
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
+import pkg from './package.json';
 
 // Production-only CSP: blocks injected inline/event-handler XSS and rogue
 // script loads. Injected only for builds (ctx.server) so Vite/React inline
@@ -30,6 +31,15 @@ function securityMetas(): Plugin {
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react(), securityMetas()],
+  define: {
+    // The app's own version + the platform this build targets — the update
+    // check compares them with the published release registry.
+    'import.meta.env.VITE_APP_VERSION': JSON.stringify(pkg.version),
+    'import.meta.env.VITE_APP_PLATFORM': JSON.stringify(
+      process.env.DSM_TARGET_PLATFORM ||
+        (process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'mac' : 'linux')
+    ),
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

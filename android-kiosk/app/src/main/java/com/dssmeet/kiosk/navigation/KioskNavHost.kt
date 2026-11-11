@@ -214,6 +214,12 @@ fun KioskNavHost(
                 },
                 onLobbyOpenChange = { open ->
                     (context as? MainActivity)?.isLobbyOpen = open
+                },
+                onInstallUpdate = { info ->
+                    (context as? MainActivity)?.startUpdateInstall(info)
+                },
+                onDismissUpdate = {
+                    (context as? MainActivity)?.dismissOptionalUpdate()
                 }
             )
         }

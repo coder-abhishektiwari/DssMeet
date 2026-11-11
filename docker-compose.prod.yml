@@ -112,6 +112,8 @@ services:
       # with the FAST2SMS_* keys before real users.
       SMS_PROVIDER: ${SMS_PROVIDER:-log}
       SMS_OTP_DOMAIN: ${SMS_OTP_DOMAIN:-}
+      # Lets the CI build publish its own release to /app-releases.
+      RELEASE_PUBLISH_TOKEN: ${RELEASE_PUBLISH_TOKEN:-}
       FAST2SMS_API_KEY: ${FAST2SMS_API_KEY:-}
       FAST2SMS_SENDER_ID: ${FAST2SMS_SENDER_ID:-}
       FAST2SMS_OTP_SENDER_ID: ${FAST2SMS_OTP_SENDER_ID:-}

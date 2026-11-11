@@ -1,18 +1,29 @@
 name: Warden Desktop Builds
 
-# Builds the Electron desktop packages for the warden console:
-#  - Windows: NSIS installer (Windows 10/11 x64 — Electron 45 has no Win7/8 support)
-#  - Linux: AppImage (any modern distro incl. Kali) + .deb (Ubuntu/Debian)
-# Local builds on Windows cannot produce the Linux targets (no fpm/symlinks
-# without elevated privileges), so CI owns them.
+# MANUAL-ONLY build of the Electron desktop console.
+#
+# Why manual: the desktop app is installed by hand on warden machines, so
+# building on every push is wasted CI time. Run it from the Actions tab
+# ("Run workflow") whenever you actually want a new installer.
+#
+# Outputs (download from the run summary → Artifacts):
+#   warden-windows-setup   → Windows NSIS installer (.exe)
+#   warden-linux-packages  → AppImage + .deb
+#
+# Optional: tick "publish_release" to also create a GitHub Release with the
+# installers as assets — the backend release registry points at that URL.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'warden-dashboard/**'
-      - '.github/workflows/warden-desktop.yml'
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: 'Create a GitHub Release with the installers'
+        type: boolean
+        default: false
+      mandatory:
+        description: 'Mandatory — the console is BLOCKED until it updates'
+        type: boolean
+        default: false
 
 jobs:
   windows-installer:
@@ -32,13 +43,21 @@ jobs:
           # VITE_API_GATEWAY_URL repository variable for a real endpoint;
           # otherwise the build uses a non-routable placeholder.
           VITE_API_GATEWAY_URL: ${{ vars.VITE_API_GATEWAY_URL || 'https://api.example.com' }}
+          # The app compares itself with the release registry for THIS
+          # platform — the runner's platform IS the target platform here.
+          DSM_TARGET_PLATFORM: windows
       - name: Package NSIS installer
-        run: npx electron-builder --win nsis
+        run: npx electron-builder --win nsis --publish never
         working-directory: warden-dashboard
       - uses: actions/upload-artifact@v4
         with:
           name: warden-windows-setup
-          path: warden-dashboard/release/*.exe
+          # latest.yml + *.blockmap are electron-updater's metadata — without
+          # them the app cannot find or install a new version.
+          path: |
+            warden-dashboard/release/*.exe
+            warden-dashboard/release/latest.yml
+            warden-dashboard/release/*.blockmap
           if-no-files-found: error
 
   linux-packages:
@@ -55,13 +74,121 @@ jobs:
         working-directory: warden-dashboard
         env:
           VITE_API_GATEWAY_URL: ${{ vars.VITE_API_GATEWAY_URL || 'https://api.example.com' }}
+          DSM_TARGET_PLATFORM: linux
       - name: Package AppImage + deb
-        run: npx electron-builder --linux AppImage deb
+        run: npx electron-builder --linux AppImage deb --publish never
         working-directory: warden-dashboard
       - uses: actions/upload-artifact@v4
         with:
           name: warden-linux-packages
+          # latest-linux.yml + *.blockmap are electron-updater's metadata.
           path: |
             warden-dashboard/release/*.AppImage
             warden-dashboard/release/*.deb
+            warden-dashboard/release/latest-linux.yml
+            warden-dashboard/release/*.blockmap
           if-no-files-found: error
+
+  # Optional GitHub Release so the backend registry has a stable download URL
+  # (and a sha256 the clients can verify).
+  publish:
+    needs: [windows-installer, linux-packages]
+    if: ${{ inputs.publish_release }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Read the app version
+        id: version
+        run: |
+          set -euo pipefail
+          VERSION=$(node -p "require('./warden-dashboard/package.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Building release v$VERSION"
+      - name: Checksums
+        run: |
+          cd artifacts
+          find . -type f \( -name '*.exe' -o -name '*.AppImage' -o -name '*.deb' \) -print0 \
+            | xargs -0 sha256sum > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          # electron-updater matches the release by version — the tag has to be
+          # v<version> (the same version as package.json).
+          tag_name: v${{ steps.version.outputs.version }}
+          name: Warden Desktop v${{ steps.version.outputs.version }}
+          body: |
+            Warden desktop console build.
+
+            sha256sums:
+            ```
+            $(cat artifacts/SHA256SUMS.txt)
+            ```
+          files: |
+            artifacts/**/*.exe
+            artifacts/**/*.AppImage
+            artifacts/**/*.deb
+            artifacts/**/*.yml
+            artifacts/**/*.blockmap
+            artifacts/SHA256SUMS.txt
+
+      # The build publishes ITSELF to the release registry (the version comes
+      # from package.json, so it is written in exactly one place). electron-
+      # updater finds the build itself through the GitHub feed — this entry
+      # only carries the "mandatory" flag.
+      - name: Publish to the release registry
+        env:
+          API_URL: ${{ vars.DSM_API_URL || 'https://api.dsssolutions.in' }}
+          RELEASE_TOKEN: ${{ secrets.RELEASE_PUBLISH_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -z "${RELEASE_TOKEN}" ]; then
+            echo "::warning::RELEASE_PUBLISH_TOKEN secret is not set — the registry entry was NOT created."
+            exit 0
+          fi
+          ASSET="DssMeet-Warden-Setup-${VERSION}.exe"
+          URL="https://github.com/${{ github.repository }}/releases/download/v${VERSION}/${ASSET}"
+          SHA=$(awk '/DssMeet-Warden-Setup/ {print $1; exit}' artifacts/SHA256SUMS.txt || true)
+          LINUX_ASSET="DssMeet-Warden-${VERSION}.AppImage"
+          LINUX_SHA=$(awk '/DssMeet-Warden-.*\.AppImage/ {print $1; exit}' artifacts/SHA256SUMS.txt || true)
+          publish() {
+            local body="$1"
+            local code
+            code=$(curl -sS -o "$RUNNER_TEMP/registry.json" -w "%{http_code}" \
+              -X POST "${API_URL}/app-releases" \
+              -H "Content-Type: application/json" \
+              -H "X-Release-Token: ${RELEASE_TOKEN}" \
+              -d "$body")
+            cat "$RUNNER_TEMP/registry.json"
+            if [ "$code" != "200" ] && [ "$code" != "201" ]; then
+              echo "::error::registry publish failed (HTTP $code)"
+              exit 1
+            fi
+          }
+          publish "{
+            \"app\": \"warden\",
+            \"platform\": \"windows\",
+            \"version\": \"${VERSION}\",
+            \"mandatory\": ${{ inputs.mandatory }},
+            \"downloadUrl\": \"${URL}\",
+            \"sha256\": \"${SHA}\",
+            \"notes\": \"Warden desktop ${VERSION}\"
+          }"
+          # The Linux console gets its own registry entry so the mandatory flag
+          # applies there too (electron-updater finds the AppImage itself).
+          publish "{
+            \"app\": \"warden\",
+            \"platform\": \"linux\",
+            \"version\": \"${VERSION}\",
+            \"mandatory\": ${{ inputs.mandatory }},
+            \"downloadUrl\": \"https://github.com/${{ github.repository }}/releases/download/v${VERSION}/${LINUX_ASSET}\",
+            \"sha256\": \"${LINUX_SHA}\",
+            \"notes\": \"Warden desktop ${VERSION}\"
+          }"
+          echo "::notice::release published to the registry"

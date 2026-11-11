@@ -320,6 +320,22 @@ export interface AutoLogoutSettings {
   timeoutMinutes: number;
 }
 
+/** A published build of a client app (kiosk APK / warden desktop). */
+export interface AppRelease {
+  releaseId: string;
+  app: 'kiosk' | 'warden';
+  platform: 'android' | 'windows' | 'linux' | 'mac';
+  version: string;
+  versionCode: number | null;
+  /** mandatory = the client must not keep working on the old build. */
+  mandatory: boolean;
+  downloadUrl: string;
+  sha256: string | null;
+  sizeBytes: number | null;
+  notes: string | null;
+  releasedAt: string | null;
+}
+
 export interface Settings {
   callSettings: {
     defaultCallType?: string;
@@ -409,6 +425,8 @@ export const cacheKeys = {
   kioskAdmins: () => 'kiosk-admins',
   settings: () => 'settings',
   pricing: () => 'pricing',
+  appReleases: (app?: string, platform?: string) => `app-releases:${app ?? 'all'}:${platform ?? 'all'}`,
+  appReleaseLatest: (app: string, platform: string) => `app-release-latest:${app}:${platform}`,
   prison: (prisonId: string) => `prisons:${prisonId}`,
 };
 
@@ -556,6 +574,61 @@ export const wardenApi = {
       const d = r.data?.data;
       return (Array.isArray(d) ? (d[0] as Pricing | undefined) : d) ?? undefined;
     }), 60_000),
+
+  // ==================== APP RELEASE REGISTRY ====================
+  /** Every published release (warden/admin). */
+  getAppReleases: (app?: string, platform?: string) =>
+    cachedGet(
+      `app-releases:${app ?? 'all'}:${platform ?? 'all'}`,
+      () =>
+        apiClient
+          .get<ApiResponse<AppRelease[]>>('/app-releases', {
+            params: { ...(app ? { app } : {}), ...(platform ? { platform } : {}) },
+          })
+          .then((r) => r.data?.data ?? []),
+      30_000
+    ),
+
+  /**
+   * The newest published release for an app+platform. This endpoint needs no
+   * auth (a device must learn about a mandatory update before anyone signs
+   * in), but the client sends its session anyway.
+   */
+  getLatestAppRelease: (app: string, platform: string) =>
+    cachedGet(
+      `app-release-latest:${app}:${platform}`,
+      () =>
+        apiClient
+          .get<ApiResponse<{ app: string; platform: string; update: AppRelease | null }>>('/app-releases/latest', {
+            params: { app, platform },
+          })
+          .then((r) => r.data?.data?.update ?? null),
+      60_000
+    ),
+
+  /** Publish a release (becomes the one clients are told about). */
+  publishAppRelease: (payload: {
+    app: AppRelease['app'];
+    platform: AppRelease['platform'];
+    version: string;
+    versionCode?: number | null;
+    mandatory?: boolean;
+    downloadUrl: string;
+    sha256?: string | null;
+    sizeBytes?: number | null;
+    notes?: string | null;
+  }) =>
+    apiClient.post<ApiResponse<AppRelease>>('/app-releases', payload).then((r) => {
+      invalidatePrefix('app-releases', 'app-release-latest');
+      return r.data?.data;
+    }),
+
+  /** Flip the mandatory flag (or edit the notes) of a published release. */
+  updateAppRelease: (releaseId: string, patch: { mandatory?: boolean; notes?: string | null }) =>
+    apiClient.patch<ApiResponse<AppRelease>>(`/app-releases/${encodeURIComponent(releaseId)}`, patch).then((r) => {
+      invalidatePrefix('app-releases', 'app-release-latest');
+      return r.data?.data;
+    }),
 
   // Statistics
   getStatistics: () =>
