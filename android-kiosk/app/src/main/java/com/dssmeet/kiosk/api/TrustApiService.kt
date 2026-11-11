@@ -6,15 +6,12 @@ import com.dssmeet.kiosk.models.common.ApiResponse
 import com.dssmeet.kiosk.models.contacts.Contact
 import com.dssmeet.kiosk.models.inmate.InmateBalance
 import com.dssmeet.kiosk.models.inmate.InmateProfile
-import com.dssmeet.kiosk.models.call.ScheduledCall
 import com.dssmeet.kiosk.models.call.CallHistory
 import com.dssmeet.kiosk.models.call.CallSession
 import com.dssmeet.kiosk.models.call.CreateCallRequest
 import com.dssmeet.kiosk.models.call.EndCallRequest
 import com.dssmeet.kiosk.models.call.CallStatusSnapshot
 import com.dssmeet.kiosk.models.call.CallStatsReport
-import com.dssmeet.kiosk.models.schedule.SlotsResponse
-import com.dssmeet.kiosk.models.schedule.ScheduleRequest
 import com.dssmeet.kiosk.models.wallet.WalletStatement
 import retrofit2.http.*
 
@@ -31,7 +28,10 @@ interface TrustApiService {
     suspend fun refreshToken(@Body request: RefreshTokenRequest): ApiResponse<AuthToken>
 
     @POST("auth/logout")
-    suspend fun logout(@Header("Authorization") authorization: String): ApiResponse<Unit>
+    suspend fun logout(
+        @Header("Authorization") authorization: String,
+        @Body request: LogoutRequest = LogoutRequest()
+    ): ApiResponse<Unit>
 
     @POST("auth/admin/identify")
     suspend fun adminIdentify(@Body request: LoginRequest): ApiResponse<AdminProfile>
@@ -98,9 +98,6 @@ interface TrustApiService {
     @GET("contacts/{id}")
     suspend fun getContacts(@Path("id") id: String): ApiResponse<List<Contact>>
 
-    @GET("calls/scheduled/{id}")
-    suspend fun getScheduledCalls(@Path("id") id: String): ApiResponse<List<ScheduledCall>>
-
     @GET("calls/history/{id}")
     suspend fun getCallHistory(@Path("id") id: String): ApiResponse<List<CallHistory>>
 
@@ -115,12 +112,6 @@ interface TrustApiService {
         @Query("offset") offset: Int = 0
     ): ApiResponse<com.dssmeet.kiosk.models.call.CallHistoryPage>
 
-    @GET("schedule/slots/{kioskId}/{date}")
-    suspend fun getBookedSlots(@Path("kioskId") kioskId: String, @Path("date") date: String): ApiResponse<com.dssmeet.kiosk.models.schedule.SlotsResponse>
-
-    @POST("schedule/book")
-    suspend fun bookCall(@Body request: ScheduleRequest): ApiResponse<ScheduledCall>
-
     @POST("calls")
     suspend fun createCall(@Body request: CreateCallRequest): ApiResponse<CallSession>
 
@@ -134,9 +125,6 @@ interface TrustApiService {
     /** Periodic stats report during an active call. */
     @PATCH("calls/{callId}")
     suspend fun reportCallStats(@Path("callId") callId: String, @Body report: CallStatsReport): ApiResponse<*>
-
-    @PATCH("schedule/cancel/{bookingId}")
-    suspend fun cancelBooking(@Path("bookingId") bookingId: String): ApiResponse<Unit>
 
     @GET("settings")
     suspend fun getSettings(): ApiResponse<com.google.gson.JsonObject>

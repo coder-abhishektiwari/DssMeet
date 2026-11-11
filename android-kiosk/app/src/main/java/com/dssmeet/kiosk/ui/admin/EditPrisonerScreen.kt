@@ -377,7 +377,7 @@ fun EditPrisonerForm(
                     if (step == EDIT_STEP_TITLES.lastIndex) {
                         Icon(Icons.Default.Save, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Save Changes", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        Text("Save", fontSize = 16.sp, fontWeight = FontWeight.Bold)
                     } else {
                         Text("Next", fontSize = 16.sp, fontWeight = FontWeight.Bold)
                         Spacer(modifier = Modifier.width(8.dp))

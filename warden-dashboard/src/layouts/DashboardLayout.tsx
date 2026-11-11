@@ -2,8 +2,13 @@ import { Outlet } from 'react-router-dom';
 import { Sidebar } from '@/components/ui/Sidebar';
 import { Header } from '@/components/ui/Header';
 import { PageHeaderProvider } from '@/context/PageHeaderContext';
+import { useInactivityLogout } from '@/hooks/useInactivityLogout';
 
 export function DashboardLayout() {
+  // Local inactivity timer — the value comes from the server (warden
+  // configurable), the countdown runs in the browser.
+  useInactivityLogout();
+
   return (
     <PageHeaderProvider>
       <div className="min-h-screen bg-neutral-50">

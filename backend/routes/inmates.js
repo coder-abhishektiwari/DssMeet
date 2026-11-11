@@ -349,10 +349,9 @@ async function inmateDeleteHandler(req, res) {
   const existing = (await readDb('inmates.json')).find((i) => i.inmateId === id && inAdminScope(req, i));
   if (!existing) return sendError(res, 'NOT_FOUND', 'Inmate not found', 404);
 
-  const [calls, transactions, schedule, rooms] = await Promise.all([
+  const [calls, transactions, rooms] = await Promise.all([
     readDb('calls.json'),
     readDb('transactions.json'),
-    readDb('schedule.json'),
     readDb('rooms.json'),
   ]);
   const active = calls.find((c) => c.inmateId === id && c.status === 'active');
@@ -370,8 +369,7 @@ async function inmateDeleteHandler(req, res) {
   await updateDb('calls.json', (rows) => ({ data: stampHistory(rows), result: null }));
   await updateDb('transactions.json', (rows) => ({ data: stampHistory(rows), result: null }));
 
-  // Bookings and rooms without a prisoner can never be used again.
-  await updateDb('schedule.json', (rows) => ({ data: rows.filter((s) => s.inmateId !== id), result: null }));
+  // Rooms without a prisoner can never be used again.
   await updateDb('rooms.json', (rows) => ({ data: rows.filter((r) => r.inmateId !== id), result: null }));
 
   const deleted = await updateDb('inmates.json', (inmates) => {

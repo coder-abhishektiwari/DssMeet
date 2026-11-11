@@ -15,7 +15,7 @@ import com.dssmeet.kiosk.models.inmate.InmateProfile
 interface AuthDataSource {
     suspend fun login(request: LoginRequest): ApiResponse<AuthToken>
     suspend fun refreshToken(refreshToken: String): ApiResponse<AuthToken>
-    suspend fun logout(accessToken: String): ApiResponse<Unit>
+    suspend fun logout(accessToken: String, refreshToken: String? = null): ApiResponse<Unit>
     suspend fun identifyFingerprint(kioskId: String, capture: ByteArray): ApiResponse<InmateProfile>
     suspend fun identifyRfid(request: LoginRequest): ApiResponse<InmateProfile>
     suspend fun identifyPrisoner(kioskId: String, prisonerId: String): ApiResponse<InmateProfile>

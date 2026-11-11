@@ -52,6 +52,7 @@ import kotlin.time.Duration.Companion.milliseconds
 @Composable
 fun LoginScreen(
     @Suppress("UNUSED_PARAMETER") windowSizeClass: WindowSizeClass,
+    sessionMessage: String? = null,
     onLoginSuccess: () -> Unit,
     onAdminLoginSuccess: () -> Unit,
     onKioskNotVerified: () -> Unit = {},
@@ -75,6 +76,13 @@ fun LoginScreen(
             snackbarHostState.showSnackbar(msg)
         }
         if (uiState !is UiState.Error) lastErrorShown = null
+    }
+
+    // The session ended (expired / inactivity timeout) — say why the inmate
+    // is back at the login screen instead of silently dropping them here.
+    LaunchedEffect(sessionMessage) {
+        val msg = sessionMessage ?: return@LaunchedEffect
+        if (msg.isNotBlank()) snackbarHostState.showSnackbar(msg)
     }
 
     LaunchedEffect(Unit) {

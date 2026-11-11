@@ -10,10 +10,8 @@ import com.dssmeet.kiosk.ui.SplashScreen
 import com.dssmeet.kiosk.ui.auth.LoginScreen
 import com.dssmeet.kiosk.ui.call.AudioCallScreen
 import com.dssmeet.kiosk.ui.call.CallProgressScreen
-import com.dssmeet.kiosk.ui.call.ScheduleCallScreen
 import com.dssmeet.kiosk.ui.call.VideoCallScreen
 import com.dssmeet.kiosk.ui.dashboard.DashboardScreen
-import com.dssmeet.kiosk.models.call.ScheduledCall
 import com.dssmeet.kiosk.ui.admin.AddPrisonerScreen
 import com.dssmeet.kiosk.ui.admin.AdminDashboardScreen
 import com.dssmeet.kiosk.ui.admin.BiometricRegistrationScreen
@@ -26,6 +24,10 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.compose.currentBackStackEntryAsState
 import android.net.Uri
@@ -51,7 +53,6 @@ object KioskRoutes {
     const val WALLET = "wallet"
     const val INMATE_DETAILS = "inmate_details"
     const val SETUP_PERMISSIONS = "setup_permissions"
-    const val SCHEDULE = "schedule/{contactId}/{contactName}/{callType}"
     const val VIDEO_CALL = "video_call/{contactName}/{roomId}"
     const val AUDIO_CALL = "audio_call/{contactName}/{roomId}"
     const val CALL_SUMMARY = "call_summary/{contactName}/{total}/{duration}/{callType}"
@@ -67,6 +68,10 @@ fun KioskNavHost(
     val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
     val context = LocalContext.current
 
+    // Reason shown on the login screen when the session ended (expiry,
+    // inactivity timeout). Kept in state so a recomposition does not lose it.
+    var sessionMessage by remember { mutableStateOf<String?>(null) }
+
     // Tell MainActivity to skip auto-logout during lobby/call
     LaunchedEffect(currentRoute) {
         val activity = context as? MainActivity
@@ -75,6 +80,26 @@ fun KioskNavHost(
             currentRoute!!.startsWith("video_call") ||
             currentRoute!!.startsWith("audio_call")
         )
+    }
+
+    // The session died (expired token, revoked session, inactivity timeout):
+    // drop everything and go back to the login screen with a reason. Before
+    // this the kiosk stayed put, showing nothing but "Unauthorized access".
+    LaunchedEffect(Unit) {
+        com.dssmeet.kiosk.core.SessionEvents.expired.collect { reason ->
+            sessionMessage = reason
+            // Never yank the inmate out of a live call — wait for the call to
+            // finish, then drop to the login screen.
+            val activity = context as? MainActivity
+            while (activity?.isInCall == true || activity?.isLobbyOpen == true) {
+                delay(500)
+            }
+            runCatching {
+                navController.navigate(KioskRoutes.LOGIN) {
+                    popUpTo(0) { inclusive = true }
+                }
+            }
+        }
     }
 
     // One entry point for every "kiosk is not verified" redirect. Registration
@@ -143,6 +168,7 @@ fun KioskNavHost(
         composable(KioskRoutes.LOGIN) {
             LoginScreen(
                 windowSizeClass = windowSizeClass,
+                sessionMessage = sessionMessage,
                 onLoginSuccess = {
                     navController.navigate(KioskRoutes.DASHBOARD) {
                         popUpTo(KioskRoutes.LOGIN) { inclusive = true }
@@ -166,7 +192,6 @@ fun KioskNavHost(
             DashboardScreen(
                 windowSizeClass = windowSizeClass,
                 onContactClick = { _, _, _ -> },
-                onScheduledCallClick = { _: ScheduledCall -> },
                 onWalletClick = {
                     navController.navigate(KioskRoutes.WALLET)
                 },
@@ -178,9 +203,6 @@ fun KioskNavHost(
                         popUpTo(KioskRoutes.DASHBOARD) { inclusive = true }
                     }
                 },
-                onScheduleCall = { contactId, contactName ->
-                    navController.navigate("schedule/${Uri.encode(contactId)}/${Uri.encode(contactName)}/Video")
-                },
                 onStartCall = { _, contactName, roomId, isVideo ->
                     // Permissions were collected during setup; if any went missing
                     // (revoke in settings) divert here instead of prompting mid-call.
@@ -189,6 +211,9 @@ fun KioskNavHost(
                     } else {
                         navController.navigate(KioskRoutes.SETUP_PERMISSIONS)
                     }
+                },
+                onLobbyOpenChange = { open ->
+                    (context as? MainActivity)?.isLobbyOpen = open
                 }
             )
         }
@@ -323,26 +348,6 @@ fun KioskNavHost(
         composable(KioskRoutes.INMATE_DETAILS) {
             com.dssmeet.kiosk.ui.dashboard.InmateProfileDetailsScreen(
                 onBackClick = { navController.popBackStack() }
-            )
-        }
-        composable(KioskRoutes.SCHEDULE) { backStackEntry ->
-            val contactId = backStackEntry.arguments?.getString("contactId") ?: ""
-            val contactName = backStackEntry.arguments?.getString("contactName") ?: ""
-            val callType = backStackEntry.arguments?.getString("callType") ?: "Video"
-            ScheduleCallScreen(
-                contactId = contactId,
-                contactName = contactName,
-                initialCallType = callType,
-                windowSizeClass = windowSizeClass,
-                onSlotSelected = { _, _, _ ->
-                    // Success logic handled inside the screen with dialog
-                },
-                onBackToHome = {
-                    navController.navigate(KioskRoutes.DASHBOARD) {
-                        popUpTo(KioskRoutes.DASHBOARD) { inclusive = true }
-                    }
-                },
-                onBack = { navController.popBackStack() }
             )
         }
         composable("call_progress/{contactName}/{roomId}/{isVideo}") { backStackEntry ->

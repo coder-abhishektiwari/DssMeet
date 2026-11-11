@@ -134,7 +134,6 @@ function resetStore() {
       location: { lat: 19.07, lng: 72.87 },
     },
   }];
-  store['schedule.json'] = [];
   store['wallets.json'] = [];
   store['transactions.json'] = [];
   store['settings.json'] = [];
@@ -269,19 +268,6 @@ describe('call responses never expose family-auth material', () => {
     expect(data(res).signalingToken.length).toBeGreaterThan(10);
     expect(data(res).linkToken).toBeUndefined();
     expect(data(res).sms).toBeUndefined();
-  });
-
-  test('C5 POST /schedule/book does not return the booking link token', async () => {
-    const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
-    const res = await request(app)
-      .post('/schedule/book').set(ip()).set('Authorization', `Bearer ${token}`)
-      .send({ inmateId: INMATE, kioskId: KIOSK, contactId: CONTACT, date: tomorrow, timeSlot: '10:00-10:30' });
-
-    expect(res.status).toBe(201);
-    expect(data(res).linkToken).toBeUndefined();
-    expect(data(res).scheduleId).toBeTruthy();
-    // The token still exists server-side — it is what the SMS texted.
-    expect(store['schedule.json'][0].linkToken).toMatch(/^L-/);
   });
 });
 

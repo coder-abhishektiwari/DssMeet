@@ -21,8 +21,11 @@ class RemoteAuthDataSource @Inject constructor(
     override suspend fun refreshToken(refreshToken: String): ApiResponse<AuthToken> =
         apiService.refreshToken(RefreshTokenRequest(refreshToken))
 
-    override suspend fun logout(accessToken: String): ApiResponse<Unit> =
-        apiService.logout("Bearer $accessToken")
+    override suspend fun logout(accessToken: String, refreshToken: String?): ApiResponse<Unit> =
+        // The refresh token travels in the BODY: the backend revokes the
+        // server-side session by it. Without it the session stayed alive on
+        // the server for the whole refresh TTL.
+        apiService.logout("Bearer $accessToken", LogoutRequest(refreshToken))
 
     override suspend fun identifyFingerprint(kioskId: String, capture: ByteArray): ApiResponse<InmateProfile> {
         val captureBase64 = Base64.encodeToString(capture, Base64.NO_WRAP)

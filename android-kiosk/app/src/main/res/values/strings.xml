@@ -19,17 +19,10 @@
     <string name="view_history">View History</string>
     <string name="active_status">Active</string>
 
-    <!-- Schedule -->
-    <string name="schedule_call">SCHEDULE CALL</string>
-    <string name="available_slots">AVAILABLE SLOTS</string>
-    <string name="select_slot_for">Selecting slot for %1$s</string>
-    <string name="schedule_audio_call">Schedule Audio Call</string>
-    <string name="schedule_video_call">Schedule Video Call</string>
     <string name="rate_audio">₹1 / Min</string>
     <string name="rate_video">₹2 / Min</string>
 
     <!-- Lobby -->
-    <string name="slot_balance_validation">SLOT &amp; BALANCE VALIDATION</string>
     <string name="sufficient_balance">Sufficient Balance</string>
     <string name="call_rules">CALL RULES</string>
     <string name="rule_max_duration">Max Duration: 5 Minutes</string>

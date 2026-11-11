@@ -2,6 +2,7 @@ package com.dssmeet.kiosk.network.interceptors
 
 import com.dssmeet.kiosk.api.TrustApiService
 import com.dssmeet.kiosk.core.Logger
+import com.dssmeet.kiosk.core.SessionEvents
 import com.dssmeet.kiosk.core.SessionManager
 import com.dssmeet.kiosk.models.auth.AuthToken
 import com.dssmeet.kiosk.models.auth.RefreshTokenRequest
@@ -149,6 +150,15 @@ class AuthInterceptor @Inject constructor(
         val refreshToken = sessionManager.getRefreshToken()
         if (refreshToken.isNullOrBlank()) {
             Logger.w("AuthInterceptor: No refresh token - cannot refresh session")
+            // A user session WITHOUT a refresh token is broken (wiped prefs,
+            // half-written state) — force a clean login instead of leaving
+            // the inmate on a screen that only shows "Unauthorized access".
+            // A kiosk with no user session at all (device token only) must
+            // NOT be logged out — its background workers keep running.
+            if (!sessionManager.getAccessToken().isNullOrBlank()) {
+                sessionManager.clearAuthOnly()
+                SessionEvents.notifyExpired("Session expired. Please log in again.")
+            }
             clearToken()
             return@withLock null
         }
@@ -176,6 +186,10 @@ class AuthInterceptor @Inject constructor(
             // devices onto the unauthorized/login screen on the next start.
             sessionManager.clearAuthOnly()
             clearToken()
+            // Tell the UI: the session is GONE. Without this the kiosk stayed
+            // on the current screen showing nothing but "Unauthorized access"
+            // errors — the inmate had no way back to the login screen.
+            SessionEvents.notifyExpired("Session expired. Please log in again.")
         }
 
         null

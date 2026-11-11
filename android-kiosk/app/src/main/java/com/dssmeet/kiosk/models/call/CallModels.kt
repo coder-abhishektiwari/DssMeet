@@ -24,10 +24,7 @@ data class CreateCallRequest(
     /** Client-minted ids enable optimistic navigation: the backend accepts
      *  caller-supplied values, so the UI can move on before the POST lands. */
     @SerializedName("callId") val callId: String? = null,
-    @SerializedName("roomId") val roomId: String? = null,
-    /** Set when the call was launched from a dashboard scheduled-call card —
-     *  the backend marks that booking completed so it leaves the list. */
-    @SerializedName("scheduleId") val scheduleId: String? = null
+    @SerializedName("roomId") val roomId: String? = null
 )
 
 data class EndCallRequest(
@@ -56,16 +53,6 @@ enum class CallType {
     @SerializedName("audio") AUDIO,
     @SerializedName("video") VIDEO
 }
-
-data class ScheduledCall(
-    @SerializedName("scheduleId") val id: String,
-    @SerializedName("date") val date: String = "",
-    @SerializedName("timeSlot") val timeSlot: String = "",
-    @SerializedName("callType") val type: CallType? = null,
-    @SerializedName("contactId") val contactId: String? = null,
-    @SerializedName("status") val status: String? = null,
-    @SerializedName("contactName") val contactName: String? = null
-)
 
 data class CallHistory(
     @SerializedName("callId") val callId: String,

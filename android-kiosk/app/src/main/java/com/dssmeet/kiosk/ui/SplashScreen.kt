@@ -53,20 +53,20 @@ fun SplashScreen(
                 modifier = Modifier.size(180.dp),
                 contentScale = ContentScale.Fit
             )
-            if (verificationState is SplashViewModel.KioskVerificationState.CheckingDevice) {
-                Spacer(modifier = Modifier.height(24.dp))
-                CircularProgressIndicator(
-                    modifier = Modifier.size(28.dp),
-                    color = PrimaryNavy,
-                    strokeWidth = 3.dp
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    text = "Verifying device…",
-                    color = TextGray,
-                    fontSize = 14.sp
-                )
-            }
+//            if (verificationState is SplashViewModel.KioskVerificationState.CheckingDevice) {
+//                Spacer(modifier = Modifier.height(24.dp))
+//               CircularProgressIndicator(
+//                    modifier = Modifier.size(28.dp),
+//                    color = PrimaryNavy,
+//                    strokeWidth = 3.dp
+//                )
+//                Spacer(modifier = Modifier.height(12.dp))
+//                Text(
+//                    text = "Verifying device…",
+//                    color = TextGray,
+//                    fontSize = 14.sp
+//                )
+//            }
         }
     }
 

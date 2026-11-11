@@ -263,7 +263,6 @@ describe('call creation balance gate', () => {
     store['contacts.json'] = [{ contactId: CONTACT, inmateId: INMATE, firstName: 'Fam', lastName: 'One', phone: '+911111111111', approvalStatus: 'approved', status: 'active', active: true }];
     store['calls.json'] = [];
     store['rooms.json'] = [];
-    store['schedule.json'] = [];
     store['settings.json'] = [];
     store['pricing.json'] = [{ audio: { ratePerMinute: 1 }, video: { ratePerMinute: 2.5 } }];
     store['wallets.json'] = [];

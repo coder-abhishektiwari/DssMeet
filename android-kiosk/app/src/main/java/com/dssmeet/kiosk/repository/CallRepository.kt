@@ -1,8 +1,6 @@
 package com.dssmeet.kiosk.repository
 
 import com.dssmeet.kiosk.models.call.*
-import com.dssmeet.kiosk.models.schedule.SlotsResponse
-import com.dssmeet.kiosk.models.schedule.ScheduleRequest
 import com.dssmeet.kiosk.network.NetworkResult
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
@@ -13,16 +11,11 @@ interface CallRepository {
     val roomStatus: StateFlow<RoomStatus>
     val signalingStatus: StateFlow<SignalingStatus>
 
-    fun getScheduledCalls(id: String): Flow<NetworkResult<List<ScheduledCall>>>
     fun getCallHistory(id: String): Flow<NetworkResult<List<CallHistory>>>
-    fun getBookedSlots(kioskId: String, date: String): Flow<NetworkResult<com.dssmeet.kiosk.models.schedule.SlotsResponse>>
-    fun bookCall(request: ScheduleRequest): Flow<NetworkResult<ScheduledCall>>
-    fun cancelBooking(bookingId: String): Flow<NetworkResult<Unit>>
     fun createRoom(
         inmateId: String, contactId: String, kioskId: String, callType: String,
-        callId: String? = null, roomId: String? = null, scheduleId: String? = null
+        callId: String? = null, roomId: String? = null
     ): Flow<NetworkResult<CallSession>>
-    fun checkSlotAvailability(contactId: String): Flow<NetworkResult<Boolean>>
 
     // Signaling (pure P2P WebRTC — Socket.IO only relays SDP + ICE)
     fun initSignaling()

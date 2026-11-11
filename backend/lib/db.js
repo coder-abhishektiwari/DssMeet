@@ -77,7 +77,6 @@ const REGISTRY = {
   'contacts.json':     { table: 'contacts',                idKey: 'contactId', cols: { inmateId: 'inmate_id', prisonId: 'prison_id' } },
   'rooms.json':        { table: 'rooms',                   idKey: 'roomId', cols: { kioskId: 'kiosk_id', inmateId: 'inmate_id', contactId: 'contact_id', status: 'status' } },
   'calls.json':        { table: 'calls',                   idKey: 'callId', cols: { roomId: 'room_id', inmateId: 'inmate_id', contactId: 'contact_id', kioskId: 'kiosk_id', prisonId: 'prison_id', status: 'status', startTime: 'start_time', endTime: 'end_time' } },
-  'schedule.json':     { table: 'schedule',                idKey: 'scheduleId', cols: { inmateId: 'inmate_id', contactId: 'contact_id', kioskId: 'kiosk_id', date: 'date', timeSlot: 'time_slot', status: 'status' } },
   'wallets.json':      { table: 'wallets',                 idKey: 'walletId', cols: { inmateId: 'inmate_id' } },
   'transactions.json': { table: 'transactions',            idKey: 'transactionId', cols: { walletId: 'wallet_id', inmateId: 'inmate_id', callId: 'call_id' } },
   'wallet-requests.json': { table: 'wallet_requests',     idKey: 'requestId', cols: { inmateId: 'inmate_id' } },
@@ -205,7 +204,7 @@ function readDb(filename) {
         data = value;
       } else {
         // Seed defaults so users see a coherent config even before first write.
-        const defaults = { pricing: { audio: 0, video: 0, tax: 0, billingRules: {} }, settings: { callSettings: {}, systemSettings: {}, securitySettings: {} } };
+        const defaults = { pricing: { audio: 0, video: 0, tax: 0, billingRules: {} }, settings: { callSettings: {}, systemSettings: {}, securitySettings: { autoLogout: { enabled: false, timeoutMinutes: 5 } } } };
         data = defaults[filename.replace('.json', '')] || {};
       }
     } else {

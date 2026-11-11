@@ -25,7 +25,6 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Videocam
-import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Wallet
 import androidx.compose.material3.*
@@ -53,7 +52,6 @@ import com.dssmeet.kiosk.models.call.CallHistory
 import com.dssmeet.kiosk.models.contacts.Contact
 import com.dssmeet.kiosk.models.inmate.InmateBalance
 import com.dssmeet.kiosk.models.inmate.InmateProfile
-import com.dssmeet.kiosk.models.call.ScheduledCall
 import com.dssmeet.kiosk.ui.components.ConfirmDeleteDialog
 import com.dssmeet.kiosk.ui.components.KioskErrorState
 import com.dssmeet.kiosk.ui.components.KioskLoadingState
@@ -76,12 +74,11 @@ import java.util.*
 fun DashboardScreen(
     windowSizeClass: WindowSizeClass,
     onContactClick: (contactId: String, name: String, type: String) -> Unit,
-    onScheduledCallClick: (ScheduledCall) -> Unit,
     onWalletClick: () -> Unit,
     onProfileClick: () -> Unit,
     onLogoutClick: () -> Unit,
-    onScheduleCall: (contactId: String, contactName: String) -> Unit,
     onStartCall: (contactId: String, contactName: String, roomId: String, isVideo: Boolean) -> Unit,
+    onLobbyOpenChange: (Boolean) -> Unit = {},
     viewModel: DashboardViewModel = hiltViewModel()
 ) {
     val dashboardState by viewModel.dashboardState.collectAsState()
@@ -92,17 +89,14 @@ fun DashboardScreen(
     var lobbyContactId by remember { mutableStateOf("") }
     var lobbyContactName by remember { mutableStateOf("") }
     var lobbyCallType by remember { mutableStateOf("Video") }
-    var lobbyScheduleId by remember { mutableStateOf("") }
-
-    var showScheduleDetailDialog by remember { mutableStateOf(false) }
-    var detailScheduleId by remember { mutableStateOf("") }
-    var detailContactId by remember { mutableStateOf("") }
-    var detailContactName by remember { mutableStateOf("") }
-    var detailDate by remember { mutableStateOf("") }
-    var detailTimeSlot by remember { mutableStateOf("") }
-    var detailCallType by remember { mutableStateOf("Video") }
-    var detailStatus by remember { mutableStateOf("") }
     var showLogoutConfirm by remember { mutableStateOf(false) }
+
+    // The lobby is a Compose Dialog (its own window) — its touches never reach
+    // the activity's touch handler, so the inactivity timer has to be told
+    // explicitly that the inmate is busy starting a call.
+    LaunchedEffect(showLobbyDialog) {
+        onLobbyOpenChange(showLobbyDialog)
+    }
 
     Scaffold(
         topBar = {
@@ -148,20 +142,7 @@ fun DashboardScreen(
                             onWalletClick = onWalletClick,
                             onProfileClick = onProfileClick
                         )
-                        1 -> ScheduleTabContent(
-                            scheduledCalls = state.data.scheduledCalls,
-                            onCallClick = { call ->
-                                detailScheduleId = call.id
-                                detailContactId = call.contactId ?: ""
-                                detailContactName = call.contactName ?: ""
-                                detailDate = call.date
-                                detailTimeSlot = call.timeSlot
-                                detailCallType = call.type?.name ?: "Video"
-                                detailStatus = call.status ?: "booked"
-                                showScheduleDetailDialog = true
-                            }
-                        )
-                        2 -> HistoryTabContent(
+                        1 -> HistoryTabContent(
                             callHistory = state.data.callHistory
                         )
                     }
@@ -176,36 +157,10 @@ fun DashboardScreen(
             contactId = lobbyContactId,
             contactName = lobbyContactName,
             callType = lobbyCallType,
-            scheduleId = lobbyScheduleId,
-            onDismiss = { showLobbyDialog = false; lobbyScheduleId = "" },
-            onSchedule = { id, name ->
-                showLobbyDialog = false; lobbyScheduleId = ""
-                onScheduleCall(id, name)
-            },
+            onDismiss = { showLobbyDialog = false },
             onStartCall = { id, name, roomId, isVideo ->
-                showLobbyDialog = false; lobbyScheduleId = ""
+                showLobbyDialog = false
                 onStartCall(id, name, roomId, isVideo)
-            }
-        )
-    }
-
-    if (showScheduleDetailDialog) {
-        com.dssmeet.kiosk.ui.call.ScheduleDetailDialog(
-            contactId = detailContactId,
-            contactName = detailContactName,
-            date = detailDate,
-            timeSlot = detailTimeSlot,
-            callType = detailCallType,
-            status = detailStatus,
-            scheduleId = detailScheduleId,
-            onDismiss = { showScheduleDetailDialog = false },
-            onStartCall = { contactId, roomId, isVideo ->
-                showScheduleDetailDialog = false
-                onStartCall(contactId, detailContactName, roomId, isVideo)
-            },
-            onCancelSchedule = { scheduleId ->
-                viewModel.cancelSchedule(scheduleId)
-                showScheduleDetailDialog = false
             }
         )
     }
@@ -222,41 +177,6 @@ fun DashboardScreen(
             onDismiss = { showLogoutConfirm = false },
             confirmText = "Logout"
         )
-    }
-}
-
-@Composable
-fun ScheduleTabContent(
-    scheduledCalls: List<ScheduledCall>,
-    onCallClick: (ScheduledCall) -> Unit
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp)
-    ) {
-        Text(
-            text = "MY SCHEDULED CALLS",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = PrimaryDarkNavy,
-            modifier = Modifier.padding(bottom = 16.dp)
-        )
-
-        if (scheduledCalls.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("No scheduled calls found", color = TextGray)
-            }
-        } else {
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp)
-            ) {
-                items(scheduledCalls) { call ->
-                    ScheduledCallCard(call = call, onClick = { onCallClick(call) })
-                }
-            }
-        }
     }
 }
 
@@ -382,45 +302,6 @@ private fun formatCallDate(startTime: String?): String {
 private fun formatCallDuration(call: CallHistory): String {
     val mins = if (call.duration != null && call.duration > 0) call.duration.div(60) else call.durationMinutes
     return if (mins != null && mins > 0) "${mins} min" else ""
-}
-
-@Composable
-fun ScheduledCallCard(call: ScheduledCall, onClick: () -> Unit) {
-    Card(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-    ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Surface(
-                color = PrimaryNavy.copy(alpha = 0.1f),
-                shape = CircleShape,
-                modifier = Modifier.size(48.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = if (call.type == CallType.VIDEO) Icons.Default.Videocam else Icons.Default.Call,
-                        contentDescription = null,
-                        tint = PrimaryNavy
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.width(16.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(text = call.contactName.orEmpty(), fontWeight = FontWeight.Bold, color = PrimaryDarkNavy)
-                Text(text = "${call.date.orEmpty()} • ${call.timeSlot.orEmpty()}", fontSize = 12.sp, color = TextGray)
-            }
-
-            Icon(Icons.AutoMirrored.Filled.ArrowForward, null, tint = TextGray)
-        }
-    }
 }
 
 @Composable
@@ -690,12 +571,6 @@ private fun KioskBottomBar(selectedTab: Int, onTabSelected: (Int) -> Unit) {
             BottomNavItem(
                 selected = selectedTab == 1,
                 onClick = { onTabSelected(1) },
-                icon = Icons.Default.Schedule,
-                label = "Schedule"
-            )
-            BottomNavItem(
-                selected = selectedTab == 2,
-                onClick = { onTabSelected(2) },
                 icon = Icons.Default.Refresh,
                 label = "History"
             )
@@ -795,11 +670,9 @@ private fun BottomNavItem(
 //                        ),
 //
 //                        ),
-//                    scheduledCalls = emptyList()
-//                ),
+//                    )
 //                onContactClick = { _, _ -> },
 //                onContactDetailClick = {},
-//                onScheduledCallClick = {},
 //                onProfileClick = {},
 //                onViewAllContacts = {}
 //            )
@@ -851,7 +724,6 @@ fun PreviewDashboardMobile() {
                         ),
 
                         ),
-                    scheduledCalls = emptyList(),
                     callHistory = emptyList()
                 ),
                 onContactClick = { _, _, _ -> },

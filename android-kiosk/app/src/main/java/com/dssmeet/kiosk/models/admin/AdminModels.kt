@@ -74,7 +74,6 @@ data class VerifiedContact(
     @SerializedName("state") val state: String? = null,
     @SerializedName("photoUrl") val photoUrl: String? = null,
     @SerializedName("lastCall") val lastCall: String? = null,
-    @SerializedName("nextScheduledCall") val nextScheduledCall: String? = null,
     @SerializedName("createdAt") val createdAt: String? = null,
     @SerializedName("updatedAt") val updatedAt: String? = null
 ) {

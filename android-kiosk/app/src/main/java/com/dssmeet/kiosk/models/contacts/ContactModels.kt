@@ -9,8 +9,7 @@ data class Contact(
     @SerializedName("relationship") val relationship: String = "",
     @SerializedName("phoneNumber") val phoneNumber: String = "",
     @SerializedName("photo") val photoUrl: String? = null,
-    @SerializedName("lastCall") val lastCallDate: String? = null,
-    @SerializedName("nextScheduledCall") val nextScheduledCallDate: String? = null
+    @SerializedName("lastCall") val lastCallDate: String? = null
 ) {
     val displayName: String get() = name.ifEmpty { fullName }
 }

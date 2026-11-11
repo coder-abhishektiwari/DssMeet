@@ -265,7 +265,6 @@ export interface Contact {
   verified?: boolean;
   photoUrl?: string;
   lastCallDate?: string;
-  nextScheduledCallDate?: string | null;
   deviceFingerprints?: DeviceFingerprint[];
 }
 
@@ -314,6 +313,13 @@ export interface Transaction {
   orderId?: string;
 }
 
+export interface AutoLogoutSettings {
+  /** Sign this dashboard out after the inactivity timeout. */
+  enabled: boolean;
+  /** Inactivity window in minutes. The server only accepts 2, 5 or 10. */
+  timeoutMinutes: number;
+}
+
 export interface Settings {
   callSettings: {
     defaultCallType?: string;
@@ -331,6 +337,8 @@ export interface Settings {
     maxLoginAttempts: number;
     lockoutDuration: number;
     sessionTimeout: number;
+    /** Dashboard idle logout — written through PATCH /settings/auto-logout. */
+    autoLogout?: AutoLogoutSettings;
   };
 }
 
@@ -527,6 +535,19 @@ export const wardenApi = {
       const d = r.data?.data;
       return (Array.isArray(d) ? (d[0] as Settings | undefined) : d) ?? undefined;
     }), 60_000),
+
+  /**
+   * Dashboard auto-logout policy (the warden's own idle timeout). Scoped
+   * endpoint on purpose — it can only ever write { enabled, timeoutMinutes };
+   * the rest of the settings document is off limits here (the generic
+   * PATCH /settings stays vendor-only).
+   */
+  updateAutoLogout: (payload: AutoLogoutSettings) =>
+    apiClient.patch<ApiResponse<Settings | Settings[]>>('/settings/auto-logout', payload).then((r) => {
+      invalidatePrefix('settings');
+      const d = r.data?.data;
+      return (Array.isArray(d) ? (d[0] as Settings | undefined) : d) ?? undefined;
+    }),
 
   // Pricing (per-minute call rates set by the warden)
   getPricing: () =>

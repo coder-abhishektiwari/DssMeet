@@ -1,12 +1,15 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Card } from '@/components/Card';
-import { wardenApi, cacheKeys, Settings, SetupPasswordData, PrisonInfo } from '@/services/api/wardenApi';
+import { wardenApi, cacheKeys, Settings, SetupPasswordData, PrisonInfo, AutoLogoutSettings } from '@/services/api/wardenApi';
 import { useCachedResource } from '@/hooks/useCachedResource';
 import { getStoredUser } from '@/services/auth/tokenStorage';
 import { useToast } from '@/hooks/useToast';
 import { ToastContainer } from '@/components/ToastContainer';
 import { usePageHeader } from '@/context/PageHeaderContext';
 import { Skeleton } from '@/components/Skeleton';
+
+/** Must match the server's accepted timeouts (backend/routes/settings.js). */
+const AUTO_LOGOUT_OPTIONS = [2, 5, 10];
 
 export function CallConfigurationPage() {
   const { data: settings, error, refresh } = useCachedResource<Settings>(
@@ -16,6 +19,16 @@ export function CallConfigurationPage() {
   );
   const storedUser = getStoredUser();
   const prisonId = storedUser?.prisonId || '';
+
+  // Kiosk inactivity logout — the policy lives on the SERVER (the kiosk app
+  // only reads it), so this page never decides anything on its own.
+  const [autoLogout, setAutoLogout] = useState<AutoLogoutSettings>({ enabled: false, timeoutMinutes: 5 });
+  const [savingAutoLogout, setSavingAutoLogout] = useState(false);
+
+  useEffect(() => {
+    const current = settings?.securitySettings?.autoLogout;
+    if (current) setAutoLogout({ enabled: current.enabled, timeoutMinutes: current.timeoutMinutes });
+  }, [settings]);
 
   const { data: prison, error: prisonError, refresh: refreshPrison } = useCachedResource<PrisonInfo>(
     cacheKeys.prison(prisonId),
@@ -83,7 +96,6 @@ export function CallConfigurationPage() {
 
   // Mirrors the backend policy: 8-64 chars, at least one letter and one digit.
   const isStrongPassword = (v: string) => v.length >= 8 && v.length <= 64 && /[A-Za-z]/.test(v) && /\d/.test(v);
-
   const savePassword = async () => {
     if (!isStrongPassword(passwordInput) || savingPassword) return;
     setSavingPassword(true);
@@ -97,6 +109,27 @@ export function CallConfigurationPage() {
       toastError('Failed to update password. Must be 8-64 characters with letters and numbers.');
     } finally {
       setSavingPassword(false);
+    }
+  };
+
+  const saveAutoLogout = async () => {
+    if (savingAutoLogout) return;
+    setSavingAutoLogout(true);
+    try {
+      await wardenApi.updateAutoLogout({
+        enabled: autoLogout.enabled,
+        timeoutMinutes: autoLogout.timeoutMinutes,
+      });
+      toastSuccess(
+        autoLogout.enabled
+          ? `Dashboard will sign out after ${autoLogout.timeoutMinutes} minute(s) of inactivity.`
+          : 'Auto logout disabled — the dashboard stays signed in.',
+      );
+      await refresh();
+    } catch {
+      toastError('Failed to update auto logout settings.');
+    } finally {
+      setSavingAutoLogout(false);
     }
   };
 
@@ -342,6 +375,95 @@ export function CallConfigurationPage() {
           <div className="text-xs text-neutral-600 bg-white border border-neutral-200 rounded-lg p-4 max-w-md">
             <p className="font-semibold text-neutral-900 mb-1">Security note</p>
             Password is bcrypt-hashed server-side and never returned in GET. Only <code className="bg-neutral-100 px-1 rounded">passwordSet: true/false</code> is readable. Rotate periodically.
+          </div>
+        </div>
+      </Card>
+
+      <Card>
+        <div className="space-y-6">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-neutral-900 text-white flex items-center justify-center">
+              <span className="material-icons text-xl">timer</span>
+            </div>
+            <div>
+              <h3 className="font-bold text-neutral-900">Auto Logout (Dashboard Inactivity)</h3>
+              <p className="text-sm text-neutral-500">Sign this dashboard out after the selected idle time</p>
+            </div>
+          </div>
+
+          <div className="bg-neutral-50 border border-neutral-200 rounded-xl p-5 space-y-5 max-w-md">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <span className="block text-xs font-semibold text-neutral-700 uppercase tracking-wide mb-1">
+                  Enable auto logout
+                </span>
+              <p className="text-xs text-neutral-500">
+                {autoLogout.enabled
+                  ? `This dashboard signs out after ${autoLogout.timeoutMinutes} minute(s) without any interaction.`
+                  : 'This dashboard stays signed in until you log out manually.'}
+              </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={autoLogout.enabled}
+                aria-label="Enable auto logout"
+                title={autoLogout.enabled ? 'Enabled - click to disable' : 'Disabled - click to enable'}
+                onClick={() => setAutoLogout({ ...autoLogout, enabled: !autoLogout.enabled })}
+                disabled={savingAutoLogout}
+                className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition disabled:opacity-50 ${
+                  autoLogout.enabled ? 'bg-success' : 'bg-neutral-300'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
+                    autoLogout.enabled ? 'translate-x-[18px]' : 'translate-x-[2px]'
+                  }`}
+                />
+              </button>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-neutral-700 uppercase tracking-wide mb-1">
+                Inactivity timeout
+              </label>
+              <select
+                value={String(autoLogout.timeoutMinutes)}
+                onChange={(e) => setAutoLogout({ ...autoLogout, timeoutMinutes: Number(e.target.value) })}
+                disabled={!autoLogout.enabled || savingAutoLogout}
+                className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white disabled:bg-neutral-100 disabled:text-neutral-500"
+              >
+                {AUTO_LOGOUT_OPTIONS.map((minutes) => (
+                  <option key={minutes} value={minutes}>
+                    {minutes} minute{minutes > 1 ? 's' : ''}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-neutral-500 mt-2">
+                The countdown restarts on every click, keypress, scroll or mouse move.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-3">
+              <span className="text-xs text-neutral-500">
+                {autoLogout.enabled ? `Auto logout: ${autoLogout.timeoutMinutes} min` : 'Auto logout: off'}
+              </span>
+              <button
+                onClick={saveAutoLogout}
+                disabled={savingAutoLogout}
+                title="Save auto logout settings"
+                className="w-9 h-9 flex items-center justify-center bg-success text-white rounded-lg hover:opacity-90 transition disabled:opacity-50"
+              >
+                <span className="material-icons text-lg">{savingAutoLogout ? 'hourglass_top' : 'check'}</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="text-xs text-neutral-600 bg-white border border-neutral-200 rounded-lg p-4 max-w-md">
+            <p className="font-semibold text-neutral-900 mb-1">Where this applies</p>
+            This setting is stored on the server, so it applies to every warden who opens this dashboard —
+            the countdown itself runs in the browser. The inmate kiosk has its own, separate inactivity logout
+            (a fixed 2 minutes inside the app) and is not affected by this setting.
           </div>
         </div>
       </Card>

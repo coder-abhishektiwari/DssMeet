@@ -21,6 +21,15 @@ data class RefreshTokenRequest(
     @SerializedName("refreshToken") val refreshToken: String
 )
 
+/**
+ * Logout body. The server revokes the SERVER-SIDE session by refresh token —
+ * without it the session stays alive on the backend for the whole refresh TTL
+ * even though the device threw its copy away.
+ */
+data class LogoutRequest(
+    @SerializedName("refreshToken") val refreshToken: String? = null
+)
+
 data class UserProfile(
     @SerializedName("userId") val userId: String,
     @SerializedName("role") val role: String,

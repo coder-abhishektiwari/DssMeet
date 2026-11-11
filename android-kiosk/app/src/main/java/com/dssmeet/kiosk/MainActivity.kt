@@ -22,6 +22,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.navigation.compose.rememberNavController
 import com.dssmeet.kiosk.BuildConfig
 import com.dssmeet.kiosk.core.KioskPermissions
+import com.dssmeet.kiosk.core.Logger
 import com.dssmeet.kiosk.core.SessionManager
 import com.dssmeet.kiosk.navigation.KioskNavHost
 import com.dssmeet.kiosk.ui.auth.NoInternetScreen
@@ -41,12 +42,30 @@ class MainActivity : FragmentActivity() {
 
     @Inject lateinit var sessionManager: SessionManager
     @Inject lateinit var networkMonitor: com.dssmeet.kiosk.core.NetworkMonitor
+    @Inject lateinit var authRepository: com.dssmeet.kiosk.repository.AuthRepository
 
     private var inactivityJob: Job? = null
+
+    /**
+     * The kiosk's inactivity logout is a LOCAL, FIXED policy — 2 minutes by
+     * default (AUTO_LOGOUT_TIMEOUT_MS in local.properties). The server is not
+     * involved: no request, no config fetch, nothing a client could change.
+     */
     private val AUTO_LOGOUT_TIMEOUT_MS = BuildConfig.AUTO_LOGOUT_TIMEOUT_MS
 
-    /** Set by KioskNavHost when lobby/call screens are active — timer skips logout. */
+    /**
+     * Set by KioskNavHost when a call screen is active (live call AND the
+     * family-waiting screen) — the inactivity timer must never cut a call.
+     */
     @Volatile var isInCall: Boolean = false
+
+    /**
+     * Set while the call lobby dialog is open. The lobby is a Compose Dialog —
+     * its own window — so its touches never reach dispatchTouchEvent and the
+     * activity cannot see the user is busy. Without this the kiosk could log
+     * the inmate out in the middle of starting a call.
+     */
+    @Volatile var isLobbyOpen: Boolean = false
 
     @OptIn(ExperimentalMaterial3WindowSizeClassApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -115,19 +134,39 @@ class MainActivity : FragmentActivity() {
     private fun resetInactivityTimer() {
         inactivityJob?.cancel()
         inactivityJob = lifecycleScope.launch {
-            // Only start timer if user is actually logged in
-            val hasSession = sessionManager.hasValidSession()
-            if (!hasSession) return@launch
+            // The kiosk's inactivity timeout is a fixed local value (2 min).
+            val timeoutMs = AUTO_LOGOUT_TIMEOUT_MS
+            if (timeoutMs <= 0) return@launch
 
-            delay(AUTO_LOGOUT_TIMEOUT_MS)
-            // Skip logout during active call/lobby
-            if (isInCall) return@launch
-            // Re-check session before logout (user may have logged in during delay)
-            val stillLoggedIn = sessionManager.hasValidSession()
-            if (stillLoggedIn) {
-                sessionManager.clearAuthOnly()
-                recreate()
+            // An inactivity window only expires while the kiosk is IDLE. A live
+            // call, the family-waiting screen or the open lobby never gets cut:
+            // the window simply restarts once that flow is over.
+            while (true) {
+                delay(timeoutMs)
+                if (!isInCall && !isLobbyOpen) break
             }
+
+            // Re-check: the user may have logged in again during the wait.
+            if (!sessionManager.hasValidSession()) return@launch
+
+            Logger.w("MainActivity: inactivity timeout — logging out")
+            performLogout("Session expired due to inactivity. Please log in again.")
+        }
+    }
+
+    /**
+     * End the user session: revoke it server-side (best effort), wipe the
+     * local credentials and bounce back to the login screen with a reason.
+     */
+    private fun performLogout(reason: String) {
+        lifecycleScope.launch {
+            try {
+                authRepository.logout().collect { }
+            } catch (e: Exception) {
+                Logger.w("MainActivity: logout call failed: ${e.message}")
+            }
+            com.dssmeet.kiosk.core.SessionEvents.notifyExpired(reason)
+            recreate()
         }
     }
 

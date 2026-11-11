@@ -5,8 +5,7 @@ import com.dssmeet.kiosk.config.AppConfig
 import com.dssmeet.kiosk.core.Logger
 import com.dssmeet.kiosk.models.call.*
 import com.dssmeet.kiosk.models.common.ApiError
-import com.dssmeet.kiosk.models.schedule.SlotsResponse
-import com.dssmeet.kiosk.models.schedule.ScheduleRequest
+import com.dssmeet.kiosk.models.common.ApiResponse
 import com.dssmeet.kiosk.network.NetworkResult
 import com.dssmeet.kiosk.socket.SocketService
 import io.socket.client.Socket
@@ -235,20 +234,6 @@ class CallRepositoryImpl @Inject constructor(
         }
     }
 
-    override fun getScheduledCalls(id: String): Flow<NetworkResult<List<ScheduledCall>>> = flow {
-        emit(NetworkResult.Loading)
-        try {
-            val response = cache.getOrFetch("calls:scheduled:$id") { apiService.getScheduledCalls(id) }
-            if (response.success && response.data != null) {
-                emit(NetworkResult.Success(response.data))
-            } else {
-                emit(NetworkResult.Failure(response.error ?: ApiError("UNKNOWN", "Unknown error")))
-            }
-        } catch (e: Exception) {
-            emit(NetworkResult.Failure(ApiError("EXCEPTION", e.message ?: "Network exception")))
-        }
-    }
-
     override fun getCallHistory(id: String): Flow<NetworkResult<List<CallHistory>>> = flow {
         emit(NetworkResult.Loading)
         try {
@@ -263,51 +248,9 @@ class CallRepositoryImpl @Inject constructor(
         }
     }
 
-    override fun getBookedSlots(kioskId: String, date: String): Flow<NetworkResult<com.dssmeet.kiosk.models.schedule.SlotsResponse>> = flow {
-        emit(NetworkResult.Loading)
-        try {
-            val response = cache.getOrFetch("schedule:slots:$kioskId:$date") { apiService.getBookedSlots(kioskId, date) }
-            if (response.success && response.data != null) {
-                emit(NetworkResult.Success(response.data))
-            } else {
-                emit(NetworkResult.Failure(response.error ?: ApiError("UNKNOWN", "Unknown error")))
-            }
-        } catch (e: Exception) {
-            emit(NetworkResult.Failure(ApiError("EXCEPTION", e.message ?: "Network exception")))
-        }
-    }
-
-    override fun bookCall(request: ScheduleRequest): Flow<NetworkResult<ScheduledCall>> = flow {
-        emit(NetworkResult.Loading)
-        try {
-            val response = apiService.bookCall(request)
-            if (response.success && response.data != null) {
-                emit(NetworkResult.Success(response.data))
-            } else {
-                emit(NetworkResult.Failure(response.error ?: ApiError("UNKNOWN", "Unknown error")))
-            }
-        } catch (e: Exception) {
-            emit(NetworkResult.Failure(ApiError("EXCEPTION", e.message ?: "Network exception")))
-        }
-    }
-
-    override fun cancelBooking(bookingId: String): Flow<NetworkResult<Unit>> = flow {
-        emit(NetworkResult.Loading)
-        try {
-            val response = apiService.cancelBooking(bookingId)
-            if (response.success) {
-                emit(NetworkResult.Success(Unit))
-            } else {
-                emit(NetworkResult.Failure(response.error ?: ApiError("UNKNOWN", "Unknown error")))
-            }
-        } catch (e: Exception) {
-            emit(NetworkResult.Failure(ApiError("EXCEPTION", e.message ?: "Network exception")))
-        }
-    }
-
     override fun createRoom(
         inmateId: String, contactId: String, kioskId: String, callType: String,
-        callId: String?, roomId: String?, scheduleId: String?
+        callId: String?, roomId: String?
     ): Flow<NetworkResult<CallSession>> = flow {
         emit(NetworkResult.Loading)
         try {
@@ -318,8 +261,7 @@ class CallRepositoryImpl @Inject constructor(
                     kioskId = kioskId,
                     type = if (callType.equals("Audio", ignoreCase = true)) "audio" else "video",
                     callId = callId,
-                    roomId = roomId,
-                    scheduleId = scheduleId?.ifBlank { null }
+                    roomId = roomId
                 )
             )
             if (response.success && response.data != null) {
@@ -332,14 +274,27 @@ class CallRepositoryImpl @Inject constructor(
         }
     }
 
-    override fun checkSlotAvailability(contactId: String): Flow<NetworkResult<Boolean>> = flow {
-        emit(NetworkResult.Success(true))
-    }
-
     override suspend fun getSettings(): NetworkResult<com.google.gson.JsonObject?> {
         return try {
-            val response = cache.getOrFetch("settings", ttlMs = 60_000L) { apiService.getSettings() }
-            if (response.success) NetworkResult.Success(response.data) else NetworkResult.Failure(response.error ?: ApiError("UNKNOWN", "Failed to load settings"))
+            // One shared, cached response for every consumer (lobby max
+            // duration, call recording profile, the auto-logout policy).
+            // FAILURES ARE NOT CACHED — a failed read (e.g. before login)
+            // must not freeze a stale error for the next 60 seconds.
+            val cached = cache.get<ApiResponse<com.google.gson.JsonObject>>("settings", 60_000L)
+            if (cached != null) {
+                return if (cached.success) {
+                    NetworkResult.Success(cached.data)
+                } else {
+                    NetworkResult.Failure(cached.error ?: ApiError("UNKNOWN", "Failed to load settings"))
+                }
+            }
+            val response = apiService.getSettings()
+            if (response.success) {
+                cache.put("settings", response)
+                NetworkResult.Success(response.data)
+            } else {
+                NetworkResult.Failure(response.error ?: ApiError("UNKNOWN", "Failed to load settings"))
+            }
         } catch (e: Exception) {
             NetworkResult.Failure(ApiError("EXCEPTION", e.message ?: "Network exception"))
         }

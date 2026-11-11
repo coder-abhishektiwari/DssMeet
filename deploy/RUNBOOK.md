@@ -162,7 +162,7 @@ docker compose -f docker-compose.prod.yml up -d backend
 
 ## 8. Go live with SMS (before real users)
 
-1. Fast2SMS → DLT templates approved (OTP / link / scheduled).
+1. Fast2SMS → DLT templates approved (OTP / link).
 2. `.env`: `SMS_PROVIDER=fast2sms`, fill all `FAST2SMS_*`, set `SMS_OTP_DOMAIN=example.com` (must equal the Pages origin — WebOTP depends on it).
 3. `docker compose -f docker-compose.prod.yml up -d backend`
 4. Test: family login → real OTP arrives on the phone.
@@ -230,6 +230,24 @@ SIGNALING_URL=https://signal.example.com
 - TURN credentials are **not** baked in — the join-ACK from signaling delivers them (prod `TURN_SERVERS`).
 - Old Render/metered lines: remove or leave (overridden at runtime), never ship them.
 - Build: Android Studio → Build → Generate Signed APK. Install on kiosk device.
+
+### Dashboard auto logout (inactivity) — server-stored setting
+
+The warden dashboard can sign itself out after an idle period. The VALUE is
+stored on the server; the countdown runs locally in the browser (no polling,
+no server round trip):
+
+```
+PATCH /settings/auto-logout   { "enabled": true, "timeoutMinutes": 5 }
+```
+
+- Allowed timeouts: **2, 5 or 10 minutes** (anything else → 400).
+- Roles: warden / admin / vendor / super-admin. A kiosk device token → 403.
+- Set it from the dashboard: **Configurations → Auto Logout (Dashboard Inactivity)**.
+- Default: **off** (the dashboard stays signed in, as it always did).
+- The **inmate kiosk is not affected** by this setting — the kiosk app has its
+  own fixed 2-minute inactivity logout (`AUTO_LOGOUT_TIMEOUT_MS` in
+  `android-kiosk/local.properties`), entirely local to the device.
 
 ---
 

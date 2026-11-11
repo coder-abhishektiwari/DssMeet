@@ -39,9 +39,7 @@ fun CallLobbyDialog(
     contactId: String,
     contactName: String,
     callType: String = "Video",
-    scheduleId: String = "",
     onDismiss: () -> Unit,
-    onSchedule: (contactId: String, contactName: String) -> Unit,
     onStartCall: (contactId: String, contactName: String, roomId: String, isVideo: Boolean) -> Unit,
     viewModel: RoomViewModel = hiltViewModel()
 ) {
@@ -137,24 +135,9 @@ fun CallLobbyDialog(
                     )
                 }
 
-                Button(
-                    onClick = { onSchedule(contactId, contactName) },
-                    modifier = Modifier.fillMaxWidth().height(48.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = PrimaryNavy),
-                    border = androidx.compose.foundation.BorderStroke(1.5.dp, PrimaryNavy)
-                ) {
-                    Icon(Icons.Default.DateRange, contentDescription = null, tint = PrimaryNavy)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = if (isVideo) "Schedule Video Call" else "Schedule Audio Call",
-                        fontWeight = FontWeight.Bold, fontSize = 14.sp
-                    )
-                }
-
                 if (isVideo) {
                     Button(
-                        onClick = { viewModel.createRoom(contactId, "Video", scheduleId.ifBlank { null }) },
+                        onClick = { viewModel.createRoom(contactId, "Video") },
                         modifier = Modifier.fillMaxWidth().height(48.dp),
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = PrimaryNavy),
@@ -170,7 +153,7 @@ fun CallLobbyDialog(
                     }
                 } else {
                     Button(
-                        onClick = { viewModel.createRoom(contactId, "Audio", scheduleId.ifBlank { null }) },
+                        onClick = { viewModel.createRoom(contactId, "Audio") },
                         modifier = Modifier.fillMaxWidth().height(48.dp),
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = PrimaryNavy),

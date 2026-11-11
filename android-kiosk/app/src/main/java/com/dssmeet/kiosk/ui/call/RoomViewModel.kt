@@ -38,12 +38,6 @@ class RoomViewModel @Inject constructor(
     private val _remainingTime = MutableStateFlow(0L)
     val remainingTime: StateFlow<Long> = _remainingTime.asStateFlow()
 
-    private val _cancelState = MutableStateFlow<UiState<Unit>>(UiState.Idle)
-    val cancelState = _cancelState.asStateFlow()
-
-    private val _isSlotAvailable = MutableStateFlow(true)
-    val isSlotAvailable: StateFlow<Boolean> = _isSlotAvailable.asStateFlow()
-
     private val _balance = MutableStateFlow(0.0)
     val balance = _balance.asStateFlow()
 
@@ -70,29 +64,6 @@ class RoomViewModel @Inject constructor(
     fun setReadyNow() {
         _remainingTime.value = 0
         _roomStatus.value = RoomStatus.READY
-    }
-
-    fun cancelBooking(bookingId: String) {
-        _cancelState.value = UiState.Loading
-        viewModelScope.launch {
-            callRepository.cancelBooking(bookingId).collect { result ->
-                when (result) {
-                    is NetworkResult.Success -> _cancelState.value = UiState.Success(Unit)
-                    is NetworkResult.Failure -> _cancelState.value = UiState.Error(result.error.message ?: "Failed to cancel")
-                    else -> {}
-                }
-            }
-        }
-    }
-
-    fun checkSlot(contactId: String) {
-        viewModelScope.launch {
-            callRepository.checkSlotAvailability(contactId).collect { result ->
-                if (result is NetworkResult.Success) {
-                    _isSlotAvailable.value = result.data
-                }
-            }
-        }
     }
 
     fun loadBalance() {
@@ -132,7 +103,7 @@ class RoomViewModel @Inject constructor(
         _createRoomState.value = UiState.Idle
     }
 
-    fun createRoom(contactId: String, callType: String, scheduleId: String? = null) {
+    fun createRoom(contactId: String, callType: String) {
         viewModelScope.launch {
             // Hard-fail before the optimistic navigation: a call must never be
             // minted with a fake kiosk/inmate id when the device was never
@@ -163,7 +134,7 @@ class RoomViewModel @Inject constructor(
                 CallSession(sessionId = roomId, callId = callId, contactId = contactId)
             )
 
-            callRepository.createRoom(inmateId, contactId, kioskId, callType, callId, roomId, scheduleId).collect { result ->
+            callRepository.createRoom(inmateId, contactId, kioskId, callType, callId, roomId).collect { result ->
                 when (result) {
                     is NetworkResult.Success -> {
                         // The signaling socket needs this backend-minted token;

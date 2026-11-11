@@ -34,7 +34,6 @@ const { sweepStaleCalls, sweepExhaustedBalance } = require('./routes/calls');
 const familyRouter = require('./routes/family');
 const inmatesRouter = require('./routes/inmates');
 const createContactsRouter = require('./routes/contacts');
-const scheduleRouter = require('./routes/schedule');
 const createStatisticsRouter = require('./routes/statistics');
 const prisonsRouter = require('./routes/prisons');
 const createSettingsRouter = require('./routes/settings');
@@ -208,7 +207,6 @@ app.use('/family', familyRouter);
 app.use('/family', callWalletRouter);
 app.use('/inmates', inmatesRouter);
 app.use('/contacts', createContactsRouter());
-app.use('/schedule', scheduleRouter);
 app.use('/statistics', createStatisticsRouter());
 app.use('/prisons', prisonsRouter);
 app.use('/settings', settingsRouter);
@@ -499,7 +497,7 @@ app.post('/kiosk-admins', requireAuth, requireRole('admin', 'kiosk_admin', 'ward
     name,
     email: email || null,
     role: 'kiosk_admin',
-    permissions: ['manage_inmates', 'manage_contacts', 'view_calls', 'view_schedule', 'manage_alerts'],
+    permissions: ['manage_inmates', 'manage_contacts', 'view_calls', 'manage_alerts'],
     status: 'active',
     password: await hashSecret(password),
     kioskId: null,
@@ -618,7 +616,7 @@ app.post('/kiosk-admins/bootstrap', requireAuth, bootstrapCreateLimiter, asyncRo
     name,
     email: email || null,
     role: 'kiosk_admin',
-    permissions: ['manage_inmates', 'manage_contacts', 'view_calls', 'view_schedule', 'manage_alerts'],
+    permissions: ['manage_inmates', 'manage_contacts', 'view_calls', 'manage_alerts'],
     status: 'active',
     password: await hashSecret(password),
     kioskId: null,
@@ -1025,7 +1023,6 @@ app.get('/health', asyncRoute(async (req, res) => {
       routes: {
         otp: effectiveProvider('otp'),
         link: effectiveProvider('link'),
-        scheduled: effectiveProvider('scheduled'),
       },
     }
   });

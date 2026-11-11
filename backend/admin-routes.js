@@ -304,8 +304,8 @@ router.patch('/prisoners/:prisonerId/status', requireRole(...ALL_ROLES), async (
 
 router.delete('/prisoners/:prisonerId', requireRole(...ALL_ROLES), async (req, res) => {
   // Delegate to the guarded handler behind /inmates: it refuses while a call
-  // is live, archives the money and call trail, and clears bookings and rooms
-  // before the row goes away.
+  // is live, archives the money and call trail, and clears rooms before the
+  // row goes away.
   return inmateDeleteHandler(req, res);
 });
 

@@ -12,6 +12,7 @@ import com.dssmeet.kiosk.network.interceptors.AuthInterceptor
 import com.google.gson.Gson
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.withTimeoutOrNull
 import retrofit2.HttpException
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -106,9 +107,16 @@ class AuthRepositoryImpl @Inject constructor(
         emit(NetworkResult.Loading)
         try {
             val accessToken = sessionManager.getAccessToken()
+            val refreshToken = sessionManager.getRefreshToken()
+
+            // Revoke the server-side session first, but NEVER let a hanging
+            // network call keep the kiosk logged in — the local credentials
+            // are wiped below no matter what the gateway does.
             if (!accessToken.isNullOrBlank()) {
                 try {
-                    dataSource.logout(accessToken)
+                    withTimeoutOrNull(5_000L) {
+                        dataSource.logout(accessToken, refreshToken)
+                    }
                 } catch (e: Exception) {
                     Logger.w("Logout server call failed: ${e.message}")
                 }
