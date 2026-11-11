@@ -1,5 +1,12 @@
 package com.dssmeet.kiosk.ui.admin
 
+import com.dssmeet.kiosk.ui.theme.BorderColor
+import com.dssmeet.kiosk.ui.theme.PrimaryDarkNavy
+import com.dssmeet.kiosk.ui.theme.PrimaryNavy
+import com.dssmeet.kiosk.ui.theme.SuccessGreen
+
+import com.dssmeet.kiosk.ui.theme.TextGray
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,7 +25,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -38,6 +44,7 @@ import com.dssmeet.kiosk.models.admin.Prisoner
 import com.dssmeet.kiosk.models.admin.PrisonerFormValues
 import com.dssmeet.kiosk.ui.components.KioskDateField
 import com.dssmeet.kiosk.ui.components.KioskSelectField
+import com.dssmeet.kiosk.ui.components.KioskTextField
 
 val ID_PROOF_OPTIONS = listOf("Aadhaar Card", "Voter ID", "PAN Card")
 val RELIGION_OPTIONS = listOf("Hindu", "Muslim", "Christian", "Sikh", "Buddhist", "Jain", "Other")
@@ -102,6 +109,32 @@ class PrisonerFormState(initial: Prisoner?) {
         if (ageNum != null && (ageNum < 1 || ageNum > 120)) return "Age must be between 1 and 120"
         return ""
     }
+
+    /** Identity step — only ID number format is checked (all fields optional). */
+    fun validateIdentity(): String {
+        val values = toValues()
+        if (values.idProof != null && values.idNumber.isNullOrBlank()) {
+            return "ID number is required when ID proof is selected"
+        }
+        return ""
+    }
+
+    /** Address step — district required only when state is chosen. */
+    fun validateAddress(): String {
+        val values = toValues()
+        if (values.state != null && values.district.isNullOrBlank()) {
+            return "District is required when state is selected"
+        }
+        return ""
+    }
+
+    /** True when every step so far passes — used to gate Next. */
+    fun validateStep(step: Int): String = when (step) {
+        0 -> validatePersonal()
+        1 -> validateIdentity()
+        2 -> validateAddress()
+        else -> ""
+    }
 }
 
 @Composable
@@ -120,7 +153,7 @@ private fun FormCard(title: String, content: @Composable () -> Unit) {
                 text = title,
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color(0xFF0B2240)
+                color = PrimaryDarkNavy
             )
             content()
         }
@@ -141,14 +174,16 @@ private fun GenderPill(
         modifier = modifier,
         shape = RoundedCornerShape(12.dp),
         color = if (selectedValue == value) color else Color.White,
-        border = BorderStroke(1.dp, if (selectedValue == value) color else Color(0xFFE2E8F0))
+        border = BorderStroke(1.dp, if (selectedValue == value) color else BorderColor)
     ) {
         Text(
             text = label,
-            modifier = Modifier.padding(vertical = 16.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 16.dp),
             textAlign = TextAlign.Center,
             fontWeight = if (selectedValue == value) FontWeight.Bold else FontWeight.Normal,
-            color = if (selectedValue == value) Color.White else Color(0xFF0B2240)
+            color = if (selectedValue == value) Color.White else PrimaryDarkNavy
         )
     }
 }
@@ -158,58 +193,53 @@ private fun GenderPill(
 @Composable
 fun PersonalDetailsCard(state: PrisonerFormState) {
     FormCard("Personal Details") {
-        OutlinedTextField(
+        KioskTextField(
             value = state.fullName,
             onValueChange = { state.fullName = it },
-            label = { Text("Prisoner Name *") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true
+            label = "Prisoner Name",
+            required = true,
+            placeholder = "Full name as on record",
+            imeAction = androidx.compose.ui.text.input.ImeAction.Next
         )
 
         Text(
             text = "Gender *",
             fontSize = 14.sp,
             fontWeight = FontWeight.Medium,
-            color = Color(0xFF0B2240)
+            color = PrimaryDarkNavy
         )
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            GenderPill("Male", "male", state.gender, { state.gender = it }, Color(0xFF003366), Modifier.weight(1f))
+            GenderPill("Male", "male", state.gender, { state.gender = it }, PrimaryNavy, Modifier.weight(1f))
             GenderPill("Female", "female", state.gender, { state.gender = it }, Color(0xFFC2185B), Modifier.weight(1f))
             GenderPill("Other", "other", state.gender, { state.gender = it }, Color(0xFF7B1FA2), Modifier.weight(1f))
         }
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            OutlinedTextField(
-                value = state.age,
-                onValueChange = { input -> state.age = input.filter { it.isDigit() }.take(3) },
-                label = { Text("Age") },
-                modifier = Modifier.weight(1f),
-                singleLine = true,
-                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                    keyboardType = KeyboardType.Number
-                )
-            )
-            OutlinedTextField(
-                value = state.fatherName,
-                onValueChange = { state.fatherName = it },
-                label = { Text("Father/Husband Name") },
-                modifier = Modifier.weight(1f),
-                singleLine = true
-            )
-        }
+    
+        KioskTextField(
+            value = state.age,
+            onValueChange = { input -> state.age = input.filter { it.isDigit() }.take(3) },
+            label = "Age",
+            placeholder = "Years",
+            required = true,
+            keyboardType = androidx.compose.ui.text.input.KeyboardType.Number,
+            imeAction = androidx.compose.ui.text.input.ImeAction.Next
+        )
+        KioskTextField(
+            value = state.fatherName,
+            onValueChange = { state.fatherName = it },
+            label = "Father/Husband Name",
+            required = true,
+            imeAction = androidx.compose.ui.text.input.ImeAction.Done
+        )
 
-        OutlinedTextField(
+        KioskTextField(
             value = state.motherName,
             onValueChange = { state.motherName = it },
-            label = { Text("Mother Name") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true
+            label = "Mother Name",
+            imeAction = androidx.compose.ui.text.input.ImeAction.Done
         )
     }
 }
@@ -225,16 +255,17 @@ fun IdentityAdmissionCard(
             onValueChange = { state.idProof = it },
             label = "ID Proof",
             options = ID_PROOF_OPTIONS,
+            placeholder = "Select ID proof",
             modifier = Modifier.fillMaxWidth()
         )
 
-        OutlinedTextField(
+        KioskTextField(
             value = state.idNumber,
             onValueChange = { state.idNumber = it },
-            label = { Text("ID Number") },
-            supportingText = { Text("Number of the selected ID proof") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true
+            label = "ID Number",
+            placeholder = "Number on the selected ID",
+            helperText = "Number of the selected ID proof",
+            imeAction = androidx.compose.ui.text.input.ImeAction.Next
         )
 
         KioskDateField(
@@ -243,12 +274,13 @@ fun IdentityAdmissionCard(
             label = "Admission Date"
         )
 
-        OutlinedTextField(
+        KioskTextField(
             value = state.prisonerNumber,
             onValueChange = { state.prisonerNumber = it },
-            label = { Text("Inmate Number") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true
+            label = "Inmate Number",
+            placeholder = "e.g. 420",
+            required = true,
+            imeAction = androidx.compose.ui.text.input.ImeAction.Next
         )
 
         KioskSelectField(
@@ -256,6 +288,7 @@ fun IdentityAdmissionCard(
             onValueChange = { state.assignedKioskId = it },
             label = "Assigned Kiosk",
             options = listOf("") + kioskOptions.map { it.kioskId },
+            placeholder = "None",
             display = { id ->
                 if (id.isBlank()) "None"
                 else kioskOptions.find { it.kioskId == id }
@@ -275,6 +308,7 @@ fun AddressCard(state: PrisonerFormState) {
             onValueChange = { state.religion = it },
             label = "Religion",
             options = RELIGION_OPTIONS,
+            placeholder = "Select religion",
             modifier = Modifier.fillMaxWidth()
         )
 
@@ -283,6 +317,7 @@ fun AddressCard(state: PrisonerFormState) {
             onValueChange = { state.nationality = it },
             label = "Nationality",
             options = NATIONALITY_OPTIONS,
+            placeholder = "Select nationality",
             modifier = Modifier.fillMaxWidth()
         )
 
@@ -291,24 +326,27 @@ fun AddressCard(state: PrisonerFormState) {
             onValueChange = { state.state = it },
             label = "State",
             options = STATE_OPTIONS,
+            placeholder = "Select state",
             modifier = Modifier.fillMaxWidth()
         )
 
-        OutlinedTextField(
+        KioskTextField(
             value = state.district,
             onValueChange = { state.district = it },
-            label = { Text("District") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true
+            label = "District",
+            required = true,
+            imeAction = androidx.compose.ui.text.input.ImeAction.Next
         )
 
-        OutlinedTextField(
+        KioskTextField(
             value = state.address,
             onValueChange = { state.address = it },
-            label = { Text("Address") },
-            modifier = Modifier.fillMaxWidth(),
+            label = "Address",
+            singleLine = false,
             minLines = 2,
-            maxLines = 4
+            maxLines = 4,
+            required = true,
+            imeAction = androidx.compose.ui.text.input.ImeAction.Done
         )
     }
 }
@@ -332,9 +370,9 @@ fun PrisonerStepIndicator(
         Surface(
             shape = CircleShape,
             color = when {
-                isCompleted -> Color(0xFF4CAF50)
-                isActive -> Color(0xFF003366)
-                else -> Color(0xFFE2E8F0)
+                isCompleted -> SuccessGreen
+                isActive -> PrimaryNavy
+                else -> BorderColor
             },
             modifier = Modifier.size(40.dp)
         ) {
@@ -349,7 +387,7 @@ fun PrisonerStepIndicator(
                 } else {
                     Text(
                         text = stepNumber.toString(),
-                        color = if (isActive) Color.White else Color(0xFF687A8F),
+                        color = if (isActive) Color.White else TextGray,
                         fontWeight = FontWeight.Bold,
                         fontSize = 16.sp
                     )
@@ -363,7 +401,7 @@ fun PrisonerStepIndicator(
             text = title,
             fontSize = 12.sp,
             fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal,
-            color = if (isActive || isCompleted) Color(0xFF003366) else Color(0xFF687A8F),
+            color = if (isActive || isCompleted) PrimaryNavy else TextGray,
             textAlign = TextAlign.Center
         )
     }
@@ -377,8 +415,8 @@ fun PrisonerStepHeader(titles: List<String>, currentStep: Int) {
         modifier = Modifier
             .fillMaxWidth()
             .height(8.dp),
-        color = Color(0xFF003366),
-        trackColor = Color(0xFFE2E8F0)
+        color = PrimaryNavy,
+        trackColor = BorderColor
     )
 
     Row(

@@ -26,6 +26,11 @@ if (!DATABASE_URL) {
 function getPoolConfig(url) {
   const config = { connectionString: url, max: 10, idleTimeoutMillis: 30000 };
   // Allow explicit override via env var.
+  //   DATABASE_SSL=true              → SSL with certificate verification OFF
+  //                                    (legacy escape hatch for providers whose
+  //                                    CA chain is not in the Node trust store)
+  //   DATABASE_SSL_REJECT_UNAUTHORIZED=false → same, for the auto-detected path
+  //   DATABASE_SSL=false             → no SSL at all
   const sslOverride = process.env.DATABASE_SSL;
   if (sslOverride === 'true' || sslOverride === '1') {
     config.ssl = { rejectUnauthorized: false };
@@ -34,6 +39,7 @@ function getPoolConfig(url) {
   if (sslOverride === 'false' || sslOverride === '0') {
     return config;
   }
+  const verifyEnabled = !['false', '0'].includes(String(process.env.DATABASE_SSL_REJECT_UNAUTHORIZED || '').toLowerCase());
   // Auto-detect: cloud Postgres (Render, Supabase, etc.) requires SSL.
   // Local PostgreSQL (localhost / 127.0.0.1 / docker-compose service name) does not.
   try {
@@ -41,11 +47,14 @@ function getPoolConfig(url) {
     const host = parsed.hostname;
     const isLocal = host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0' || host === 'postgres' || host === '';
     if (!isLocal) {
-      config.ssl = { rejectUnauthorized: false };
+      // Certificate verification ON by default: an SSL connection nobody
+      // authenticates is still MITM-able. Set DATABASE_SSL_REJECT_UNAUTHORIZED=false
+      // if the provider's certificates are not trusted by Node's CA bundle.
+      config.ssl = { rejectUnauthorized: verifyEnabled };
     }
   } catch (e) {
     // If URL parsing fails, enable SSL (safe default for cloud providers)
-    config.ssl = { rejectUnauthorized: false };
+    config.ssl = { rejectUnauthorized: verifyEnabled };
   }
   return config;
 }

@@ -1,5 +1,13 @@
 package com.dssmeet.kiosk.ui.dashboard
 
+import com.dssmeet.kiosk.ui.theme.BorderColor
+
+import com.dssmeet.kiosk.ui.theme.ControlBtnBg
+import com.dssmeet.kiosk.ui.theme.MoneyRed
+import com.dssmeet.kiosk.ui.theme.MoneyRedBg
+
+import com.dssmeet.kiosk.ui.theme.TextGray
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -46,6 +54,7 @@ import com.dssmeet.kiosk.models.contacts.Contact
 import com.dssmeet.kiosk.models.inmate.InmateBalance
 import com.dssmeet.kiosk.models.inmate.InmateProfile
 import com.dssmeet.kiosk.models.call.ScheduledCall
+import com.dssmeet.kiosk.ui.components.ConfirmDeleteDialog
 import com.dssmeet.kiosk.ui.components.KioskErrorState
 import com.dssmeet.kiosk.ui.components.KioskLoadingState
 import com.dssmeet.kiosk.ui.theme.ActionButtonBg
@@ -56,13 +65,12 @@ import com.dssmeet.kiosk.ui.theme.HomeNavGreen
 import com.dssmeet.kiosk.ui.theme.PrimaryDarkNavy
 import com.dssmeet.kiosk.ui.theme.PrimaryNavy
 import com.dssmeet.kiosk.ui.theme.TextDark
+import com.dssmeet.kiosk.ui.theme.WarningBg
+import com.dssmeet.kiosk.ui.theme.WarningOrange
 import com.dssmeet.kiosk.ui.theme.PrisonKioskTheme
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.*
-
-// --- Color Palette (TextGray kept local — different shade from theme) ---
-private val TextGray = Color(0xFF687A8F)
 
 @Composable
 fun DashboardScreen(
@@ -94,6 +102,7 @@ fun DashboardScreen(
     var detailTimeSlot by remember { mutableStateOf("") }
     var detailCallType by remember { mutableStateOf("Video") }
     var detailStatus by remember { mutableStateOf("") }
+    var showLogoutConfirm by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -107,10 +116,7 @@ fun DashboardScreen(
                     }
                 },
                 trailingActions = {
-                    IconButton(onClick = {
-                        viewModel.logout()
-                        onLogoutClick()
-                    }) {
+                    IconButton(onClick = { showLogoutConfirm = true }) {
                         Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = "Logout", tint = Color.White)
                     }
                 }
@@ -201,6 +207,20 @@ fun DashboardScreen(
                 viewModel.cancelSchedule(scheduleId)
                 showScheduleDetailDialog = false
             }
+        )
+    }
+
+    if (showLogoutConfirm) {
+        ConfirmDeleteDialog(
+            title = "Logout",
+            message = "Are you sure you want to logout?",
+            onConfirm = {
+                showLogoutConfirm = false
+                viewModel.logout()
+                onLogoutClick()
+            },
+            onDismiss = { showLogoutConfirm = false },
+            confirmText = "Logout"
         )
     }
 }
@@ -319,9 +339,9 @@ fun CallHistoryCard(call: CallHistory) {
             Surface(
                 color = when (call.status) {
                     "completed" -> GreenActiveBg
-                    "failed" -> Color(0xFFFFEBEE)
-                    "cancelled", "rejected", "missed" -> Color(0xFFFFF3E0)
-                    else -> Color(0xFFF0F4F8)
+                    "failed" -> MoneyRedBg
+                    "cancelled", "rejected", "missed" -> WarningBg
+                    else -> ActionButtonBg
                 },
                 shape = RoundedCornerShape(50)
             ) {
@@ -329,11 +349,11 @@ fun CallHistoryCard(call: CallHistory) {
                     text = call.status.orEmpty().uppercase(),
                     color = when (call.status) {
                         "completed" -> GreenActiveText
-                        "failed" -> Color(0xFFC62828)
-                        "cancelled", "rejected", "missed" -> Color(0xFFE65100)
+                        "failed" -> MoneyRed
+                        "cancelled", "rejected", "missed" -> WarningOrange
                         else -> TextGray
                     },
-                    fontSize = 10.sp,
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                 )
@@ -518,7 +538,7 @@ private fun InmateProfileCard(
                 modifier = Modifier
                     .size(56.dp)
                     .clip(RoundedCornerShape(14.dp))
-                    .background(Color(0xFFF1F5F9)),
+                    .background(ControlBtnBg),
                 contentScale = ContentScale.Crop,
                 placeholder = rememberVectorPainter(Icons.Default.Person),
                 error = rememberVectorPainter(Icons.Default.Person)
@@ -588,7 +608,7 @@ private fun ContactCardItem(
                         modifier = Modifier
                             .size(48.dp)
                             .clip(CircleShape)
-                            .border(1.dp, Color(0xFFE2E8F0), CircleShape)
+                            .border(1.dp, BorderColor, CircleShape)
                             .background(Color.White),
                         contentScale = ContentScale.Crop,
                         placeholder = rememberVectorPainter(Icons.Default.Person),
@@ -622,7 +642,7 @@ private fun ContactCardItem(
                             )
                             Text(
                                 text = "VERIFIED",
-                                fontSize = 9.sp,
+                                fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = GreenActiveText,
                                 letterSpacing = 0.5.sp
@@ -719,7 +739,7 @@ private fun BottomNavItem(
         }
         Text(
             text = label,
-            fontSize = 11.sp,
+            fontSize = 12.sp,
             fontWeight = FontWeight.Bold,
             color = if (selected) PrimaryDarkNavy else TextGray
         )

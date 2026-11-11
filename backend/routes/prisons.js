@@ -4,6 +4,7 @@ const { readDb, updateDb } = require('../lib/db');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { sendSuccess, sendError, asyncRoute } = require('../lib/response');
 const { jailScopeOf, kioskScopeOf, inScopeOf, scopeList } = require('../lib/scoping');
+const { auditFromReq } = require('../lib/audit');
 
 const router = express.Router();
 
@@ -27,7 +28,14 @@ router.get('/:prisonId', requireAuth, requireRole('admin', 'warden', 'super-admi
 }));
 
 router.post('/', requireAuth, requireRole('admin'), asyncRoute(async (req, res) => {
-  const prisonData = req.body;
+  // Public profile fields only. Rosters (wardenIds/kioskIds), the setup
+  // password and counts are server-owned — a raw spread here could plant a
+  // bcrypt-free setupPassword or a fake roster.
+  const ALLOWED_FIELDS = ['prisonId', 'name', 'state', 'district', 'address', 'status'];
+  const prisonData = {};
+  for (const key of ALLOWED_FIELDS) {
+    if (req.body && req.body[key] !== undefined) prisonData[key] = req.body[key];
+  }
   const jailId = jailScopeOf(req);
   const kioskId = kioskScopeOf(req);
   if (jailId || kioskId) {
@@ -45,6 +53,10 @@ router.post('/', requireAuth, requireRole('admin'), asyncRoute(async (req, res) 
       }
       const record = { prisonId: `PRISON-${uuidv4().substring(0, 8).toUpperCase()}`, ...prisonData, status: prisonData.status || 'active' };
       return { data: [...prisons, record], result: record };
+    });
+    await auditFromReq(req, 'prison.created', {
+      entityType: 'prison', entityId: newPrison.prisonId, prisonId: newPrison.prisonId,
+      metadata: { name: newPrison.name || null }
     });
     return sendSuccess(res, withoutPrisonSecrets(newPrison), 201);
   } catch (err) {
@@ -76,6 +88,10 @@ router.patch('/:prisonId', requireAuth, requireRole('admin', 'warden'), asyncRou
     return { data: prisons, result: prisons[idx] };
   });
   if (!updated) return sendError(res, 'NOT_FOUND', 'Prison not found', 404);
+  await auditFromReq(req, 'prison.updated', {
+    entityType: 'prison', entityId: updated.prisonId, prisonId: updated.prisonId,
+    metadata: { fields: Object.keys(patch) }
+  });
   return sendSuccess(res, withoutPrisonSecrets(updated));
 }));
 

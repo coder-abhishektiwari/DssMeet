@@ -1,5 +1,15 @@
 package com.dssmeet.kiosk.ui.auth
 
+import com.dssmeet.kiosk.ui.theme.ControlBtnBg
+import com.dssmeet.kiosk.ui.theme.DangerRed
+import com.dssmeet.kiosk.ui.theme.PrimaryDarkNavy
+import com.dssmeet.kiosk.ui.theme.PrimaryBlue
+import com.dssmeet.kiosk.ui.theme.PrimaryNavy
+import com.dssmeet.kiosk.ui.theme.SuccessGreen
+
+
+import com.dssmeet.kiosk.ui.theme.TextGray
+
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
@@ -49,14 +59,6 @@ import com.airbnb.lottie.compose.LottieCompositionSpec
 import com.airbnb.lottie.compose.LottieConstants
 import com.airbnb.lottie.compose.rememberLottieComposition
 
-// --- Premium Color Palette ---
-val PremiumNavy = Color(0xFF001F3F)
-val PremiumBlue = Color(0xFF003366)
-val AppleGray = Color(0xFFF5F5F7)
-val AccentBlue = Color(0xFF0071E3)
-val SuccessGreen = Color(0xFF28A745)
-val ErrorRed = Color(0xFFD70015)
-
 @Composable
 fun PremiumAuthCard(
     title: String,
@@ -71,23 +73,24 @@ fun PremiumAuthCard(
     Surface(
         modifier = modifier
             .scale(scale)
-            .clip(RoundedCornerShape(28.dp))
+            .clip(RoundedCornerShape(20.dp))
             .clickable { onClick() },
         color = Color.White,
         shadowElevation = 8.dp
     ) {
         Column(
-            modifier = Modifier.padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Box(
                 modifier = Modifier
-                    .size(80.dp)
+                    .size(52.dp)
                     .clip(CircleShape)
                     .background(
                         Brush.linearGradient(
-                            colors = listOf(PremiumBlue, PremiumNavy)
+                            colors = listOf(PrimaryNavy, PrimaryDarkNavy)
                         )
                     ),
                 contentAlignment = Alignment.Center
@@ -96,23 +99,23 @@ fun PremiumAuthCard(
                     imageVector = icon,
                     contentDescription = null,
                     tint = Color.White,
-                    modifier = Modifier.size(40.dp)
+                    modifier = Modifier.size(28.dp)
                 )
             }
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(12.dp))
             Text(
                 text = title,
-                fontSize = 20.sp,
+                fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
-                color = PremiumNavy
+                color = PrimaryDarkNavy
             )
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = description,
-                fontSize = 14.sp,
-                color = Color.Gray,
+                fontSize = 12.sp,
+                color = TextGray,
                 textAlign = TextAlign.Center,
-                lineHeight = 20.sp
+                lineHeight = 16.sp
             )
         }
     }
@@ -168,18 +171,18 @@ private fun KeypadButton(
             .size(72.dp)
             .clip(CircleShape)
             .clickable { onClick() },
-        color = AppleGray,
+        color = ControlBtnBg,
         tonalElevation = 2.dp
     ) {
         Box(contentAlignment = Alignment.Center) {
             if (text == "DEL") {
-                Icon(Icons.AutoMirrored.Filled.Backspace, contentDescription = null, tint = PremiumNavy)
+                Icon(Icons.AutoMirrored.Filled.Backspace, contentDescription = null, tint = PrimaryDarkNavy)
             } else {
                 Text(
                     text = text,
                     fontSize = 28.sp,
                     fontWeight = FontWeight.Medium,
-                    color = PremiumNavy
+                    color = PrimaryDarkNavy
                 )
             }
         }
@@ -212,8 +215,8 @@ fun RfidKeypadEntry(
                     modifier = Modifier
                         .size(12.dp)
                         .clip(CircleShape)
-                        .background(if (filled) PremiumNavy else Color.LightGray.copy(alpha = 0.5f))
-                        .border(1.dp, if (filled) PremiumNavy else Color.Gray, CircleShape)
+                        .background(if (filled) PrimaryDarkNavy else Color.LightGray.copy(alpha = 0.5f))
+                        .border(1.dp, if (filled) PrimaryDarkNavy else Color.Gray, CircleShape)
                 )
             }
         }
@@ -251,7 +254,7 @@ fun PremiumLoadingOverlay(message: String) {
             ) {
                 CircularProgressIndicator(
                     modifier = Modifier.size(56.dp),
-                    color = PremiumBlue,
+                    color = PrimaryNavy,
                     strokeWidth = 4.dp
                 )
                 Spacer(modifier = Modifier.height(24.dp))
@@ -259,7 +262,7 @@ fun PremiumLoadingOverlay(message: String) {
                     text = message,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
-                    color = PremiumNavy,
+                    color = PrimaryDarkNavy,
                     textAlign = TextAlign.Center
                 )
             }

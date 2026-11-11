@@ -1,5 +1,7 @@
 package com.dssmeet.kiosk.ui.receipt
 
+import com.dssmeet.kiosk.ui.theme.BorderColor
+
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -156,11 +158,11 @@ fun CallSummaryContent(
                             text = "Prison Video Kiosk • Call Receipt",
                             modifier = Modifier.fillMaxWidth(),
                             textAlign = TextAlign.Center,
-                            fontSize = if (isTablet) 12.sp else 11.sp,
+                            fontSize = if (isTablet) 12.sp else 12.sp,
                             color = TextGray
                         )
 
-                        HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp), color = Color(0xFFE2E8F0))
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp), color = BorderColor)
 
                         ReceiptRow("Inmate Name", inmateName, isTablet = isTablet)
                         ReceiptRow("Contact Person", contactName, isTablet = isTablet)
@@ -168,7 +170,7 @@ fun CallSummaryContent(
                         ReceiptRow("Duration", formatCallDuration(duration), isTablet = isTablet)
                         ReceiptRow("Call Type", callType.replaceFirstChar { it.uppercase() }, isTablet = isTablet)
 
-                        HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp), color = Color(0xFFE2E8F0))
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp), color = BorderColor)
 
                         ReceiptRow(
                             label = stringResource(R.string.total_charged),
@@ -182,13 +184,13 @@ fun CallSummaryContent(
                             isTablet = isTablet
                         )
 
-                        HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp), color = Color(0xFFE2E8F0))
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp), color = BorderColor)
 
                         Text(
                             text = "Thank you for using the service.",
                             modifier = Modifier.fillMaxWidth(),
                             textAlign = TextAlign.Center,
-                            fontSize = if (isTablet) 12.sp else 11.sp,
+                            fontSize = if (isTablet) 12.sp else 12.sp,
                             fontWeight = FontWeight.Medium,
                             color = TextGray
                         )
@@ -306,7 +308,7 @@ fun ReceiptRow(
     ) {
         Text(
             text = label,
-            fontSize = if (isTotal) (if (isTablet) 15.sp else 13.sp) else (if (isTablet) 13.sp else 11.sp),
+            fontSize = if (isTotal) (if (isTablet) 15.sp else 13.sp) else (if (isTablet) 13.sp else 12.sp),
             fontWeight = if (isTotal) FontWeight.Bold else FontWeight.Medium,
             color = if (isTotal) TextDark else TextGray,
             modifier = Modifier.weight(1f),

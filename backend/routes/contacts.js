@@ -4,6 +4,7 @@ const { requireAuth, requireRole } = require('../middleware/auth');
 const { sendSuccess, sendError, asyncRoute } = require('../lib/response');
 const { inScopeOf, scopeList, inAdminScope } = require('../lib/scoping');
 const { paginate } = require('../lib/paginate');
+const { auditFromReq } = require('../lib/audit');
 
 function normalizeContact(c) {
   if (!c) return c;
@@ -212,6 +213,10 @@ function createContactsRouter() {
       return { data: all, result: all[idx] };
     });
     if (!updated) return sendError(res, 'NOT_FOUND', 'Contact not found', 404);
+    await auditFromReq(req, 'contact.status_changed', {
+      entityType: 'contact', entityId: contactId, prisonId: updated.prisonId || owner.prisonId || null,
+      metadata: { active: updated.active, status: updated.status, via: 'toggle' }
+    });
     // normalizeContact drops deviceFingerprints[].hash — the device proof.
     return sendSuccess(res, normalizeContact(updated));
   }));

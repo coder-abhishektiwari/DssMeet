@@ -32,6 +32,9 @@ class ManageContactsViewModel @Inject constructor(
     private val _deleteContactState = MutableStateFlow<NetworkResult<Unit>>(NetworkResult.Idle)
     val deleteContactState: StateFlow<NetworkResult<Unit>> = _deleteContactState.asStateFlow()
 
+    private val _toggleError = MutableStateFlow<String?>(null)
+    val toggleError: StateFlow<String?> = _toggleError.asStateFlow()
+
     fun loadContacts(prisonerId: String) {
         viewModelScope.launch {
             adminRepository.getPrisonerContacts(prisonerId).collect { result ->
@@ -84,9 +87,17 @@ class ManageContactsViewModel @Inject constructor(
             adminRepository.updateContactStatus(contactId, UpdateContactStatusRequest(active)).collect { result ->
                 if (result is NetworkResult.Success) {
                     loadContacts(prisonerId)
+                } else if (result is NetworkResult.Failure) {
+                    // Re-sync from server so optimistic switch reverts
+                    _toggleError.value = "Couldn't save contact status"
+                    loadContacts(prisonerId)
                 }
             }
         }
+    }
+
+    fun clearToggleError() {
+        _toggleError.value = null
     }
 
     fun deleteContact(contactId: String, prisonerId: String) {

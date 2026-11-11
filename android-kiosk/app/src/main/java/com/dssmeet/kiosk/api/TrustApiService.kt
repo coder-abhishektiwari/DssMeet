@@ -40,7 +40,7 @@ interface TrustApiService {
     suspend fun adminVerifyPassword(@Body request: AdminVerifyPasswordRequest): ApiResponse<AuthToken>
 
     /**
-     * First-admin bootstrap ("Create Login"): both calls ride the device
+     * First-admin bootstrap ("Create Admin"): both calls ride the device
      * credential from kiosks/verify, never a user session — the login screen
      * has none yet.
      */

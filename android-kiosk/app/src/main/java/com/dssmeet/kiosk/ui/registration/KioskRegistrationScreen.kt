@@ -1,5 +1,7 @@
 package com.dssmeet.kiosk.ui.registration
 
+import com.dssmeet.kiosk.ui.theme.DangerRed
+
 import android.util.Log
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -22,6 +24,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -80,8 +83,8 @@ fun KioskRegistrationScreen(
                         .fillMaxWidth()
                         .padding(bottom = 16.dp),
                     shape = RoundedCornerShape(12.dp),
-                    color = Color(0xFFEF4444).copy(alpha = 0.15f),
-                    border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.4f))
+                    color = DangerRed.copy(alpha = 0.15f),
+                    border = BorderStroke(1.dp, DangerRed.copy(alpha = 0.4f))
                 ) {
                     Row(
                         modifier = Modifier.padding(14.dp),
@@ -478,7 +481,7 @@ private fun StepSelectJail(
             value = prisonId ?: "",
             onValueChange = onPrisonIdChange,
             label = { Text("Jail ID") },
-            placeholder = { Text("enter your jail id... ") },
+            placeholder = { Text("enter your jail id...") },
             singleLine = true,
             colors = OutlinedTextFieldDefaults.colors(
                 focusedContainerColor = Color(0xFF0F172A),
@@ -550,14 +553,24 @@ private fun StepEnterPassword(
         )
 
 
+        var passwordVisible by remember { mutableStateOf(false) }
         OutlinedTextField(
             value = password,
             onValueChange = { if (it.length <= 64) onPasswordChange(it) },
             label = { Text("Setup Password") },
             placeholder = { Text("enter jail setup password") },
             singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
+            visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            trailingIcon = {
+                IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                    Icon(
+                        imageVector = if (passwordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                        contentDescription = if (passwordVisible) "Hide password" else "Show password",
+                        tint = Color(0xFF94A3B8)
+                    )
+                }
+            },
             colors = OutlinedTextFieldDefaults.colors(
                 focusedContainerColor = Color(0xFF0F172A),
                 unfocusedContainerColor = Color(0xFF0F172A),
@@ -773,7 +786,7 @@ private fun StepPendingApproval(
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
                     text = "Auto-checking status every 15s...",
-                    fontSize = 11.sp,
+                    fontSize = 12.sp,
                     color = Color(0xFF64748B)
                 )
             }

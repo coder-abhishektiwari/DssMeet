@@ -54,7 +54,7 @@ fun WheelTimePicker(
                 .fillMaxWidth()
                 .height(180.dp)
                 .clip(RoundedCornerShape(16.dp))
-                .background(Color(0xFFF8FAFC))
+                .background(com.dssmeet.kiosk.ui.theme.BackgroundLight)
                 .padding(horizontal = 8.dp),
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
@@ -167,7 +167,7 @@ private fun WheelColumn(
                         text = items[idx],
                         fontSize = if (isSelected) 22.sp else 18.sp,
                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                        color = if (isSelected) PrimaryNavy else Color(0xFF94A3B8),
+                        color = if (isSelected) PrimaryNavy else com.dssmeet.kiosk.ui.theme.TextGray,
                     )
                 }
             }

@@ -1,5 +1,16 @@
 package com.dssmeet.kiosk.ui.admin
 
+import com.dssmeet.kiosk.ui.theme.BorderColor
+import com.dssmeet.kiosk.ui.theme.PrimaryDarkNavy
+import com.dssmeet.kiosk.ui.theme.PrimaryNavy
+import com.dssmeet.kiosk.ui.theme.SuccessGreen
+
+import com.dssmeet.kiosk.ui.theme.DangerRed
+import com.dssmeet.kiosk.ui.theme.LightBg
+import com.dssmeet.kiosk.ui.theme.MoneyRedBg
+
+import com.dssmeet.kiosk.ui.theme.TextGray
+
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -99,7 +110,7 @@ fun MisReportContent(
                 onBackClick = onBackClick
             )
         },
-        containerColor = Color(0xFFF5F7FA)
+        containerColor = LightBg
     ) { paddingValues ->
         LazyColumn(
             modifier = Modifier
@@ -123,7 +134,7 @@ fun MisReportContent(
                             text = "REPORT PERIOD",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFF0B2240)
+                            color = PrimaryDarkNavy
                         )
 
                         Row(
@@ -168,7 +179,7 @@ fun MisReportContent(
                         .fillMaxWidth()
                         .height(52.dp),
                     shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF003366))
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryNavy)
                 ) {
                     if (state.isLoading) {
                         CircularProgressIndicator(
@@ -191,7 +202,7 @@ fun MisReportContent(
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFFFFEBEE))
+                        colors = CardDefaults.cardColors(containerColor = MoneyRedBg)
                     ) {
                         Row(
                             modifier = Modifier.padding(20.dp),
@@ -201,7 +212,7 @@ fun MisReportContent(
                             Icon(
                                 imageVector = Icons.Default.Error,
                                 contentDescription = null,
-                                tint = Color(0xFFD32F2F)
+                                tint = DangerRed
                             )
                             Text(
                                 text = state.error,
@@ -235,15 +246,15 @@ fun MisReportContent(
                                     text = "REPORT PREVIEW",
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF0B2240)
+                                    color = PrimaryDarkNavy
                                 )
                                 Text(
                                     text = "80 mm receipt",
                                     fontSize = 12.sp,
-                                    color = Color(0xFF687A8F)
+                                    color = TextGray
                                 )
                             }
-                            HorizontalDivider(color = Color(0xFFE2E8F0), thickness = 1.dp)
+                            HorizontalDivider(color = BorderColor, thickness = 1.dp)
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -254,7 +265,7 @@ fun MisReportContent(
                                     fontFamily = FontFamily.Monospace,
                                     fontSize = 12.sp,
                                     lineHeight = 16.sp,
-                                    color = Color(0xFF0B2240),
+                                    color = PrimaryDarkNavy,
                                     softWrap = false,
                                     maxLines = 500
                                 )
@@ -270,7 +281,7 @@ fun MisReportContent(
                             .fillMaxWidth()
                             .height(52.dp),
                         shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50))
+                        colors = ButtonDefaults.buttonColors(containerColor = SuccessGreen)
                     ) {
                         Icon(Icons.Default.Print, contentDescription = null, tint = Color.White)
                         Spacer(modifier = Modifier.width(8.dp))
@@ -315,7 +326,7 @@ private fun DateField(
             text = label,
             fontSize = 13.sp,
             fontWeight = FontWeight.Medium,
-            color = Color(0xFF687A8F)
+            color = TextGray
         )
         OutlinedButton(
             onClick = onClick,
@@ -326,7 +337,7 @@ private fun DateField(
                 text = value,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Medium,
-                color = Color(0xFF0B2240),
+                color = PrimaryDarkNavy,
                 maxLines = 1
             )
         }
@@ -362,7 +373,7 @@ private fun ReportDatePicker(
                 text = "Select $title",
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color(0xFF0B2240),
+                color = PrimaryDarkNavy,
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp)
             )
             DatePicker(

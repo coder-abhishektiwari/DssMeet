@@ -8,7 +8,7 @@ const SCHEMA_DIR = path.join(__dirname, '..', 'db-schema');
 
 function getPoolConfig(url) {
   const config = { connectionString: url, max: 2 };
-  // Allow explicit override via env var.
+  // Allow explicit override via env var (see lib/db.js for the full table).
   const sslOverride = process.env.DATABASE_SSL;
   if (sslOverride === 'true' || sslOverride === '1') {
     config.ssl = { rejectUnauthorized: false };
@@ -17,6 +17,7 @@ function getPoolConfig(url) {
   if (sslOverride === 'false' || sslOverride === '0') {
     return config;
   }
+  const verifyEnabled = !['false', '0'].includes(String(process.env.DATABASE_SSL_REJECT_UNAUTHORIZED || '').toLowerCase());
   // Auto-detect: cloud Postgres (Render, Supabase, etc.) requires SSL.
   // Local PostgreSQL (localhost / 127.0.0.1 / docker-compose service name) does not.
   try {
@@ -24,11 +25,11 @@ function getPoolConfig(url) {
     const host = parsed.hostname;
     const isLocal = host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0' || host === 'postgres' || host === '';
     if (!isLocal) {
-      config.ssl = { rejectUnauthorized: false };
+      config.ssl = { rejectUnauthorized: verifyEnabled };
     }
   } catch (e) {
     // If URL parsing fails, enable SSL (safe default for cloud providers)
-    config.ssl = { rejectUnauthorized: false };
+    config.ssl = { rejectUnauthorized: verifyEnabled };
   }
   return config;
 }

@@ -1,5 +1,7 @@
 package com.dssmeet.kiosk.ui.dashboard
 
+import com.dssmeet.kiosk.ui.theme.ControlBtnBg
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -144,7 +146,7 @@ private fun InmateDetailsContent(profile: InmateProfile) {
                     modifier = Modifier
                         .size(88.dp)
                         .clip(RoundedCornerShape(20.dp))
-                        .background(Color(0xFFF1F5F9)),
+                        .background(ControlBtnBg),
                     contentScale = ContentScale.Crop,
                     placeholder = rememberVectorPainter(Icons.Default.Person),
                     error = rememberVectorPainter(Icons.Default.Person)
@@ -196,7 +198,7 @@ private fun DetailRow(label: String, value: String?) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
             text = label,
-            fontSize = 11.sp,
+            fontSize = 12.sp,
             fontWeight = FontWeight.Medium,
             color = TextGray
         )

@@ -1,11 +1,24 @@
 package com.dssmeet.kiosk.ui.admin
 
+import com.dssmeet.kiosk.ui.theme.PrimaryDarkNavy
+import com.dssmeet.kiosk.ui.theme.PrimaryNavy
+
+import com.dssmeet.kiosk.ui.theme.AccentGreen
+import com.dssmeet.kiosk.ui.theme.WarningOrange
+
+import com.dssmeet.kiosk.ui.theme.DangerRed
+import com.dssmeet.kiosk.ui.theme.LightBg
+import com.dssmeet.kiosk.ui.theme.MoneyRedBg
+
+import com.dssmeet.kiosk.ui.theme.TextGray
+
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -23,6 +36,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.dssmeet.kiosk.models.admin.Prisoner
 import com.dssmeet.kiosk.network.NetworkResult
 import com.dssmeet.kiosk.ui.components.ConfirmDeleteDialog
+import com.dssmeet.kiosk.ui.components.KioskPasswordField
 import com.dssmeet.kiosk.ui.components.KioskTopBar
 import com.dssmeet.kiosk.ui.theme.PrisonKioskTheme
 
@@ -142,35 +156,25 @@ fun ManagePrisonersContent(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (resetPinSuccess) {
-                        Text("PIN reset successfully!", color = Color(0xFF2E7D32))
+                        Text("PIN reset successfully!", color = AccentGreen)
                     } else {
                         if (resetPinError.isNotEmpty()) {
-                            Text(resetPinError, color = Color(0xFFD32F2F), fontSize = 13.sp)
+                            Text(resetPinError, color = DangerRed, fontSize = 13.sp)
                         }
                         Text("Enter a new 6-digit PIN for ${resetPinTarget.displayName}", fontSize = 14.sp)
-                        OutlinedTextField(
+                        KioskPasswordField(
                             value = resetPinValue,
                             onValueChange = {
                                 if (it.length <= 6 && it.all { c -> c.isDigit() }) {
                                     resetPinValue = it
-                                    resetPinError = ""
                                 }
                             },
-                            label = { Text("New PIN") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            isError = resetPinValue.isNotEmpty() && resetPinValue.length != 6,
-                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                                keyboardType = androidx.compose.ui.text.input.KeyboardType.NumberPassword
-                            )
+                            label = "New PIN",
+                            required = true,
+                            errorText = if (resetPinValue.isNotEmpty() && resetPinValue.length != 6)
+                                "PIN must be exactly 6 digits" else null,
+                            imeAction = androidx.compose.ui.text.input.ImeAction.Done
                         )
-                        if (resetPinValue.isNotEmpty() && resetPinValue.length != 6) {
-                            Text(
-                                "PIN must be exactly 6 digits",
-                                color = Color(0xFFD32F2F),
-                                fontSize = 12.sp
-                            )
-                        }
                     }
                 }
             },
@@ -201,7 +205,7 @@ fun ManagePrisonersContent(
                         resetPinSuccess = false
                         onResetPinDismissed()
                     }) {
-                        Text("Done", color = Color(0xFF003366))
+                        Text("Done", color = PrimaryNavy)
                     }
                 }
             },
@@ -227,7 +231,7 @@ fun ManagePrisonersContent(
                 onBackClick = onBackClick
             )
         },
-        containerColor = Color(0xFFF5F7FA)
+        containerColor = LightBg
     ) { paddingValues ->
         Column(
             modifier = Modifier
@@ -238,7 +242,7 @@ fun ManagePrisonersContent(
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp),
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
                 shape = RoundedCornerShape(12.dp),
                 colors = CardDefaults.cardColors(containerColor = Color.White),
                 elevation = CardDefaults.cardElevation(2.dp)
@@ -246,28 +250,40 @@ fun ManagePrisonersContent(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                        .padding(horizontal = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
                         imageVector = Icons.Default.Search,
                         contentDescription = null,
-                        tint = Color(0xFF687A8F),
-                        modifier = Modifier.size(24.dp)
+                        tint = TextGray,
+                        modifier = Modifier.size(22.dp)
                     )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    TextField(
+                    Spacer(modifier = Modifier.width(8.dp))
+                    BasicTextField(
                         value = searchQuery,
                         onValueChange = onSearchQueryChange,
-                        placeholder = { Text("Search inmates...") },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent,
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent
+                        singleLine = true,
+                        textStyle = androidx.compose.ui.text.TextStyle(
+                            fontSize = 15.sp,
+                            color = PrimaryDarkNavy
                         ),
-                        singleLine = true
+                        cursorBrush = androidx.compose.ui.graphics.SolidColor(PrimaryNavy),
+                        decorationBox = { inner ->
+                            Box {
+                                if (searchQuery.isEmpty()) {
+                                    Text(
+                                        "Search inmates...",
+                                        color = TextGray,
+                                        fontSize = 15.sp
+                                    )
+                                }
+                                inner()
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 14.dp)
                     )
                 }
             }
@@ -278,7 +294,7 @@ fun ManagePrisonersContent(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 8.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFEBEE)),
+                    colors = CardDefaults.cardColors(containerColor = MoneyRedBg),
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Row(
@@ -288,13 +304,13 @@ fun ManagePrisonersContent(
                         Icon(
                             imageVector = Icons.Default.Error,
                             contentDescription = null,
-                            tint = Color(0xFFD32F2F),
+                            tint = DangerRed,
                             modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = error ?: "",
-                            color = Color(0xFFD32F2F),
+                            color = DangerRed,
                             fontSize = 14.sp,
                             modifier = Modifier.weight(1f)
                         )
@@ -308,7 +324,7 @@ fun ManagePrisonersContent(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
-                    CircularProgressIndicator(color = Color(0xFF003366))
+                    CircularProgressIndicator(color = PrimaryNavy)
                 }
             } else if (prisoners.isEmpty()) {
                 Box(
@@ -320,13 +336,13 @@ fun ManagePrisonersContent(
                             imageVector = Icons.Default.Person,
                             contentDescription = null,
                             modifier = Modifier.size(64.dp),
-                            tint = Color(0xFF687A8F).copy(alpha = 0.5f)
+                            tint = TextGray.copy(alpha = 0.5f)
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
                             text = "No inmates found",
                             fontSize = 18.sp,
-                            color = Color(0xFF687A8F)
+                            color = TextGray
                         )
                     }
                 }
@@ -406,7 +422,7 @@ private fun PrisonerCard(
                 // Avatar with initial
                 Surface(
                     shape = CircleShape,
-                    color = if (isActive) Color(0xFF003366).copy(alpha = 0.1f) else Color(0xFF90A4AE).copy(alpha = 0.2f),
+                    color = if (isActive) PrimaryNavy.copy(alpha = 0.1f) else Color(0xFF90A4AE).copy(alpha = 0.2f),
                     modifier = Modifier.size(56.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
@@ -414,7 +430,7 @@ private fun PrisonerCard(
                             text = initial,
                             fontSize = 22.sp,
                             fontWeight = FontWeight.Bold,
-                            color = if (isActive) Color(0xFF003366) else Color(0xFF687A8F)
+                            color = if (isActive) PrimaryNavy else TextGray
                         )
                     }
                 }
@@ -427,7 +443,7 @@ private fun PrisonerCard(
                         text = prisoner.displayName,
                         fontSize = 17.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF0B2240),
+                        color = PrimaryDarkNavy,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -435,7 +451,7 @@ private fun PrisonerCard(
                     Text(
                         text = idLine,
                         fontSize = 13.sp,
-                        color = Color(0xFF687A8F),
+                        color = TextGray,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -448,7 +464,7 @@ private fun PrisonerCard(
                     CircularProgressIndicator(
                         modifier = Modifier.size(24.dp),
                         strokeWidth = 2.dp,
-                        color = Color(0xFF003366)
+                        color = PrimaryNavy
                     )
                 } else {
                     Switch(
@@ -456,8 +472,8 @@ private fun PrisonerCard(
                         onCheckedChange = onToggleActive,
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = Color.White,
-                            checkedTrackColor = Color(0xFF2E7D32),
-                            checkedBorderColor = Color(0xFF2E7D32),
+                            checkedTrackColor = AccentGreen,
+                            checkedBorderColor = AccentGreen,
                             uncheckedThumbColor = Color.White,
                             uncheckedTrackColor = Color(0xFFCFD8DC),
                             uncheckedBorderColor = Color(0xFFB0BEC5)
@@ -487,7 +503,7 @@ private fun PrisonerCard(
                         Icon(
                             imageVector = Icons.Default.Edit,
                             contentDescription = "Edit",
-                            tint = Color(0xFF003366),
+                            tint = PrimaryNavy,
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -495,7 +511,7 @@ private fun PrisonerCard(
                         Icon(
                             imageVector = Icons.Default.LockReset,
                             contentDescription = "Reset PIN",
-                            tint = Color(0xFFF57C00),
+                            tint = WarningOrange,
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -507,13 +523,13 @@ private fun PrisonerCard(
                             CircularProgressIndicator(
                                 modifier = Modifier.size(24.dp),
                                 strokeWidth = 2.dp,
-                                color = Color(0xFFD32F2F)
+                                color = DangerRed
                             )
                         } else {
                             Icon(
                                 imageVector = Icons.Default.Delete,
                                 contentDescription = "Delete",
-                                tint = Color(0xFFD32F2F),
+                                tint = DangerRed,
                                 modifier = Modifier.size(20.dp)
                             )
                         }

@@ -7,6 +7,8 @@ const { sendSuccess, sendError, asyncRoute } = require('../lib/response');
 const { jailScopeOf, inAdminScope, adminScopeFilter, inScopeOf, scopeList } = require('../lib/scoping');
 const { paginate } = require('../lib/paginate');
 const { buildInmateIndex } = require('../lib/kioskView');
+const { checkRateLimit } = require('../lib/rateLimitStore');
+const { auditFromReq } = require('../lib/audit');
 
 const router = express.Router();
 
@@ -106,16 +108,41 @@ function sanitizeObj(obj) {
   return out;
 }
 
-// ==================== RATE LIMITING (in-memory) ====================
-const rateLimitAttempts = new Map();
-function checkRateLimit(key, maxAttempts = 5, windowMs = 60000) {
-  const now = Date.now();
-  const record = rateLimitAttempts.get(key) || { count: 0, resetAt: now + windowMs };
-  if (now > record.resetAt) { record.count = 0; record.resetAt = now + windowMs; }
-  record.count++;
-  rateLimitAttempts.set(key, record);
-  return record.count <= maxAttempts;
+// ==================== RATE LIMITING ====================
+// Persistence + window semantics live in lib/rateLimitStore.js (Postgres
+// counters that survive restarts; memory only in tests / DB-less dev).
+// Call sites must `await checkRateLimit(...)`.
+
+// ==================== MASS-ASSIGNMENT GUARD ====================
+// Writes that used to spread `req.body` over the row let any admin/warden
+// token overwrite identity and scope fields (kioskId, prisonId, reviewedBy,
+// authorizationStatus, ...). Only explicitly known fields are copied.
+function pickFields(body, allowed) {
+  const out = {};
+  if (!body || typeof body !== 'object') return out;
+  for (const key of allowed) {
+    if (body[key] !== undefined) out[key] = body[key];
+  }
+  return out;
 }
+
+// POST / — dashboard-created kiosk. Device-facing fields only; auth state
+// stays 'pending' unless explicitly passed (kept for back-compat), and
+// identity (kioskId/prisonId/createdAt/reviewed*) is owned by the server.
+const KIOSK_CREATE_FIELDS = [
+  'deviceSerialNumber', 'deviceFingerprint', 'location', 'ipAddress',
+  'firmwareVersion', 'androidVersion', 'status', 'authorizationStatus',
+  'notes', 'hardware', 'camera', 'microphone', 'speaker', 'printer', 'network',
+  // read by the handler for scoping/id-uniqueness checks; the response row
+  // sets kioskId/prisonId/createdAt explicitly AFTER the spread, so a client
+  // value can never win.
+  'prisonId', 'kioskId',
+];
+
+// PATCH /:kioskId — warden edits. Authorization goes through the dedicated
+// approve/reject endpoints (which record reviewedBy/reviewedAt), so this
+// never carries authorizationStatus or identity fields.
+const KIOSK_PATCH_FIELDS = ['status', 'location', 'notes'];
 
 // ==================== KIOSK VERIFICATION (public — pre-auth) ====================
 
@@ -176,7 +203,7 @@ router.post('/verify', asyncRoute(async (req, res) => {
 // Online/Offline state and Last Seen. It only ever refreshes liveness and
 // device facts — it can never authorize, approve or move a kiosk.
 router.post('/heartbeat', asyncRoute(async (req, res) => {
-  if (!checkRateLimit(`heartbeat:${req.ip}`, 30, 60000)) {
+  if (!(await checkRateLimit(`heartbeat:${req.ip}`, 30, 60000))) {
     return sendError(res, 'RATE_LIMITED', 'Too many heartbeats, slow down', 429);
   }
 
@@ -258,7 +285,7 @@ router.post('/heartbeat', asyncRoute(async (req, res) => {
 
 router.post('/register', asyncRoute(async (req, res) => {
   // Basic flood protection: a device retries a handful of times at most.
-  if (!checkRateLimit(`register:${req.ip}`, 10, 60000)) {
+  if (!(await checkRateLimit(`register:${req.ip}`, 10, 60000))) {
     return sendError(res, 'RATE_LIMITED', 'Too many registration attempts. Try again in 1 minute.', 429);
   }
 
@@ -344,7 +371,12 @@ router.post('/register', asyncRoute(async (req, res) => {
       };
       return { data: kiosks, result: kiosks[idx] };
     });
-    
+
+    await auditFromReq(req, 'kiosk.registered', {
+      entityId: updated.kioskId, prisonId: updated.prisonId || prisonId,
+      metadata: { reRegister: true, needsReapproval, serial: deviceSerialNumber }
+    });
+
     return sendSuccess(res, {
       success: true,
       kiosk: updated,
@@ -394,7 +426,12 @@ router.post('/register', asyncRoute(async (req, res) => {
     kiosks.push(newKiosk);
     return { data: kiosks, result: newKiosk };
   });
-  
+
+  await auditFromReq(req, 'kiosk.registered', {
+    entityId: newKiosk.kioskId, prisonId: newKiosk.prisonId,
+    metadata: { reRegister: false, serial: deviceSerialNumber }
+  });
+
   return sendSuccess(res, {
     success: true,
     kiosk: newKiosk,
@@ -534,6 +571,10 @@ router.patch('/registration/:requestId/approve', requireAuth, requireRole('admin
   // Approval is when the device actually joins the jail: the prison's kiosk
   // roster has to learn about it here, not at registration time.
   await addToPrisonKiosks(updated.prisonId, updated.kioskId);
+  await auditFromReq(req, 'kiosk.approved', {
+    entityType: 'kiosk', entityId: updated.kioskId, prisonId: updated.prisonId,
+    metadata: { serial: updated.deviceSerialNumber || null }
+  });
   return sendSuccess(res, { success: true });
 }));
 
@@ -564,6 +605,10 @@ router.patch('/registration/:requestId/reject', requireAuth, requireRole('admin'
     return { data: kiosks, result: kiosks[idx] };
   });
   if (!updated) return sendError(res, 'NOT_FOUND', 'Registration request not found or already processed', 404);
+  await auditFromReq(req, 'kiosk.rejected', {
+    entityType: 'kiosk', entityId: updated.kioskId, prisonId: updated.prisonId,
+    metadata: { reason: updated.rejectionReason || null }
+  });
   return sendSuccess(res, { success: true });
 }));
 
@@ -716,7 +761,7 @@ async function removeFromPrisonKiosks(prisonId, kioskId) {
 }
 
 router.post('/', requireAuth, requireRole('admin', 'warden', 'super-admin', 'super_admin'), asyncRoute(async (req, res) => {
-  const kioskData = req.body || {};
+  const kioskData = pickFields(req.body, KIOSK_CREATE_FIELDS);
   const jailId = jailScopeOf(req);
   if (jailId && kioskData.prisonId && kioskData.prisonId !== jailId) {
     return sendError(res, 'FORBIDDEN', 'Cannot create a kiosk outside your jail', 403);
@@ -746,13 +791,18 @@ router.post('/', requireAuth, requireRole('admin', 'warden', 'super-admin', 'sup
   return sendSuccess(res, newKiosk, 201);
 }));
 router.patch('/:kioskId', requireAuth, requireRole('admin', 'warden', 'super-admin', 'super_admin'), asyncRoute(async (req, res) => {
+  const patch = pickFields(req.body, KIOSK_PATCH_FIELDS);
   const updated = await updateDb('kiosks.json', (kiosks) => {
     const idx = kiosks.findIndex((k) => k.kioskId === req.params.kioskId && inAdminScope(req, k));
     if (idx === -1) return { data: kiosks, result: null };
-    kiosks[idx] = { ...kiosks[idx], ...req.body };
+    kiosks[idx] = { ...kiosks[idx], ...patch };
     return { data: kiosks, result: kiosks[idx] };
   });
   if (!updated) return sendError(res, 'NOT_FOUND', 'Kiosk not found in your kiosk/jail', 404);
+  await auditFromReq(req, 'kiosk.updated', {
+    entityType: 'kiosk', entityId: updated.kioskId, prisonId: updated.prisonId || null,
+    metadata: { fields: Object.keys(patch) }
+  });
   return sendSuccess(res, updated);
 }));
 router.delete('/:kioskId', requireAuth, requireRole('admin', 'warden', 'super-admin', 'super_admin'), asyncRoute(async (req, res) => {
@@ -787,6 +837,10 @@ router.delete('/:kioskId', requireAuth, requireRole('admin', 'warden', 'super-ad
     result: null,
   }));
   await removeFromPrisonKiosks(removed.prisonId, removed.kioskId);
+  await auditFromReq(req, 'kiosk.deleted', {
+    entityType: 'kiosk', entityId: removed.kioskId, prisonId: removed.prisonId || null,
+    metadata: { serial: removed.deviceSerialNumber || null, location: removed.location || null }
+  });
   return sendSuccess(res, { message: 'Kiosk deleted successfully', kioskId: removed.kioskId });
 }));
 
@@ -816,7 +870,7 @@ router.post('/validate-setup-password', asyncRoute(async (req, res) => {
   
   // Rate limiting — max 5 attempts per minute per IP+prisonId
   const rateKey = `${req.ip}:${prisonId}`;
-  if (!checkRateLimit(rateKey, 5, 60000)) {
+  if (!(await checkRateLimit(rateKey, 5, 60000))) {
     return sendError(res, 'RATE_LIMITED', 'Too many attempts. Try again in 1 minute.', 429);
   }
   
@@ -833,6 +887,10 @@ router.post('/validate-setup-password', asyncRoute(async (req, res) => {
   
   const valid = await verifySecret(password, prison.setupPassword);
   if (!valid) {
+    await auditFromReq(req, 'kiosk.setup_password.validation_failed', {
+      actorId: null, entityId: prisonId, prisonId,
+      metadata: { prisonId }
+    });
     return sendError(res, 'INVALID_CREDENTIALS', 'Invalid setup password', 401);
   }
 
@@ -878,6 +936,10 @@ router.put('/setup-password', requireAuth, requireRole('admin', 'warden', 'super
     return { data: prisons, result: prisons[idx] };
   });
   if (!updated) return sendError(res, 'NOT_FOUND', 'Prison not found', 404);
+  await auditFromReq(req, 'kiosk.setup_password.set', {
+    entityType: 'prison', entityId: prisonId, prisonId,
+    metadata: { length: String(password).length }
+  });
   return sendSuccess(res, { success: true });
 }));
 

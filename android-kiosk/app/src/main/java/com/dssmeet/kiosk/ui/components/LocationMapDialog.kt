@@ -1,5 +1,11 @@
 package com.dssmeet.kiosk.ui.components
 
+import com.dssmeet.kiosk.ui.theme.PrimaryDarkNavy
+
+import com.dssmeet.kiosk.ui.theme.InfoText
+
+import com.dssmeet.kiosk.ui.theme.TextGray
+
 import android.annotation.SuppressLint
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -72,7 +78,7 @@ fun LocationMapDialog(
                     Icon(
                         imageVector = Icons.Default.LocationOn,
                         contentDescription = null,
-                        tint = Color(0xFF1565C0),
+                        tint = InfoText,
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(Modifier.width(8.dp))
@@ -80,7 +86,7 @@ fun LocationMapDialog(
                         text = label,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF0B2240),
+                        color = PrimaryDarkNavy,
                         maxLines = 1,
                         modifier = Modifier.weight(1f)
                     )
@@ -88,7 +94,7 @@ fun LocationMapDialog(
                         Icon(
                             imageVector = Icons.Default.Close,
                             contentDescription = "Close map",
-                            tint = Color(0xFF687A8F)
+                            tint = TextGray
                         )
                     }
                 }

@@ -71,12 +71,33 @@ class SessionManager @Inject constructor(
     // ==================== TOKEN MANAGEMENT ====================
 
     /**
-     * Save auth tokens to persistent storage.
+     * Read a secret, transparently decrypting it. Legacy plaintext values
+     * (pre-encryption installs) are upgraded to Keystore-encrypted form in
+     * place on first read. Decryption failure yields null — the session simply
+     * requires a fresh login instead of using an unreadable credential.
+     */
+    private suspend fun readSecret(key: Preferences.Key<String>): String? {
+        val raw = context.dataStore.data.first()[key]
+        if (raw.isNullOrEmpty()) return null
+        if (!TokenCipher.isEncrypted(raw)) {
+            val encrypted = TokenCipher.encrypt(raw)
+            if (encrypted != null) {
+                context.dataStore.edit { prefs -> prefs[key] = encrypted }
+            }
+            return raw
+        }
+        return TokenCipher.decrypt(raw)
+    }
+
+    /**
+     * Save auth tokens to persistent storage (Keystore-encrypted at rest).
      */
     suspend fun saveTokens(token: AuthToken) {
+        val access = TokenCipher.encrypt(token.accessToken) ?: token.accessToken
+        val refresh = TokenCipher.encrypt(token.refreshToken) ?: token.refreshToken
         context.dataStore.edit { prefs ->
-            prefs[KEY_ACCESS_TOKEN] = token.accessToken
-            prefs[KEY_REFRESH_TOKEN] = token.refreshToken
+            prefs[KEY_ACCESS_TOKEN] = access
+            prefs[KEY_REFRESH_TOKEN] = refresh
             prefs[KEY_TOKEN_EXPIRES_IN] = token.expiresIn
             prefs[KEY_TOKEN_STORED_AT] = System.currentTimeMillis()
         }
@@ -85,30 +106,28 @@ class SessionManager @Inject constructor(
     /**
      * Get the current access token, or null if not logged in.
      */
-    suspend fun getAccessToken(): String? =
-        context.dataStore.data.first()[KEY_ACCESS_TOKEN]
+    suspend fun getAccessToken(): String? = readSecret(KEY_ACCESS_TOKEN)
 
     /**
      * Save the long-lived device token from /kiosks/verify.
      */
     suspend fun saveDeviceToken(token: String?) {
+        val encrypted = token?.takeIf { it.isNotBlank() }?.let { TokenCipher.encrypt(it) ?: it }
         context.dataStore.edit { prefs ->
-            if (token.isNullOrBlank()) prefs.remove(KEY_DEVICE_TOKEN)
-            else prefs[KEY_DEVICE_TOKEN] = token
+            if (encrypted.isNullOrBlank()) prefs.remove(KEY_DEVICE_TOKEN)
+            else prefs[KEY_DEVICE_TOKEN] = encrypted
         }
     }
 
     /**
      * Get the device token (used when no user session exists).
      */
-    suspend fun getDeviceToken(): String? =
-        context.dataStore.data.first()[KEY_DEVICE_TOKEN]
+    suspend fun getDeviceToken(): String? = readSecret(KEY_DEVICE_TOKEN)
 
     /**
      * Get the current refresh token, or null if not logged in.
      */
-    suspend fun getRefreshToken(): String? =
-        context.dataStore.data.first()[KEY_REFRESH_TOKEN]
+    suspend fun getRefreshToken(): String? = readSecret(KEY_REFRESH_TOKEN)
 
     /**
      * Check if a valid session exists.

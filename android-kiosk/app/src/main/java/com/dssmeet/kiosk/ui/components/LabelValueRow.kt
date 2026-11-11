@@ -61,12 +61,12 @@ fun LabelValueRow(
     ) {
         Text(
             text = label,
-            fontSize = if (isTotal) (if (isTablet) 15.sp else 13.sp) else (if (isTablet) 13.sp else 11.sp),
+            fontSize = if (isTotal) (if (isTablet) 15.sp else 13.sp) else (if (isTablet) 13.sp else 12.sp),
             fontWeight = if (isTotal) FontWeight.Bold else FontWeight.Normal
         )
         Text(
             text = value,
-            fontSize = if (isTotal) (if (isTablet) 15.sp else 13.sp) else (if (isTablet) 13.sp else 11.sp),
+            fontSize = if (isTotal) (if (isTablet) 15.sp else 13.sp) else (if (isTablet) 13.sp else 12.sp),
             fontWeight = if (isTotal) FontWeight.Bold else FontWeight.Normal
         )
     }

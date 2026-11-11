@@ -2,6 +2,7 @@ const express = require('express');
 const { readDb, updateDb } = require('../lib/db');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { sendSuccess, asyncRoute, deepMerge } = require('../lib/response');
+const { auditFromReq } = require('../lib/audit');
 
 const router = express.Router();
 
@@ -22,6 +23,10 @@ function createSettingsRouter(broadcastEvent) {
       const base = all.length ? { ...all[0] } : {};
       const result = deepMerge(base, patch);
       return { data: [result], result };
+    });
+    await auditFromReq(req, 'settings.updated', {
+      entityType: 'settings', entityId: 'settings',
+      metadata: { keys: Array.isArray(req.body) ? [] : Object.keys(req.body || {}).slice(0, 30) }
     });
     broadcastEvent('settings-updated', merged);
     return sendSuccess(res, merged);

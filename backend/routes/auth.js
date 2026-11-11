@@ -8,12 +8,15 @@ const { requireAuth, requireRole } = require('../middleware/auth');
 const { sendSuccess, sendError, asyncRoute } = require('../lib/response');
 const { inAdminScope } = require('../lib/scoping');
 const { sendMail } = require('../lib/mailer');
+const { createPgStore } = require('../lib/rateLimitStore');
+const { auditFromReq } = require('../lib/audit');
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 20,
   standardHeaders: true,
   legacyHeaders: false,
+  store: createPgStore(15 * 60 * 1000),
   message: { success: false, error: { code: 'RATE_LIMITED', message: 'Too many attempts, try again later' } }
 });
 
@@ -27,6 +30,7 @@ const identifyLimiter = rateLimit({
   limit: 60,
   standardHeaders: true,
   legacyHeaders: false,
+  store: createPgStore(15 * 60 * 1000),
   message: { success: false, error: { code: 'RATE_LIMITED', message: 'Too many attempts, try again later' } }
 });
 
@@ -64,14 +68,25 @@ router.post('/login', authLimiter, asyncRoute(async (req, res) => {
   if (kioskId && pin) {
     const users = await readDb('users.json');
     const user = users.find((u) => u.kioskId === kioskId || u.username === kioskId);
-    if (!user) return sendError(res, 'INVALID_CREDENTIALS', 'Invalid kiosk ID or PIN', 401);
+    if (!user) {
+      await auditFromReq(req, 'auth.login.failed', { actorId: kioskId, metadata: { via: 'kiosk_pin', reason: 'unknown_user' } });
+      return sendError(res, 'INVALID_CREDENTIALS', 'Invalid kiosk ID or PIN', 401);
+    }
 
     const check = await verifyCredential(pin, user, ['password', 'pin']);
-    if (!check.ok) return sendError(res, 'INVALID_CREDENTIALS', 'Invalid kiosk ID or PIN', 401);
+    if (!check.ok) {
+      await auditFromReq(req, 'auth.login.failed', { actorId: user.id || user.userId, actorRole: user.role || 'kiosk', metadata: { via: 'kiosk_pin', reason: 'bad_pin' } });
+      return sendError(res, 'INVALID_CREDENTIALS', 'Invalid kiosk ID or PIN', 401);
+    }
     await persistRehash('users.json', ['id', 'userId'], user.id || user.userId, check.field, check.rehash);
 
     const claims = { sub: user.id || user.userId, role: user.role || 'kiosk', kioskId: user.kioskId, prisonId: user.prisonId };
     const session = await createSession(claims, req);
+    await auditFromReq(req, 'auth.login.success', {
+      actorId: claims.sub, actorRole: claims.role,
+      prisonId: claims.prisonId || null, kioskId: claims.kioskId || null,
+      metadata: { via: 'kiosk_pin' }
+    });
     return sendSuccess(res, {
       accessToken: signAccessToken(claims),
       refreshToken: session.refreshToken,
@@ -86,10 +101,18 @@ router.post('/login', authLimiter, asyncRoute(async (req, res) => {
     const emailUser = users.find((u) => u.email === email) || users.find((u) => u.username === email);
     if (emailUser && (emailUser.role === 'vendor' || emailUser.role === 'kiosk')) {
       const check = await verifyCredential(password, emailUser, ['password', 'pin']);
-      if (!check.ok) return sendError(res, 'INVALID_CREDENTIALS', 'Invalid email or password', 401);
+      if (!check.ok) {
+        await auditFromReq(req, 'auth.login.failed', { actorId: emailUser.userId || emailUser.id, actorRole: emailUser.role, metadata: { via: 'email_password', reason: 'bad_password', email } });
+        return sendError(res, 'INVALID_CREDENTIALS', 'Invalid email or password', 401);
+      }
       await persistRehash('users.json', ['userId', 'id'], emailUser.userId || emailUser.id, check.field, check.rehash);
       const claims = { sub: emailUser.userId || emailUser.id, role: emailUser.role || 'vendor', kioskId: emailUser.kioskId, prisonId: emailUser.prisonId };
       const session = await createSession(claims, req);
+      await auditFromReq(req, 'auth.login.success', {
+        actorId: claims.sub, actorRole: claims.role,
+        prisonId: claims.prisonId || null, kioskId: claims.kioskId || null,
+        metadata: { via: 'email_password', email }
+      });
       return sendSuccess(res, {
         accessToken: signAccessToken(claims),
         refreshToken: session.refreshToken,
@@ -101,10 +124,18 @@ router.post('/login', authLimiter, asyncRoute(async (req, res) => {
     const admin = admins.find((a) => String(a.email || '').toLowerCase() === wanted);
     if (admin) {
       const check = await verifyCredential(password, admin, ['password', 'pin']);
-      if (!check.ok) return sendError(res, 'INVALID_CREDENTIALS', 'Invalid email or password', 401);
+      if (!check.ok) {
+        await auditFromReq(req, 'auth.login.failed', { actorId: admin.adminId, actorRole: admin.role || 'admin', metadata: { via: 'email_password', reason: 'bad_password', email } });
+        return sendError(res, 'INVALID_CREDENTIALS', 'Invalid email or password', 401);
+      }
       await persistRehash('admins.json', ['adminId'], admin.adminId, check.field, check.rehash);
       const claims = { sub: admin.adminId, role: admin.role || 'admin', kioskId: admin.kioskId, prisonId: admin.prisonId };
       const session = await createSession(claims, req);
+      await auditFromReq(req, 'auth.login.success', {
+        actorId: claims.sub, actorRole: claims.role,
+        prisonId: claims.prisonId || null, kioskId: claims.kioskId || null,
+        metadata: { via: 'email_password', email }
+      });
       return sendSuccess(res, {
         accessToken: signAccessToken(claims),
         refreshToken: session.refreshToken,
@@ -120,10 +151,17 @@ router.post('/login', authLimiter, asyncRoute(async (req, res) => {
     const superAdmin = superAdmins.find((a) => String(a.email || '').toLowerCase() === wanted);
     if (superAdmin) {
       const check = await verifyCredential(password, superAdmin, ['password', 'pin']);
-      if (!check.ok) return sendError(res, 'INVALID_CREDENTIALS', 'Invalid email or password', 401);
+      if (!check.ok) {
+        await auditFromReq(req, 'auth.login.failed', { actorId: superAdmin.adminId, actorRole: 'super_admin', metadata: { via: 'email_password', reason: 'bad_password', email } });
+        return sendError(res, 'INVALID_CREDENTIALS', 'Invalid email or password', 401);
+      }
       await persistRehash('super-admins.json', ['adminId'], superAdmin.adminId, check.field, check.rehash);
       const claims = { sub: superAdmin.adminId, role: 'super_admin', kioskId: null, prisonId: null };
       const session = await createSession(claims, req);
+      await auditFromReq(req, 'auth.login.success', {
+        actorId: claims.sub, actorRole: claims.role,
+        metadata: { via: 'email_password', email }
+      });
       return sendSuccess(res, {
         accessToken: signAccessToken(claims),
         refreshToken: session.refreshToken,
@@ -131,6 +169,7 @@ router.post('/login', authLimiter, asyncRoute(async (req, res) => {
         user: { id: superAdmin.adminId, name: superAdmin.name, email: superAdmin.email, role: claims.role, permissions: superAdmin.permissions || [], kioskId: null, prisonId: null }
       });
     }
+    await auditFromReq(req, 'auth.login.failed', { actorId: email, metadata: { via: 'email_password', reason: 'no_matching_account', email } });
     return sendError(res, 'INVALID_CREDENTIALS', 'Invalid email or password', 401);
   }
 
@@ -145,16 +184,29 @@ router.post('/warden/login', authLimiter, asyncRoute(async (req, res) => {
   const wardens = await readDb('wardens.json');
   const wanted = email.toLowerCase();
   const warden = wardens.find((w) => String(w.email || '').toLowerCase() === wanted);
-  if (!warden) return sendError(res, 'INVALID_CREDENTIALS', 'Invalid email or password', 401);
+  if (!warden) {
+    await auditFromReq(req, 'auth.login.failed', { actorId: email, metadata: { via: 'warden_email', reason: 'unknown_user', email } });
+    return sendError(res, 'INVALID_CREDENTIALS', 'Invalid email or password', 401);
+  }
 
-  if (warden.status !== 'active') return sendError(res, 'ACCOUNT_DISABLED', 'Account is not active', 403);
+  if (warden.status !== 'active') {
+    await auditFromReq(req, 'auth.login.failed', { actorId: warden.wardenId, actorRole: 'warden', metadata: { via: 'warden_email', reason: 'account_disabled', email } });
+    return sendError(res, 'ACCOUNT_DISABLED', 'Account is not active', 403);
+  }
 
   const check = await verifyCredential(password, warden, ['password']);
-  if (!check.ok) return sendError(res, 'INVALID_CREDENTIALS', 'Invalid email or password', 401);
+  if (!check.ok) {
+    await auditFromReq(req, 'auth.login.failed', { actorId: warden.wardenId, actorRole: 'warden', prisonId: warden.prisonId || null, metadata: { via: 'warden_email', reason: 'bad_password', email } });
+    return sendError(res, 'INVALID_CREDENTIALS', 'Invalid email or password', 401);
+  }
   await persistRehash('wardens.json', ['wardenId'], warden.wardenId, check.field, check.rehash);
 
   const claims = { sub: warden.wardenId, role: 'warden', prisonId: warden.prisonId };
   const session = await createSession(claims, req);
+  await auditFromReq(req, 'auth.login.success', {
+    actorId: claims.sub, actorRole: claims.role, prisonId: claims.prisonId || null,
+    metadata: { via: 'warden_email', email }
+  });
   return sendSuccess(res, {
     accessToken: signAccessToken(claims),
     refreshToken: session.refreshToken,
@@ -224,6 +276,11 @@ router.post('/register', authLimiter, asyncRoute(async (req, res) => {
 
   const claims = { sub: newWarden.wardenId, role: 'warden', prisonId: newWarden.prisonId };
   const session = await createSession(claims, req);
+  await auditFromReq(req, 'warden.registered', {
+    actorId: newWarden.wardenId, actorRole: 'warden', prisonId: newWarden.prisonId,
+    entityType: 'warden', entityId: newWarden.wardenId,
+    metadata: { email: newWarden.email, prisonName }
+  });
   return sendSuccess(res, {
     accessToken: signAccessToken(claims),
     refreshToken: session.refreshToken,
@@ -288,6 +345,11 @@ router.post('/forgot-password', authLimiter, asyncRoute(async (req, res) => {
         console.error('[auth] password-reset mail failed:', err.message);
         return sendError(res, 'MAIL_FAILED', 'We could not send the reset email right now. Please try again in a moment.', 502);
       }
+      await auditFromReq(req, 'auth.password.reset_requested', {
+        actorId: warden.wardenId, actorRole: 'warden', prisonId: warden.prisonId || null,
+        entityType: 'warden', entityId: warden.wardenId,
+        metadata: { email: warden.email }
+      });
     }
   }
 
@@ -324,6 +386,11 @@ router.post('/reset-password', authLimiter, asyncRoute(async (req, res) => {
       all[idx].resetAttempts = (all[idx].resetAttempts || 0) + 1;
       return { data: all, result: all[idx] };
     });
+    await auditFromReq(req, 'auth.password.reset_failed', {
+      actorId: warden.wardenId, actorRole: 'warden', prisonId: warden.prisonId || null,
+      entityType: 'warden', entityId: warden.wardenId,
+      metadata: { email, reason: 'bad_code' }
+    });
     return invalid();
   }
 
@@ -343,6 +410,12 @@ router.post('/reset-password', authLimiter, asyncRoute(async (req, res) => {
   // Old refresh tokens must die with the old password (access tokens lapse
   // within their ≤15-minute TTL).
   await revokeAllForUser(warden.wardenId);
+
+  await auditFromReq(req, 'auth.password.reset_completed', {
+    actorId: warden.wardenId, actorRole: 'warden', prisonId: warden.prisonId || null,
+    entityType: 'warden', entityId: warden.wardenId,
+    metadata: { email }
+  });
 
   return sendSuccess(res, { message: 'Password reset successfully' });
 }));
@@ -432,7 +505,13 @@ router.post('/change-password', requireAuth, authLimiter, asyncRoute(async (req,
   if (!userRec) return sendError(res, 'NOT_FOUND', 'User not found', 404);
 
   const valid = await verifySecret(currentPassword, userRec.password || userRec.pin);
-  if (!valid) return sendError(res, 'INVALID_CREDENTIALS', 'Current password is incorrect', 401);
+  if (!valid) {
+    await auditFromReq(req, 'auth.password.change_failed', {
+      actorId: sub, actorRole: role,
+      metadata: { reason: 'bad_current_password', dbFile }
+    });
+    return sendError(res, 'INVALID_CREDENTIALS', 'Current password is incorrect', 401);
+  }
 
   const hashedPassword = await hashSecret(String(newPassword));
   await updateDb(dbFile, (all) => {
@@ -441,6 +520,11 @@ router.post('/change-password', requireAuth, authLimiter, asyncRoute(async (req,
     all[idx].password = hashedPassword;
     all[idx].updatedAt = new Date().toISOString();
     return { data: all, result: all[idx] };
+  });
+
+  await auditFromReq(req, 'auth.password.changed', {
+    actorId: sub, actorRole: role,
+    entityType: 'user', entityId: String(sub), metadata: { dbFile }
   });
 
   return sendSuccess(res, { message: 'Password changed successfully' });

@@ -1,5 +1,12 @@
 package com.dssmeet.kiosk.ui.admin
 
+import com.dssmeet.kiosk.ui.theme.PrimaryNavy
+
+import com.dssmeet.kiosk.ui.theme.AccentGreen
+
+import com.dssmeet.kiosk.ui.theme.DangerRed
+import com.dssmeet.kiosk.ui.theme.LightBg
+
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -21,7 +28,12 @@ import com.dssmeet.kiosk.models.admin.KioskDevice
 import com.dssmeet.kiosk.models.admin.Prisoner
 import com.dssmeet.kiosk.network.NetworkResult
 import com.dssmeet.kiosk.ui.components.KioskLoadingState
+import com.dssmeet.kiosk.ui.components.KioskPasswordField
 import com.dssmeet.kiosk.ui.components.KioskTopBar
+import com.dssmeet.kiosk.ui.components.KioskTextField
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.text.input.ImeAction
 
 private val EDIT_STEP_TITLES = listOf("Personal", "Identity", "Address", "Access")
 
@@ -49,7 +61,7 @@ fun EditPrisonerScreen(
                 onBackClick = onBackClick
             )
         },
-        containerColor = Color(0xFFF5F7FA)
+        containerColor = LightBg
     ) { paddingValues ->
         Box(modifier = Modifier.padding(paddingValues).fillMaxSize()) {
             when (val result = prisonerResult) {
@@ -69,7 +81,7 @@ fun EditPrisonerScreen(
                 is NetworkResult.Failure -> {
                     Text(
                         text = result.error.message ?: "Failed to load inmate",
-                        color = Color(0xFFD32F2F),
+                        color = DangerRed,
                         modifier = Modifier.align(Alignment.Center)
                     )
                 }
@@ -166,7 +178,7 @@ fun EditPrisonerForm(
                     showSaveDialog = false
                     submit()
                 }) {
-                    Text("Save", color = Color(0xFF003366))
+                    Text("Save", color = PrimaryNavy)
                 }
             },
             dismissButton = {}
@@ -186,35 +198,25 @@ fun EditPrisonerForm(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (resetPinSuccess) {
-                        Text("PIN reset successfully!", color = Color(0xFF2E7D32))
+                        Text("PIN reset successfully!", color = AccentGreen)
                     } else {
                         if (resetPinError.isNotEmpty()) {
-                            Text(resetPinError, color = Color(0xFFD32F2F), fontSize = 13.sp)
+                            Text(resetPinError, color = DangerRed, fontSize = 13.sp)
                         }
                         Text("Enter a new 6-digit PIN for ${prisoner.displayName}", fontSize = 14.sp)
-                        OutlinedTextField(
+                        KioskPasswordField(
                             value = resetPinValue,
                             onValueChange = {
                                 if (it.length <= 6 && it.all { c -> c.isDigit() }) {
                                     resetPinValue = it
-                                    resetPinError = ""
                                 }
                             },
-                            label = { Text("New PIN") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            isError = resetPinValue.isNotEmpty() && resetPinValue.length != 6,
-                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                                keyboardType = androidx.compose.ui.text.input.KeyboardType.NumberPassword
-                            )
+                            label = "New PIN",
+                            required = true,
+                            errorText = if (resetPinValue.isNotEmpty() && resetPinValue.length != 6)
+                                "PIN must be exactly 6 digits" else null,
+                            imeAction = ImeAction.Done
                         )
-                        if (resetPinValue.isNotEmpty() && resetPinValue.length != 6) {
-                            Text(
-                                "PIN must be exactly 6 digits",
-                                color = Color(0xFFD32F2F),
-                                fontSize = 12.sp
-                            )
-                        }
                     }
                 }
             },
@@ -285,7 +287,18 @@ fun EditPrisonerForm(
                             modifier = Modifier.padding(20.dp),
                             verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
-                            Text("Access", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                "Access",
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = com.dssmeet.kiosk.ui.theme.PrimaryDarkNavy
+                            )
+
+                            Text(
+                                "Manage authentication for this inmate.",
+                                fontSize = 14.sp,
+                                color = com.dssmeet.kiosk.ui.theme.TextGray
+                            )
 
                             OutlinedButton(
                                 onClick = {
@@ -294,7 +307,8 @@ fun EditPrisonerForm(
                                     resetPinError = ""
                                     resetPinValue = ""
                                 },
-                                modifier = Modifier.fillMaxWidth()
+                                modifier = Modifier.fillMaxWidth().height(56.dp),
+                                shape = RoundedCornerShape(12.dp)
                             ) {
                                 Icon(
                                     Icons.Default.LockReset,
@@ -302,7 +316,7 @@ fun EditPrisonerForm(
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text("Reset PIN")
+                                Text("Reset PIN", fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -335,25 +349,30 @@ fun EditPrisonerForm(
                 Button(
                     onClick = {
                         if (step == EDIT_STEP_TITLES.lastIndex) {
-                            showSaveDialog = true
-                        } else if (step == 0) {
-                            val personalError = formState.validatePersonal()
-                            if (personalError.isNotEmpty()) {
-                                saveError = personalError
+                            val allErrors = (0 until EDIT_STEP_TITLES.lastIndex)
+                                .map { formState.validateStep(it) }
+                                .firstOrNull { it.isNotEmpty() } ?: ""
+                            if (allErrors.isNotEmpty()) {
+                                saveError = allErrors
+                            } else {
+                                saveError = ""
+                                showSaveDialog = true
+                            }
+                        } else {
+                            val stepError = formState.validateStep(step)
+                            if (stepError.isNotEmpty()) {
+                                saveError = stepError
                             } else {
                                 saveError = ""
                                 step += 1
                             }
-                        } else {
-                            saveError = ""
-                            step += 1
                         }
                     },
                     modifier = Modifier
                         .weight(if (step > 0) 1f else 2f)
                         .height(56.dp),
                     shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF003366))
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryNavy)
                 ) {
                     if (step == EDIT_STEP_TITLES.lastIndex) {
                         Icon(Icons.Default.Save, contentDescription = null)

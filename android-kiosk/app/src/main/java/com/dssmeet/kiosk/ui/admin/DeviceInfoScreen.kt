@@ -1,5 +1,13 @@
 package com.dssmeet.kiosk.ui.admin
 
+import com.dssmeet.kiosk.ui.theme.BorderColor
+import com.dssmeet.kiosk.ui.theme.PrimaryDarkNavy
+import com.dssmeet.kiosk.ui.theme.PrimaryNavy
+
+import com.dssmeet.kiosk.ui.theme.LightBg
+
+import com.dssmeet.kiosk.ui.theme.TextGray
+
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -57,7 +65,7 @@ fun DeviceInfoContent(
                 onBackClick = onBackClick
             )
         },
-        containerColor = Color(0xFFF5F7FA)
+        containerColor = LightBg
     ) { paddingValues ->
         val items = listOf(
             DeviceInfoItem("Device Serial", deviceInfo?.serialNumber ?: "—"),
@@ -82,14 +90,14 @@ fun DeviceInfoContent(
                 ) {
                     Surface(
                         shape = CircleShape,
-                        color = Color(0xFF003366).copy(alpha = 0.1f),
+                        color = PrimaryNavy.copy(alpha = 0.1f),
                         modifier = Modifier.size(120.dp)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
                                 imageVector = Icons.Default.Devices,
                                 contentDescription = null,
-                                tint = Color(0xFF003366),
+                                tint = PrimaryNavy,
                                 modifier = Modifier.size(64.dp)
                             )
                         }
@@ -102,7 +110,7 @@ fun DeviceInfoContent(
                     text = deviceInfo?.model ?: "Kiosk Device",
                     fontSize = 24.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color(0xFF0B2240),
+                    color = PrimaryDarkNavy,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -156,7 +164,7 @@ fun DeviceInfoContent(
                             Icon(
                                 imageVector = Icons.Default.Info,
                                 contentDescription = null,
-                                tint = Color(0xFF003366),
+                                tint = PrimaryNavy,
                                 modifier = Modifier.size(24.dp)
                             )
                             Column {
@@ -164,19 +172,19 @@ fun DeviceInfoContent(
                                     text = "DssMeet Kiosk",
                                     fontSize = 16.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF0B2240)
+                                    color = PrimaryDarkNavy
                                 )
                                 Text(
                                     text = "Version ${com.dssmeet.kiosk.BuildConfig.VERSION_NAME}",
                                     fontSize = 14.sp,
-                                    color = Color(0xFF687A8F)
+                                    color = TextGray
                                 )
                             }
                         }
                         Text(
                             text = "© 2025 DssMeet. All rights reserved.",
                             fontSize = 12.sp,
-                            color = Color(0xFF687A8F),
+                            color = TextGray,
                             textAlign = TextAlign.Center,
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -205,10 +213,10 @@ private fun InfoCard(title: String, items: List<DeviceInfoItem>) {
                 text = title,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color(0xFF0B2240)
+                color = PrimaryDarkNavy
             )
 
-            HorizontalDivider(color = Color(0xFFE2E8F0), thickness = 1.dp)
+            HorizontalDivider(color = BorderColor, thickness = 1.dp)
 
             items.forEach { info ->
                 InfoRow(label = info.label, value = info.value)
@@ -227,13 +235,13 @@ private fun InfoRow(label: String, value: String) {
         Text(
             text = label,
             fontSize = 14.sp,
-            color = Color(0xFF687A8F)
+            color = TextGray
         )
         Text(
             text = value,
             fontSize = 14.sp,
             fontWeight = FontWeight.Medium,
-            color = Color(0xFF0B2240)
+            color = PrimaryDarkNavy
         )
     }
 }

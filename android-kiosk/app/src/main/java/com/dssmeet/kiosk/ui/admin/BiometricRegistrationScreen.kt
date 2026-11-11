@@ -1,5 +1,19 @@
 package com.dssmeet.kiosk.ui.admin
 
+import com.dssmeet.kiosk.ui.theme.PrimaryDarkNavy
+import com.dssmeet.kiosk.ui.theme.PrimaryNavy
+
+import com.dssmeet.kiosk.ui.theme.AccentGreen
+import com.dssmeet.kiosk.ui.theme.GraySurface
+import com.dssmeet.kiosk.ui.theme.TextMuted
+
+import com.dssmeet.kiosk.ui.theme.DangerRed
+import com.dssmeet.kiosk.ui.theme.GreenActiveBg
+import com.dssmeet.kiosk.ui.theme.LightBg
+import com.dssmeet.kiosk.ui.theme.MoneyRedBg
+
+import com.dssmeet.kiosk.ui.theme.TextGray
+
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -118,7 +132,7 @@ fun BiometricRegistrationScreen(
             KioskTopBar(title = "Biometrics", showBackButton = true, onBackClick = onBackClick)
         },
         snackbarHost = { snackbarMessage?.let { Snackbar { Text(it) } } },
-        containerColor = Color(0xFFF5F7FA)
+        containerColor = LightBg
     ) { paddingValues ->
         Column(
             modifier = Modifier
@@ -139,15 +153,15 @@ fun BiometricRegistrationScreen(
                     modifier = Modifier.padding(20.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Surface(shape = CircleShape, color = Color(0xFF003366).copy(alpha = 0.1f), modifier = Modifier.size(48.dp)) {
+                    Surface(shape = CircleShape, color = PrimaryNavy.copy(alpha = 0.1f), modifier = Modifier.size(48.dp)) {
                         Box(contentAlignment = Alignment.Center) {
-                            Icon(Icons.Default.Fingerprint, contentDescription = null, tint = Color(0xFF003366))
+                            Icon(Icons.Default.Fingerprint, contentDescription = null, tint = PrimaryNavy)
                         }
                     }
                     Spacer(modifier = Modifier.width(12.dp))
                     Column {
                         Text(prisonerName, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                        Text(prisonerId, fontSize = 14.sp, color = Color(0xFF687A8F))
+                        Text(prisonerId, fontSize = 14.sp, color = TextGray)
                     }
                 }
             }
@@ -210,22 +224,22 @@ fun BiometricRegistrationScreen(
                                             else -> Icons.Default.CreditCard
                                         },
                                         contentDescription = null,
-                                        tint = Color(0xFF003366),
+                                        tint = PrimaryNavy,
                                         modifier = Modifier.size(20.dp)
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text((bio.type ?: "unknown").uppercase(), fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                                        Text(formatDate(bio.registeredAt), fontSize = 11.sp, color = Color(0xFF999999))
+                                        Text(formatDate(bio.registeredAt), fontSize = 12.sp, color = TextGray)
                                     }
                                     Surface(
                                         shape = RoundedCornerShape(4.dp),
-                                        color = if (bio.status == "registered") Color(0xFFE8F5E9) else Color(0xFFFFEBEE)
+                                        color = if (bio.status == "registered") GreenActiveBg else MoneyRedBg
                                     ) {
                                         Text(
                                             (bio.status ?: "unknown").uppercase(),
-                                            fontSize = 10.sp,
-                                            color = if (bio.status == "registered") Color(0xFF2E7D32) else Color(0xFFD32F2F),
+                                            fontSize = 12.sp,
+                                            color = if (bio.status == "registered") AccentGreen else DangerRed,
                                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                             fontWeight = FontWeight.Bold
                                         )
@@ -309,9 +323,9 @@ fun BiometricCard(
             modifier = Modifier.padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Surface(shape = CircleShape, color = if (isRegistered) Color(0xFFE8F5E9) else Color(0xFFF5F5F5), modifier = Modifier.size(44.dp)) {
+            Surface(shape = CircleShape, color = if (isRegistered) GreenActiveBg else GraySurface, modifier = Modifier.size(44.dp)) {
                 Box(contentAlignment = Alignment.Center) {
-                    Icon(icon, contentDescription = null, tint = if (isRegistered) Color(0xFF2E7D32) else Color(0xFF999999))
+                    Icon(icon, contentDescription = null, tint = if (isRegistered) AccentGreen else TextMuted)
                 }
             }
             Spacer(modifier = Modifier.width(12.dp))
@@ -320,15 +334,15 @@ fun BiometricCard(
                 Text(
                     if (isRegistered) "Registered" else "Not registered",
                     fontSize = 12.sp,
-                    color = if (isRegistered) Color(0xFF2E7D32) else Color(0xFF999999)
+                    color = if (isRegistered) AccentGreen else TextMuted
                 )
                 if (!isRegistered && hint != null) {
-                    Text(hint, fontSize = 11.sp, color = Color(0xFF687A8F))
+                    Text(hint, fontSize = 12.sp, color = TextGray)
                 }
             }
             if (isRegistered) {
                 TextButton(onClick = onDelete) {
-                    Text("Remove", color = Color(0xFFD32F2F), fontSize = 13.sp)
+                    Text("Remove", color = DangerRed, fontSize = 13.sp)
                 }
             } else {
                 Button(onClick = onRegister) {
@@ -370,7 +384,7 @@ internal fun BiometricCaptureDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        icon = { Icon(icon, contentDescription = null, tint = Color(0xFF003366), modifier = Modifier.size(32.dp)) },
+        icon = { Icon(icon, contentDescription = null, tint = PrimaryNavy, modifier = Modifier.size(32.dp)) },
         title = { Text("Register $title") },
         text = {
             Column(
@@ -387,7 +401,7 @@ internal fun BiometricCaptureDialog(
                 if (animation != null) animation()
                 // Instruction card — what to do + live reader status.
                 Surface(
-                    color = Color(0xFFF5F7FA),
+                    color = LightBg,
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -400,25 +414,25 @@ internal fun BiometricCaptureDialog(
                                 CircularProgressIndicator(
                                     modifier = Modifier.size(18.dp),
                                     strokeWidth = 2.dp,
-                                    color = Color(0xFF003366)
+                                    color = PrimaryNavy
                                 )
                                 Spacer(modifier = Modifier.width(12.dp))
                                 Column {
-                                    Text(instruction, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFF0B2240))
-                                    Text("Waiting for capture…", fontSize = 12.sp, color = Color(0xFF687A8F))
+                                    Text(instruction, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = PrimaryDarkNavy)
+                                    Text("Waiting for capture…", fontSize = 12.sp, color = TextGray)
                                 }
                             }
                             BiometricCaptureStatus.Detected -> {
-                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF2E7D32), modifier = Modifier.size(20.dp))
+                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = AccentGreen, modifier = Modifier.size(20.dp))
                                 Spacer(modifier = Modifier.width(12.dp))
-                                Text("Detected — registering…", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFF0B2240))
+                                Text("Detected — registering…", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = PrimaryDarkNavy)
                             }
                             is BiometricCaptureStatus.Error -> {
-                                Icon(Icons.Default.Warning, contentDescription = null, tint = Color(0xFFD32F2F), modifier = Modifier.size(20.dp))
+                                Icon(Icons.Default.Warning, contentDescription = null, tint = DangerRed, modifier = Modifier.size(20.dp))
                                 Spacer(modifier = Modifier.width(12.dp))
                                 Column {
-                                    Text(instruction, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFF0B2240))
-                                    Text(status.message, fontSize = 12.sp, color = Color(0xFFD32F2F))
+                                    Text(instruction, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = PrimaryDarkNavy)
+                                    Text(status.message, fontSize = 12.sp, color = DangerRed)
                                 }
                             }
                         }
@@ -434,14 +448,14 @@ internal fun BiometricCaptureDialog(
                         }
                     )
                 } else {
-                    Text(hint, fontSize = 12.sp, color = Color(0xFF687A8F))
+                    Text(hint, fontSize = 12.sp, color = TextGray)
                     if (showManualEntry) {
                         TextButton(onClick = { showKeypad = true }) {
                             Text(
                                 "Enter card number instead",
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color(0xFF003366)
+                                color = PrimaryNavy
                             )
                         }
                     }
@@ -451,7 +465,7 @@ internal fun BiometricCaptureDialog(
                     Text(
                         registerError,
                         fontSize = 12.sp,
-                        color = Color(0xFFD32F2F),
+                        color = DangerRed,
                         textAlign = TextAlign.Center
                     )
                 }

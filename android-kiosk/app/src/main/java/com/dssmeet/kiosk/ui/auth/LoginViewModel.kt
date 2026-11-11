@@ -56,7 +56,7 @@ class LoginViewModel @Inject constructor(
 
     /**
      * True while this kiosk's jail has no kiosk admin yet — the welcome screen
-     * swaps its "Admin Login" button for "Create Login". Refreshed on every
+     * swaps its "Admin Login" button for "Create Admin". Refreshed on every
      * entry to METHOD_SELECTION; a failed check simply leaves the normal
      * Admin Login shown (never blocks signing in).
      */

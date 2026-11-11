@@ -1,5 +1,7 @@
 package com.dssmeet.kiosk.ui.call
 
+import com.dssmeet.kiosk.ui.theme.BorderColor
+
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -38,7 +40,7 @@ import com.dssmeet.kiosk.models.inmate.InmateProfile
 import com.dssmeet.kiosk.ui.components.KioskButton
 import com.dssmeet.kiosk.ui.components.KioskProgressIndicator
 import com.dssmeet.kiosk.ui.theme.AccentGreen
-import com.dssmeet.kiosk.ui.theme.AlertRed
+import com.dssmeet.kiosk.ui.theme.DangerRed
 import com.dssmeet.kiosk.ui.theme.ControlBtnBg
 import com.dssmeet.kiosk.ui.theme.LightBg
 import com.dssmeet.kiosk.ui.theme.PrimaryNavy
@@ -164,7 +166,7 @@ fun AudioPermissionDeniedUI(onRetry: () -> Unit) {
                 modifier = Modifier.padding(32.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Icon(Icons.Default.MicOff, null, tint = AlertRed, modifier = Modifier.size(64.dp))
+                Icon(Icons.Default.MicOff, null, tint = DangerRed, modifier = Modifier.size(64.dp))
                 Spacer(modifier = Modifier.height(24.dp))
                 Text("Microphone Required", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = TextDark)
                 Spacer(modifier = Modifier.height(12.dp))
@@ -247,14 +249,14 @@ fun AudioCallContent(
                 // a bad line the way consumer calling apps do.
                 if (connectionQuality == "poor") {
                     Surface(
-                        color = AlertRed.copy(alpha = 0.12f),
+                        color = DangerRed.copy(alpha = 0.12f),
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
                             text = "Poor network quality — audio may break up",
-                            color = AlertRed,
-                            fontSize = if (isTablet) 13.sp else 11.sp,
+                            color = DangerRed,
+                            fontSize = if (isTablet) 13.sp else 12.sp,
                             fontWeight = FontWeight.SemiBold,
                             textAlign = TextAlign.Center,
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
@@ -325,32 +327,10 @@ fun AudioCallContent(
                             }
                         }
                         // Family member's location (from device verification),
-                        // shown right under the call timer.
+                        // shown right under the call timer. Shared pill — same look as video.
                         familyLocation?.let { loc ->
                             Spacer(modifier = Modifier.height(10.dp))
-                            Surface(
-                                color = PrimaryNavy.copy(alpha = 0.07f),
-                                shape = RoundedCornerShape(50)
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.LocationOn,
-                                        contentDescription = null,
-                                        tint = PrimaryNavy,
-                                        modifier = Modifier.size(if (isTablet) 16.dp else 14.dp)
-                                    )
-                                    Text(
-                                        text = "Family location: ${loc.displayLabel}",
-                                        fontSize = if (isTablet) 14.sp else 12.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = PrimaryNavy
-                                    )
-                                }
-                            }
+                            com.dssmeet.kiosk.ui.components.FamilyLocationPill(location = loc)
                         }
                     } else {
                         Text(
@@ -413,7 +393,7 @@ fun AudioCallContent(
                             icon = if (isMuted) Icons.Default.MicOff else Icons.Default.Mic,
                             label = if (isMuted) "Unmute" else "Mute",
                             isActive = isMuted,
-                            activeColor = AlertRed,
+                            activeColor = DangerRed,
                             isTablet = isTablet,
                             onClick = onMuteToggle
                         )
@@ -440,7 +420,7 @@ fun AudioCallContent(
                             icon = Icons.Default.CallEnd,
                             label = "End",
                             isActive = true,
-                            activeColor = AlertRed,
+                            activeColor = DangerRed,
                             isEndCall = true,
                             isTablet = isTablet,
                             onClick = onEndCall
@@ -500,7 +480,7 @@ fun AudioCallContent(
                             }
 
                             Spacer(modifier = Modifier.height(20.dp))
-                            HorizontalDivider(color = Color(0xFFE2E8F0))
+                            HorizontalDivider(color = BorderColor)
                             Spacer(modifier = Modifier.height(20.dp))
 
                             // Inmate Detail
@@ -510,7 +490,7 @@ fun AudioCallContent(
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Column(modifier = Modifier.padding(12.dp)) {
-                                    Text("INMATE DETAILS", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = TextGray)
+                                    Text("INMATE DETAILS", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextGray)
                                     Text(
                                         inmateProfile?.displayName ?: "Inmate",
                                         fontSize = 16.sp,
@@ -539,7 +519,7 @@ fun AudioCallContent(
                                         text = formatTime(remainingSeconds),
                                         fontSize = if (isTablet) 26.sp else 20.sp,
                                         fontWeight = FontWeight.Black,
-                                        color = if (remainingSeconds <= 60) AlertRed else PrimaryNavy
+                                        color = if (remainingSeconds <= 60) DangerRed else PrimaryNavy
                                     )
                                 }
 
@@ -547,7 +527,7 @@ fun AudioCallContent(
                                     modifier = Modifier
                                         .width(1.dp)
                                         .height(40.dp)
-                                        .background(Color(0xFFE2E8F0))
+                                        .background(BorderColor)
                                 )
 
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -605,17 +585,17 @@ private fun RecordingBadge() {
     )
 
     Surface(
-        color = AlertRed.copy(alpha = 0.1f),
+        color = DangerRed.copy(alpha = 0.1f),
         shape = RoundedCornerShape(8.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, AlertRed)
+        border = androidx.compose.foundation.BorderStroke(1.dp, DangerRed)
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(AlertRed.copy(alpha = alpha)))
+            Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(DangerRed.copy(alpha = alpha)))
             Spacer(modifier = Modifier.width(6.dp))
-            Text("SECURE RECORDING", color = AlertRed, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            Text("SECURE RECORDING", color = DangerRed, fontSize = 12.sp, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -627,7 +607,7 @@ private fun ConnectionQualityBadge(quality: String, isTablet: Boolean) {
         "excellent" -> "Excellent Connection" to AccentGreen
         "good" -> "Stable Connection" to AccentGreen
         "fair" -> "Fair Connection" to WarningOrange
-        "poor" -> "Poor Network Quality" to AlertRed
+        "poor" -> "Poor Network Quality" to DangerRed
         else -> "Measuring…" to TextGray
     }
     Row(
@@ -666,7 +646,7 @@ private fun CallActionButton(
     onClick: () -> Unit
 ) {
     val bgColor = when {
-        isEndCall -> AlertRed
+        isEndCall -> DangerRed
         isActive -> activeColor
         else -> ControlBtnBg
     }
@@ -708,9 +688,9 @@ private fun CallActionButton(
         }
         Text(
             text = label,
-            fontSize = if (isTablet) 14.sp else 11.sp,
+            fontSize = if (isTablet) 14.sp else 12.sp,
             fontWeight = FontWeight.SemiBold,
-            color = if (isEndCall) AlertRed else TextGray
+            color = if (isEndCall) DangerRed else TextGray
         )
     }
 }

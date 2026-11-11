@@ -429,7 +429,7 @@ class AuthRepositoryImpl @Inject constructor(
     private data class ErrorEnvelope(val error: ApiError?)
 
     /**
-     * GET kiosk-admins/bootstrap-status — decides "Create Login" vs "Admin Login"
+     * GET kiosk-admins/bootstrap-status — decides "Create Admin" vs "Admin Login"
      * on the welcome screen. No Loading emission and no error state: this runs on
      * screen entry, so any failure must silently leave the button on the normal
      * "Admin Login" (it is re-checked every time the login screen comes up).

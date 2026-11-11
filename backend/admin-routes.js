@@ -9,6 +9,7 @@ const { paginate } = require('./lib/paginate');
 const { inmateDeleteHandler, validateInmateRefs, stripRemovedInmateFields, hashBiometricData } = require('./routes/inmates');
 const { creditWelcomeBonus } = require('./lib/wallets');
 const { isValidRfidNumber, rfidCardNumberFor, biometricValidationError } = require('./lib/biometrics');
+const { auditFromReq } = require('./lib/audit');
 
 const ALL_ROLES = ['admin', 'warden', 'kiosk_admin', 'super-admin', 'super_admin'];
 const ADMIN_ROLES = ['admin', 'warden', 'super-admin', 'super_admin'];
@@ -275,6 +276,10 @@ router.post('/prisoners/:prisonerId/reset-pin', requireRole(...ALL_ROLES), async
     return { data: inmates, result: inmates[idx] };
   });
   if (!updated) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Prisoner not found' } });
+  await auditFromReq(req, 'prisoner.pin_reset', {
+    entityType: 'prisoner', entityId: req.params.prisonerId, prisonId: updated.prisonId || null,
+    metadata: {}
+  });
   return res.json({ success: true, data: { message: 'PIN reset successfully' } });
 });
 
@@ -285,11 +290,16 @@ router.patch('/prisoners/:prisonerId/status', requireRole(...ALL_ROLES), async (
   const updated = await updateDb('inmates.json', (inmates) => {
     const idx = inmates.findIndex((i) => i.inmateId === prisonerId && inAdminScope(req, i));
     if (idx === -1) return { data: inmates, result: null };
+    const previousStatus = inmates[idx].status;
     inmates[idx] = { ...inmates[idx], status };
-    return { data: inmates, result: inmates[idx] };
+    return { data: inmates, result: { row: inmates[idx], previousStatus } };
   });
   if (!updated) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Prisoner not found' } });
-  return res.json({ success: true, data: normalizeInmate(updated) });
+  await auditFromReq(req, 'prisoner.status_changed', {
+    entityType: 'prisoner', entityId: prisonerId, prisonId: updated.row.prisonId || null,
+    metadata: { from: updated.previousStatus || null, to: status }
+  });
+  return res.json({ success: true, data: normalizeInmate(updated.row) });
 });
 
 router.delete('/prisoners/:prisonerId', requireRole(...ALL_ROLES), async (req, res) => {
@@ -411,6 +421,10 @@ router.patch('/contacts/:contactId/status', requireRole(...ALL_ROLES), async (re
     return { data: ct, result: ct[idx] };
   });
   if (!updated) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Contact not found' } });
+  await auditFromReq(req, 'contact.status_changed', {
+    entityType: 'contact', entityId: contactId, prisonId: updated.prisonId || null,
+    metadata: { status: normalizedStatus, active: isActive }
+  });
   return res.json({ success: true, data: normalizeContact(updated) });
 });
 
@@ -432,6 +446,10 @@ router.delete('/contacts/:contactId', requireRole(...ALL_ROLES), async (req, res
     return { data: ct, result: removed };
   });
   if (!deleted) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Contact not found' } });
+  await auditFromReq(req, 'contact.deleted', {
+    entityType: 'contact', entityId: contactId, prisonId: deleted.prisonId || null,
+    metadata: { inmateId: deleted.inmateId || null }
+  });
   return res.json({ success: true, data: { message: 'Contact deleted', contactId } });
 });
 
@@ -597,23 +615,49 @@ router.get('/:adminId', requireRole('super-admin', 'super_admin'), async (req, r
   return res.json({ success: true, data: withoutAdminSecrets(admin) });
 });
 
+// Fields a super-admin may set when creating/editing an admin through
+// POST/PATCH /admin. Everything else in the body is dropped — without this,
+// `...req.body` could inject server-owned columns (createdAt, adminId on
+// PATCH, resetCodeHash, biometricData, ...).
+const ADMIN_CREATE_FIELDS = [
+  'adminId', 'name', 'employeeId', 'email', 'phone', 'designation',
+  'role', 'status', 'permissions', 'prisonId', 'kioskId', 'password', 'pin',
+];
+const ADMIN_PATCH_FIELDS = [
+  'name', 'employeeId', 'email', 'phone', 'designation',
+  'role', 'status', 'permissions', 'prisonId', 'kioskId', 'password', 'pin',
+];
+
+function pickAdminFields(body, allowed) {
+  const out = {};
+  if (!body || typeof body !== 'object') return out;
+  for (const key of allowed) {
+    if (body[key] !== undefined) out[key] = body[key];
+  }
+  return out;
+}
+
 router.post('/', requireRole('super-admin', 'super_admin'), async (req, res) => {
-  const adminData = req.body;
+  const adminData = pickAdminFields(req.body, ADMIN_CREATE_FIELDS);
   const record = {
-    adminId: adminData.adminId || `ADMIN-${Date.now().toString(36).toUpperCase()}`,
     ...adminData,
+    adminId: adminData.adminId || `ADMIN-${Date.now().toString(36).toUpperCase()}`,
     status: adminData.status || 'active',
     createdAt: new Date().toISOString()
   };
   if (record.pin && !/^\$2[aby]\$/.test(record.pin)) record.pin = await hashSecret(String(record.pin));
   if (record.password && !/^\$2[aby]\$/.test(record.password)) record.password = await hashSecret(String(record.password));
   const updated = await updateDb('admins.json', (all) => ({ data: [...all, record], result: record }));
+  await auditFromReq(req, 'admin.created', {
+    entityType: 'admin', entityId: record.adminId, prisonId: record.prisonId || null,
+    metadata: { email: record.email || null, role: record.role || null, employeeId: record.employeeId || null }
+  });
   return res.status(201).json({ success: true, data: withoutAdminSecrets(updated) });
 });
 
 router.patch('/:adminId', requireRole('super-admin', 'super_admin'), async (req, res) => {
   const { adminId } = req.params;
-  const updates = { ...req.body };
+  const updates = pickAdminFields(req.body, ADMIN_PATCH_FIELDS);
   if (updates.pin && !/^\$2[aby]\$/.test(updates.pin)) updates.pin = await hashSecret(String(updates.pin));
   if (updates.password && !/^\$2[aby]\$/.test(updates.password)) updates.password = await hashSecret(String(updates.password));
   const updated = await updateDb('admins.json', (all) => {
@@ -623,6 +667,10 @@ router.patch('/:adminId', requireRole('super-admin', 'super_admin'), async (req,
     return { data: all, result: all[idx] };
   });
   if (!updated) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Admin not found' } });
+  await auditFromReq(req, 'admin.updated', {
+    entityType: 'admin', entityId: adminId, prisonId: updated.prisonId || null,
+    metadata: { fields: Object.keys(updates), passwordReset: updates.password !== undefined }
+  });
   return res.json({ success: true, data: withoutAdminSecrets(updated) });
 });
 
@@ -635,6 +683,10 @@ router.delete('/:adminId', requireRole('super-admin', 'super_admin'), async (req
     return { data: all, result: removed };
   });
   if (!deleted) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Admin not found' } });
+  await auditFromReq(req, 'admin.deleted', {
+    entityType: 'admin', entityId: adminId, prisonId: deleted.prisonId || null,
+    metadata: { email: deleted.email || null, name: deleted.name || null }
+  });
   return res.json({ success: true, data: { message: 'Admin deleted', adminId } });
 });
 

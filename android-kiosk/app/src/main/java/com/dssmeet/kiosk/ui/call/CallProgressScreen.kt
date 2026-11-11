@@ -1,5 +1,7 @@
 package com.dssmeet.kiosk.ui.call
 
+import com.dssmeet.kiosk.ui.theme.DangerRed
+
 import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -31,6 +33,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -40,8 +44,14 @@ private fun StageRow(label: String, state: StageState) {
     val (color, symbol) = when (state) {
         StageState.DONE -> Color(0xFF22C55E) to "✓"
         StageState.ACTIVE -> Color(0xFFF59E0B) to "•"
-        StageState.FAILED -> Color(0xFFEF4444) to "✗"
+        StageState.FAILED -> DangerRed to "✗"
         StageState.PENDING -> Color(0xFF525252) to ""
+    }
+    val stateDescription = when (state) {
+        StageState.DONE -> "completed"
+        StageState.ACTIVE -> "in progress"
+        StageState.FAILED -> "failed"
+        StageState.PENDING -> "pending"
     }
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -61,7 +71,10 @@ private fun StageRow(label: String, state: StageState) {
         Text(
             label,
             color = if (state == StageState.PENDING) Color(0xFF9CA3AF) else Color.White,
-            fontSize = 18.sp
+            fontSize = 18.sp,
+            modifier = Modifier.semantics {
+                contentDescription = "$label, $stateDescription"
+            }
         )
     }
 }
@@ -128,10 +141,17 @@ fun CallProgressScreen(
     val stages: List<Pair<String, StageState>> = run {
         val s = stage
         listOf(
-            "Call link sent to $contactName" to StageState.DONE,
+            "Call link sent to $contactName" to when {
+                // Don't claim DONE until family actually opened it —
+                // a send failure or early abort must not look successful.
+                s.ordinal >= FamilyStage.LINK_OPENED.ordinal -> StageState.DONE
+                s.ordinal >= FamilyStage.LINK_SENT.ordinal -> StageState.ACTIVE
+                else -> StageState.PENDING
+            },
             "$contactName opened the link" to when {
                 s.ordinal >= FamilyStage.LINK_OPENED.ordinal -> StageState.DONE
-                else -> StageState.ACTIVE
+                s.ordinal >= FamilyStage.LINK_SENT.ordinal -> StageState.ACTIVE
+                else -> StageState.PENDING
             },
             "Device verification" to when {
                 s.ordinal >= FamilyStage.DEVICE_VERIFIED.ordinal -> StageState.DONE
@@ -172,7 +192,7 @@ fun CallProgressScreen(
                 },
                 color = when {
                     familyLeft -> Color(0xFFF59E0B)
-                    showFailure -> Color(0xFFEF4444)
+                    showFailure -> DangerRed
                     else -> Color.White
                 },
                 fontSize = 28.sp,
@@ -186,7 +206,7 @@ fun CallProgressScreen(
                     viewModel.endCall()
                     onCancel()
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
+                colors = ButtonDefaults.buttonColors(containerColor = DangerRed),
                 modifier = Modifier.size(72.dp)
             ) {
                 Icon(

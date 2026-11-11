@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- DEBUG ONLY (applied via src/debug/AndroidManifest.xml). Local docker /
+         LAN dev endpoints speak plain HTTP; the release build keeps the main
+         network_security_config which refuses cleartext entirely. -->
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

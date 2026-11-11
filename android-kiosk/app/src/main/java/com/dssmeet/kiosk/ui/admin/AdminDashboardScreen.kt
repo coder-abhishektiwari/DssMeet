@@ -1,5 +1,17 @@
 package com.dssmeet.kiosk.ui.admin
 
+import com.dssmeet.kiosk.ui.theme.PrimaryDarkNavy
+import com.dssmeet.kiosk.ui.theme.PrimaryNavy
+import com.dssmeet.kiosk.ui.theme.SuccessGreen
+
+import com.dssmeet.kiosk.ui.theme.InfoBg
+import com.dssmeet.kiosk.ui.theme.NeutralBg
+
+import com.dssmeet.kiosk.ui.theme.DangerRed
+import com.dssmeet.kiosk.ui.theme.LightBg
+
+import com.dssmeet.kiosk.ui.theme.TextGray
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -23,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.dssmeet.kiosk.models.auth.AdminProfile
+import com.dssmeet.kiosk.ui.components.ConfirmDeleteDialog
 import com.dssmeet.kiosk.ui.components.KioskTopBar
 import com.dssmeet.kiosk.ui.theme.PrisonKioskTheme
 
@@ -63,6 +76,8 @@ fun AdminDashboardContent(
     onCallHistoryClick: () -> Unit,
     onLogoutClick: () -> Unit
 ) {
+    var showLogoutConfirm by remember { mutableStateOf(false) }
+
     Scaffold(
         topBar = {
             KioskTopBar(
@@ -71,7 +86,7 @@ fun AdminDashboardContent(
                 onBackClick = onLogoutClick
             )
         },
-        containerColor = Color(0xFFF5F7FA)
+        containerColor = LightBg
     ) { paddingValues ->
         LazyColumn(
             modifier = Modifier
@@ -94,7 +109,7 @@ fun AdminDashboardContent(
                     ) {
                         Surface(
                             shape = CircleShape,
-                            color = Color(0xFF003366),
+                            color = PrimaryNavy,
                             modifier = Modifier.size(60.dp)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
@@ -111,16 +126,18 @@ fun AdminDashboardContent(
 
                         Column {
                             Text(
-                                text = adminProfile?.name ?: "Admin User",
+                                text = adminProfile?.name ?: "—",
                                 fontSize = 20.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color(0xFF0B2240)
+                                color = PrimaryDarkNavy
                             )
-                            Text(
-                                text = adminProfile?.email ?: "",
-                                fontSize = 14.sp,
-                                color = Color(0xFF687A8F)
-                            )
+                            adminProfile?.email?.takeIf { it.isNotBlank() }?.let { email ->
+                                Text(
+                                    text = email,
+                                    fontSize = 14.sp,
+                                    color = TextGray
+                                )
+                            }
                             Row(
                                 modifier = Modifier.padding(top = 8.dp),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -128,25 +145,25 @@ fun AdminDashboardContent(
                             ) {
                                 Surface(
                                     shape = RoundedCornerShape(8.dp),
-                                    color = Color(0xFFE3F2FD)
+                                    color = InfoBg
                                 ) {
                                     Text(
                                         text = adminProfile?.role?.uppercase() ?: "ADMIN",
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF003366),
+                                        color = PrimaryNavy,
                                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
                                     )
                                 }
                                 Surface(
                                     shape = RoundedCornerShape(8.dp),
-                                    color = Color(0xFFEEF2F7)
+                                    color = NeutralBg
                                 ) {
                                     Text(
                                         text = adminProfile?.employeeId ?: "",
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF0B2240),
+                                        color = PrimaryDarkNavy,
                                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
                                     )
                                 }
@@ -162,7 +179,7 @@ fun AdminDashboardContent(
                     text = "QUICK ACTIONS",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = Color(0xFF0B2240),
+                    color = PrimaryDarkNavy,
                     modifier = Modifier.padding(vertical = 8.dp)
                 )
             }
@@ -173,7 +190,7 @@ fun AdminDashboardContent(
                     title = "Add New Inmate",
                     description = "Register a new inmate with biometric data",
                     icon = Icons.Default.PersonAdd,
-                    iconColor = Color(0xFF4CAF50),
+                    iconColor = SuccessGreen,
                     onClick = onAddPrisonerClick
                 )
             }
@@ -237,12 +254,12 @@ fun AdminDashboardContent(
             item {
                 Spacer(modifier = Modifier.height(16.dp))
                 OutlinedButton(
-                    onClick = onLogoutClick,
+                    onClick = { showLogoutConfirm = true },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(56.dp),
                     shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFD32F2F))
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = DangerRed)
                 ) {
                     Icon(Icons.Default.ExitToApp, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
@@ -250,6 +267,19 @@ fun AdminDashboardContent(
                 }
             }
         }
+    }
+
+    if (showLogoutConfirm) {
+        ConfirmDeleteDialog(
+            title = "Logout",
+            message = "Are you sure you want to logout?",
+            onConfirm = {
+                showLogoutConfirm = false
+                onLogoutClick()
+            },
+            onDismiss = { showLogoutConfirm = false },
+            confirmText = "Logout"
+        )
     }
 }
 
@@ -294,20 +324,20 @@ private fun AdminActionCard(
                     text = title,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color(0xFF0B2240)
+                    color = PrimaryDarkNavy
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = description,
                     fontSize = 14.sp,
-                    color = Color(0xFF687A8F)
+                    color = TextGray
                 )
             }
 
             Icon(
                 imageVector = Icons.Default.ChevronRight,
                 contentDescription = null,
-                tint = Color(0xFF687A8F)
+                tint = TextGray
             )
         }
     }

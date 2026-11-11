@@ -10,6 +10,7 @@ const { maskedPhone, contactPhone, buildLinkSms, buildCallLink, deviceRegistered
 const { reverseGeocode } = require('../lib/geocode');
 const { callInmateName, callContactName } = require('../lib/names');
 const { signAccessToken, hashSecret, verifySecret } = require('../lib/auth');
+const { createPgStore } = require('../lib/rateLimitStore');
 
 const router = express.Router();
 
@@ -32,6 +33,7 @@ const callTokenLimiter = rateLimit({
   windowMs: 60 * 60_000, limit: 90,
   standardHeaders: true, legacyHeaders: false, message: rateMessage,
   keyGenerator: tokenKey,
+  store: createPgStore(60 * 60_000),
 });
 // SMS costs money and is a harassment vector: 6 dispatches/hour per link is
 // far more than a real family ever needs (resend cooldown is on the client).
@@ -39,15 +41,18 @@ const otpSendTokenLimiter = rateLimit({
   windowMs: 60 * 60_000, limit: 6,
   standardHeaders: true, legacyHeaders: false, message: rateMessage,
   keyGenerator: tokenKey,
+  store: createPgStore(60 * 60_000),
 });
 const otpVerifyTokenLimiter = rateLimit({
   windowMs: 60_000, limit: 10,
   standardHeaders: true, legacyHeaders: false, message: rateMessage,
   keyGenerator: tokenKey,
+  store: createPgStore(60_000),
 });
 const otpSendIpLimiter = rateLimit({
   windowMs: 60 * 60_000, limit: 60,
   standardHeaders: true, legacyHeaders: false, message: rateMessage,
+  store: createPgStore(60 * 60_000),
 });
 
 // Wrong guesses before the code itself is burned. The counter already existed

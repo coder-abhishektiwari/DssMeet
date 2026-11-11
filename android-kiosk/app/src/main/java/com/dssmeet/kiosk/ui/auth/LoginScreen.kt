@@ -1,5 +1,15 @@
 package com.dssmeet.kiosk.ui.auth
 
+import com.dssmeet.kiosk.ui.theme.PrimaryNavy
+import com.dssmeet.kiosk.ui.theme.PrimaryDarkNavy
+import com.dssmeet.kiosk.ui.theme.PrimaryBlue
+import com.dssmeet.kiosk.ui.theme.ControlBtnBg
+import com.dssmeet.kiosk.ui.theme.DangerRed
+import com.dssmeet.kiosk.ui.theme.SuccessGreen
+
+
+import com.dssmeet.kiosk.ui.theme.TextGray
+
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -32,8 +42,11 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.dssmeet.kiosk.core.UiState
 import com.dssmeet.kiosk.hardware.FingerprintCaptureState
 import com.dssmeet.kiosk.hardware.RfidReaderState
+import com.dssmeet.kiosk.ui.components.KioskPasswordField
+import com.dssmeet.kiosk.ui.components.KioskTextField
 import com.dssmeet.kiosk.ui.components.KioskTopBar
 import com.dssmeet.kiosk.ui.theme.PrisonKioskTheme
+import androidx.compose.ui.text.input.ImeAction
 import kotlin.time.Duration.Companion.milliseconds
 
 @Composable
@@ -82,7 +95,7 @@ fun LoginScreen(
         Scaffold(
             topBar = { KioskTopBar(title = "PRISON KIOSK LOGIN") },
             snackbarHost = { SnackbarHost(snackbarHostState) },
-            containerColor = AppleGray
+            containerColor = ControlBtnBg
         ) { padding ->
             Box(
                 modifier = Modifier
@@ -133,7 +146,7 @@ fun LoginScreen(
                         onCancel = { viewModel.resetToSelection() }
                     )
                     LoginStage.ADMIN_PIN_ENTRY -> AdminPinEntryLayout(
-                        adminName = admin?.name ?: "Admin User",
+                        adminName = admin?.name ?: "Admin",
                         uiState = uiState,
                         onPinSubmit = { viewModel.onAdminPasswordSubmit(it) },
                         onCancel = { viewModel.resetToSelection() }
@@ -198,7 +211,7 @@ fun RfidScanningLayout(
             text = "RFID Card Authentication",
             fontSize = 26.sp,
             fontWeight = FontWeight.Bold,
-            color = PremiumNavy
+            color = PrimaryDarkNavy
         )
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -206,7 +219,7 @@ fun RfidScanningLayout(
         Text(
             text = "Tap your RFID card on the reader",
             fontSize = 17.sp,
-            color = Color.Gray,
+            color = TextGray,
             textAlign = TextAlign.Center
         )
 
@@ -227,31 +240,31 @@ fun RfidScanningLayout(
                         CircularProgressIndicator(
                             modifier = Modifier.size(24.dp),
                             strokeWidth = 2.dp,
-                            color = PremiumBlue
+                            color = PrimaryNavy
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
                             text = "Card detected — verifying…",
                             fontWeight = FontWeight.Medium,
                             textAlign = TextAlign.Center,
-                            color = PremiumNavy
+                            color = PrimaryDarkNavy
                         )
                     }
                     is RfidReaderState.Failed -> {
-                        Icon(Icons.Default.Warning, contentDescription = null, tint = ErrorRed, modifier = Modifier.size(28.dp))
+                        Icon(Icons.Default.Warning, contentDescription = null, tint = DangerRed, modifier = Modifier.size(28.dp))
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             text = state.message,
                             fontWeight = FontWeight.Medium,
                             textAlign = TextAlign.Center,
-                            color = ErrorRed,
+                            color = DangerRed,
                             fontSize = 14.sp
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = "Tap 'Enter card number instead' below.",
                             textAlign = TextAlign.Center,
-                            color = Color.Gray,
+                            color = TextGray,
                             fontSize = 13.sp
                         )
                     }
@@ -259,20 +272,20 @@ fun RfidScanningLayout(
                         CircularProgressIndicator(
                             modifier = Modifier.size(24.dp),
                             strokeWidth = 2.dp,
-                            color = PremiumBlue
+                            color = PrimaryNavy
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
                             text = "Hold your RFID card on the reader",
                             fontWeight = FontWeight.Medium,
                             textAlign = TextAlign.Center,
-                            color = PremiumNavy
+                            color = PrimaryDarkNavy
                         )
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
                             text = "The card number is entered automatically and login continues on its own.",
                             textAlign = TextAlign.Center,
-                            color = Color.Gray,
+                            color = TextGray,
                             fontSize = 13.sp
                         )
                     }
@@ -283,11 +296,11 @@ fun RfidScanningLayout(
         Spacer(modifier = Modifier.height(24.dp))
 
         TextButton(onClick = { manualDigits = ""; showManualDialog = true }) {
-            Text("Enter card number instead", color = PremiumBlue, fontWeight = FontWeight.Medium)
+            Text("Enter card number instead", color = PrimaryNavy, fontWeight = FontWeight.Medium)
         }
 
         TextButton(onClick = onCancel) {
-            Text("<- Back to Login Methods", color = AccentBlue, fontWeight = FontWeight.Bold)
+            Text("<- Back to Login Methods", color = PrimaryBlue, fontWeight = FontWeight.Bold)
         }
     }
 
@@ -304,7 +317,7 @@ fun RfidScanningLayout(
                     Text(
                         text = "Enter the 10-digit RFID card number.",
                         fontSize = 14.sp,
-                        color = Color(0xFF687A8F),
+                        color = TextGray,
                         textAlign = TextAlign.Center
                     )
                     RfidKeypadEntry(
@@ -344,27 +357,25 @@ fun AdminUsernameEntryLayout(
         Icon(
             imageVector = Icons.Default.AdminPanelSettings,
             contentDescription = null,
-            tint = PremiumBlue,
+            tint = PrimaryNavy,
             modifier = Modifier.size(80.dp)
         )
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        Text("Admin Login", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = PremiumNavy)
-        Text("Enter your username or Employee ID", fontSize = 20.sp, color = Color.Gray, modifier = Modifier.padding(top = 8.dp))
+        Text("Admin Login", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = PrimaryDarkNavy)
+        Text("Enter your username or Employee ID", fontSize = 20.sp, color = TextGray, modifier = Modifier.padding(top = 8.dp))
 
         Spacer(modifier = Modifier.height(48.dp))
 
-        OutlinedTextField(
+        KioskTextField(
             value = username,
             onValueChange = { username = it },
-            label = { Text("Username / Employee ID") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
-            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                keyboardType = androidx.compose.ui.text.input.KeyboardType.Text
-            )
+            label = "Username / Employee ID",
+            required = true,
+            placeholder = "e.g. empsa003",
+            leadingIcon = Icons.Default.Person,
+            imeAction = ImeAction.Next
         )
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -379,7 +390,7 @@ fun AdminUsernameEntryLayout(
                 .fillMaxWidth()
                 .height(56.dp),
             shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF003366), contentColor = Color.White),
+            colors = ButtonDefaults.buttonColors(containerColor = PrimaryNavy, contentColor = Color.White),
             enabled = username.isNotEmpty()
         ) {
             Text("Continue to Password", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
@@ -389,7 +400,7 @@ fun AdminUsernameEntryLayout(
 
         Spacer(modifier = Modifier.height(16.dp))
         TextButton(onClick = onCancel) {
-            Text("<- Back to Login Methods", color = AccentBlue, fontWeight = FontWeight.Bold)
+            Text("<- Back to Login Methods", color = PrimaryBlue, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -415,7 +426,7 @@ fun FingerprintScanningLayout(
         Icon(
             imageVector = Icons.Default.Fingerprint,
             contentDescription = null,
-            tint = if (captureState is FingerprintCaptureState.Captured) SuccessGreen else PremiumBlue,
+            tint = if (captureState is FingerprintCaptureState.Captured) SuccessGreen else PrimaryNavy,
             modifier = Modifier.size(88.dp)
         )
 
@@ -425,7 +436,7 @@ fun FingerprintScanningLayout(
             text = "Fingerprint Identification",
             fontSize = 26.sp,
             fontWeight = FontWeight.Bold,
-            color = PremiumNavy
+            color = PrimaryDarkNavy
         )
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -433,7 +444,7 @@ fun FingerprintScanningLayout(
         Text(
             text = "Place the finger on the USB fingerprint scanner",
             fontSize = 17.sp,
-            color = Color.Gray,
+            color = TextGray,
             textAlign = TextAlign.Center
         )
 
@@ -454,31 +465,31 @@ fun FingerprintScanningLayout(
                         CircularProgressIndicator(
                             modifier = Modifier.size(24.dp),
                             strokeWidth = 2.dp,
-                            color = PremiumBlue
+                            color = PrimaryNavy
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
                             text = "Fingerprint captured — verifying…",
                             fontWeight = FontWeight.Medium,
                             textAlign = TextAlign.Center,
-                            color = PremiumNavy
+                            color = PrimaryDarkNavy
                         )
                     }
                     is FingerprintCaptureState.Failed -> {
-                        Icon(Icons.Default.Warning, contentDescription = null, tint = ErrorRed, modifier = Modifier.size(28.dp))
+                        Icon(Icons.Default.Warning, contentDescription = null, tint = DangerRed, modifier = Modifier.size(28.dp))
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             text = capture.message,
                             fontWeight = FontWeight.Medium,
                             textAlign = TextAlign.Center,
-                            color = ErrorRed,
+                            color = DangerRed,
                             fontSize = 14.sp
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = "Enter the fingerprint ID below instead.",
                             textAlign = TextAlign.Center,
-                            color = Color.Gray,
+                            color = TextGray,
                             fontSize = 13.sp
                         )
                     }
@@ -487,44 +498,44 @@ fun FingerprintScanningLayout(
                             CircularProgressIndicator(
                                 modifier = Modifier.size(24.dp),
                                 strokeWidth = 2.dp,
-                                color = PremiumBlue
+                                color = PrimaryNavy
                             )
                             Spacer(modifier = Modifier.height(12.dp))
                             Text(
                                 text = "Fingerprint reader not detected",
                                 fontWeight = FontWeight.Medium,
                                 textAlign = TextAlign.Center,
-                                color = PremiumNavy
+                                color = PrimaryDarkNavy
                             )
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
                                 text = "Fingerprint scanner hardware is not detected by kiosk please contact the admin.",
                                 textAlign = TextAlign.Center,
-                                color = Color.Gray,
+                                color = TextGray,
                                 fontSize = 13.sp
                             )
                         } else {
                             val vid = String.format("%04X", device?.vendorId)
                             val pid = String.format("%04X", device?.productId)
 
-                            Icon(Icons.Default.Usb, contentDescription = null, tint = PremiumBlue)
+                            Icon(Icons.Default.Usb, contentDescription = null, tint = PrimaryNavy)
                             Spacer(modifier = Modifier.height(12.dp))
                             Text(
                                 text = "Scanner detected\nVID: $vid | PID: $pid",
                                 fontWeight = FontWeight.Bold,
                                 textAlign = TextAlign.Center,
-                                color = PremiumNavy
+                                color = PrimaryDarkNavy
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
                                 text = "Place the finger on the scanner now",
                                 fontWeight = FontWeight.Medium,
-                                color = PremiumBlue
+                                color = PrimaryNavy
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             LinearProgressIndicator(
                                 modifier = Modifier.fillMaxWidth(),
-                                color = PremiumBlue,
+                                color = PrimaryNavy,
                                 trackColor = Color.LightGray
                             )
 
@@ -532,7 +543,7 @@ fun FingerprintScanningLayout(
                                 Spacer(modifier = Modifier.height(16.dp))
                                 Button(
                                     onClick = { viewModel.requestUsbPermission() },
-                                    colors = ButtonDefaults.buttonColors(containerColor = PremiumBlue, contentColor = Color.White)
+                                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryNavy, contentColor = Color.White)
                                 ) {
                                     Text("Allow USB Access", color = Color.White)
                                 }
@@ -546,7 +557,7 @@ fun FingerprintScanningLayout(
         Spacer(modifier = Modifier.height(24.dp))
 
         TextButton(onClick = onCancel) {
-            Text("<- Back to Login Methods", color = AccentBlue, fontWeight = FontWeight.Bold)
+            Text("<- Back to Login Methods", color = PrimaryBlue, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -563,16 +574,19 @@ fun WelcomeSelectionLayout(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(24.dp),
+            .padding(horizontal = 24.dp, vertical = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Text(text = "Login Methods", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = PremiumNavy)
-        Text(text = "Choose a method to login", fontSize = 16.sp, color = Color.Gray, modifier = Modifier.padding(top = 8.dp))
+        Text(text = "Login Methods", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = PrimaryDarkNavy)
+        Text(text = "Choose a method to login", fontSize = 14.sp, color = TextGray, modifier = Modifier.padding(top = 6.dp))
 
-        Spacer(modifier = Modifier.height(60.dp))
+        Spacer(modifier = Modifier.height(28.dp))
 
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
             PremiumAuthCard(
                 title = "Fingerprint",
                 icon = Icons.Default.Fingerprint,
@@ -580,11 +594,6 @@ fun WelcomeSelectionLayout(
                 onClick = onFingerprintClick,
                 modifier = Modifier.weight(1f)
             )
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
             PremiumAuthCard(
                 title = "RFID Card",
                 icon = Icons.Default.CreditCard,
@@ -602,15 +611,15 @@ fun WelcomeSelectionLayout(
             // )
         }
 
-        Spacer(modifier = Modifier.height(48.dp))
+        Spacer(modifier = Modifier.height(28.dp))
 
         // Jail has no kiosk admin yet → this button becomes the bootstrap entry
-        // ("Create Login"); the moment one exists, it flips back to Admin Login.
+        // ("Create Admin"); the moment one exists, it flips back to Admin Login.
         if (needsBootstrap) {
             Text(
                 text = "No admin account exists for this jail yet",
                 fontSize = 13.sp,
-                color = Color.Gray,
+                color = TextGray,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.padding(bottom = 4.dp)
             )
@@ -619,13 +628,13 @@ fun WelcomeSelectionLayout(
         TextButton(
             onClick = if (needsBootstrap) onCreateLoginClick else onAdminClick,
             colors = ButtonDefaults.textButtonColors(
-                contentColor = if (needsBootstrap) PremiumBlue else Color.Gray
+                contentColor = if (needsBootstrap) PrimaryNavy else TextGray
             )
         ) {
             Icon(Icons.Default.AdminPanelSettings, contentDescription = null, modifier = Modifier.size(20.dp))
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = if (needsBootstrap) "Create Login" else "Admin Login",
+                text = if (needsBootstrap) "Create Admin" else "Admin Login",
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Medium
             )
@@ -651,20 +660,20 @@ fun PinEntryLayout(
         Icon(
             imageVector = Icons.Default.Lock,
             contentDescription = null,
-            tint = PremiumBlue,
+            tint = PrimaryNavy,
             modifier = Modifier.size(64.dp)
         )
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        Text("Welcome,", fontSize = 22.sp, color = Color.Gray)
-        Text(name, fontSize = 32.sp, fontWeight = FontWeight.Black, color = PremiumNavy)
-        Text("Enter your 6-digit PIN to confirm", fontSize = 18.sp, color = Color.Gray, modifier = Modifier.padding(top = 6.dp))
+        Text("Welcome,", fontSize = 22.sp, color = TextGray)
+        Text(name, fontSize = 32.sp, fontWeight = FontWeight.Black, color = PrimaryDarkNavy)
+        Text("Enter your 6-digit PIN to confirm", fontSize = 18.sp, color = TextGray, modifier = Modifier.padding(top = 6.dp))
 
         Spacer(modifier = Modifier.height(12.dp))
 
         TextButton(onClick = onCancel) {
-            Text("<- Back to Login Methods", color = AccentBlue, fontWeight = FontWeight.Bold)
+            Text("<- Back to Login Methods", color = PrimaryBlue, fontWeight = FontWeight.Bold)
         }
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -674,7 +683,7 @@ fun PinEntryLayout(
             shape = RoundedCornerShape(16.dp),
             modifier = Modifier
                 .fillMaxWidth()
-                .border(2.dp, PremiumBlue, RoundedCornerShape(16.dp))
+                .border(2.dp, PrimaryNavy, RoundedCornerShape(16.dp))
         ) {
             Row(
                 modifier = Modifier
@@ -687,8 +696,8 @@ fun PinEntryLayout(
                     val filled = pin.length > index
                     Box(
                         modifier = Modifier.size(18.dp).clip(CircleShape)
-                            .background(if (filled) PremiumNavy else Color.LightGray.copy(alpha = 0.5f))
-                            .border(1.dp, if (filled) PremiumNavy else Color.Gray, CircleShape)
+                            .background(if (filled) PrimaryDarkNavy else Color.LightGray.copy(alpha = 0.5f))
+                            .border(1.dp, if (filled) PrimaryDarkNavy else Color.Gray, CircleShape)
                     )
                 }
             }
@@ -720,32 +729,25 @@ fun AdminPinEntryLayout(
         Icon(
             imageVector = Icons.Default.AdminPanelSettings,
             contentDescription = null,
-            tint = PremiumBlue,
+            tint = PrimaryNavy,
             modifier = Modifier.size(80.dp)
         )
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        Text("Admin Access", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = PremiumNavy)
-        Text("Welcome, $adminName", fontSize = 20.sp, color = Color.Gray, modifier = Modifier.padding(top = 8.dp))
-        Text("Enter your password to continue", fontSize = 16.sp, color = Color.Gray, modifier = Modifier.padding(top = 16.dp))
+        Text("Admin Access", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = PrimaryDarkNavy)
+        Text("Welcome, $adminName", fontSize = 20.sp, color = TextGray, modifier = Modifier.padding(top = 8.dp))
+        Text("Enter your password to continue", fontSize = 16.sp, color = TextGray, modifier = Modifier.padding(top = 16.dp))
 
         Spacer(modifier = Modifier.height(48.dp))
 
-        OutlinedTextField(
+        KioskPasswordField(
             value = password,
             onValueChange = { password = it },
-            label = { Text("Password") },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp),
-            singleLine = true,
-            leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
-            visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
-            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                keyboardType = androidx.compose.ui.text.input.KeyboardType.Password
-            ),
-            isError = uiState is UiState.Error
+            label = "Password",
+            required = true,
+            errorText = if (uiState is UiState.Error) "Incorrect password" else null,
+            imeAction = ImeAction.Done
         )
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -760,7 +762,7 @@ fun AdminPinEntryLayout(
                 .fillMaxWidth()
                 .height(56.dp),
             shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF003366), contentColor = Color.White),
+            colors = ButtonDefaults.buttonColors(containerColor = PrimaryNavy, contentColor = Color.White),
             enabled = password.isNotEmpty()
         ) {
             Text("Login", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
@@ -770,7 +772,7 @@ fun AdminPinEntryLayout(
 
         Spacer(modifier = Modifier.height(16.dp))
         TextButton(onClick = onCancel) {
-            Text("<- Back to Login Methods", color = AccentBlue, fontWeight = FontWeight.Bold)
+            Text("<- Back to Login Methods", color = PrimaryBlue, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -831,84 +833,65 @@ fun AdminCreateLoginLayout(
         Icon(
             imageVector = Icons.Default.AdminPanelSettings,
             contentDescription = null,
-            tint = PremiumBlue,
+            tint = PrimaryNavy,
             modifier = Modifier.size(64.dp)
         )
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        Text("Create Admin Login", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = PremiumNavy)
+        Text("Create Admin Login", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = PrimaryDarkNavy)
         Text(
             "Set up the first admin account for this jail",
             fontSize = 16.sp,
-            color = Color.Gray,
+            color = TextGray,
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(top = 8.dp)
         )
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        OutlinedTextField(
+        KioskTextField(
             value = name,
             onValueChange = { name = it },
-            label = { Text("Full name") },
-            placeholder = { Text("e.g. Neha Gupta") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
-            isError = nameError != null,
-            supportingText = nameError?.let { { Text(it) } }
+            label = "Full name",
+            required = true,
+            placeholder = "e.g. Neha Gupta",
+            errorText = nameError,
+            leadingIcon = Icons.Default.Person,
+            imeAction = ImeAction.Next
         )
 
-        Spacer(modifier = Modifier.height(8.dp))
-
-        OutlinedTextField(
+        KioskTextField(
             value = employeeId,
             onValueChange = { employeeId = it },
-            label = { Text("Username (employee ID)") },
-            placeholder = { Text("e.g. empsa003") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            leadingIcon = { Icon(Icons.Default.Badge, contentDescription = null) },
-            isError = employeeIdError != null,
-            supportingText = {
-                Text(employeeIdError ?: "What the operator types on the kiosk to sign in.")
-            }
+            label = "Username (employee ID)",
+            required = true,
+            placeholder = "e.g. empsa003",
+            helperText = "What the operator types on the kiosk to sign in.",
+            errorText = employeeIdError,
+            leadingIcon = Icons.Default.Badge,
+            imeAction = ImeAction.Next
         )
 
-        Spacer(modifier = Modifier.height(8.dp))
-
-        OutlinedTextField(
+        KioskTextField(
             value = email,
             onValueChange = { email = it },
-            label = { Text("Email (optional)") },
-            placeholder = { Text("name@dssmeet.io") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
-            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                keyboardType = androidx.compose.ui.text.input.KeyboardType.Email
-            ),
-            isError = emailError != null,
-            supportingText = emailError?.let { { Text(it) } }
+            label = "Email (optional)",
+            placeholder = "name@dssmeet.io",
+            errorText = emailError,
+            leadingIcon = Icons.Default.Email,
+            keyboardType = androidx.compose.ui.text.input.KeyboardType.Email,
+            imeAction = ImeAction.Next
         )
 
-        Spacer(modifier = Modifier.height(8.dp))
-
-        OutlinedTextField(
+        KioskPasswordField(
             value = password,
             onValueChange = { password = it },
-            label = { Text("Password") },
-            placeholder = { Text("At least 6 characters") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
-            visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
-            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                keyboardType = androidx.compose.ui.text.input.KeyboardType.Password
-            ),
-            isError = passwordError != null,
-            supportingText = passwordError?.let { { Text(it) } }
+            label = "Password",
+            required = true,
+            placeholder = "At least 6 characters",
+            errorText = passwordError,
+            imeAction = ImeAction.Done
         )
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -922,7 +905,7 @@ fun AdminCreateLoginLayout(
                 .fillMaxWidth()
                 .height(56.dp),
             shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF003366), contentColor = Color.White),
+            colors = ButtonDefaults.buttonColors(containerColor = PrimaryNavy, contentColor = Color.White),
             enabled = uiState !is UiState.Loading
         ) {
             Text("Create & Sign In", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
@@ -932,7 +915,7 @@ fun AdminCreateLoginLayout(
 
         Spacer(modifier = Modifier.height(16.dp))
         TextButton(onClick = onCancel) {
-            Text("<- Back to Login Methods", color = AccentBlue, fontWeight = FontWeight.Bold)
+            Text("<- Back to Login Methods", color = PrimaryBlue, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -954,19 +937,19 @@ fun PrisonerIdEntryLayout(
         Icon(
             imageVector = Icons.Default.Badge,
             contentDescription = null,
-            tint = PremiumBlue,
+            tint = PrimaryNavy,
             modifier = Modifier.size(64.dp)
         )
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        Text("Prisoner Login", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = PremiumNavy)
-        Text("Enter your Prisoner ID", fontSize = 18.sp, color = Color.Gray, modifier = Modifier.padding(top = 6.dp))
+        Text("Prisoner Login", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = PrimaryDarkNavy)
+        Text("Enter your Prisoner ID", fontSize = 18.sp, color = TextGray, modifier = Modifier.padding(top = 6.dp))
 
         Spacer(modifier = Modifier.height(12.dp))
 
         TextButton(onClick = onCancel) {
-            Text("<- Back to Login Methods", color = AccentBlue, fontWeight = FontWeight.Bold)
+            Text("<- Back to Login Methods", color = PrimaryBlue, fontWeight = FontWeight.Bold)
         }
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -976,7 +959,7 @@ fun PrisonerIdEntryLayout(
             shape = RoundedCornerShape(16.dp),
             modifier = Modifier
                 .fillMaxWidth()
-                .border(2.dp, PremiumBlue, RoundedCornerShape(16.dp))
+                .border(2.dp, PrimaryNavy, RoundedCornerShape(16.dp))
         ) {
             Row(
                 modifier = Modifier
@@ -989,8 +972,8 @@ fun PrisonerIdEntryLayout(
                     val filled = prisonerId.length > index
                     Box(
                         modifier = Modifier.size(18.dp).clip(CircleShape)
-                            .background(if (filled) PremiumNavy else Color.LightGray.copy(alpha = 0.5f))
-                            .border(1.dp, if (filled) PremiumNavy else Color.Gray, CircleShape)
+                            .background(if (filled) PrimaryDarkNavy else Color.LightGray.copy(alpha = 0.5f))
+                            .border(1.dp, if (filled) PrimaryDarkNavy else Color.Gray, CircleShape)
                     )
                 }
             }
@@ -1121,7 +1104,7 @@ fun NoInternetScreen(onRetry: () -> Unit = {}) {
 @Composable
 fun PreviewLoginMobile() {
     PrisonKioskTheme {
-        Surface(color = AppleGray, modifier = Modifier.fillMaxSize()) {
+        Surface(color = ControlBtnBg, modifier = Modifier.fillMaxSize()) {
             PinEntryLayout(name = "RAHUL KUMAR", uiState = UiState.Idle, onPinSubmit = {}, onCancel = {})
         }
     }

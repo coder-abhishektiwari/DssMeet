@@ -1,5 +1,7 @@
 package com.dssmeet.kiosk.ui.components
 
+import com.dssmeet.kiosk.ui.theme.SuccessGreen
+
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -34,7 +36,7 @@ private val BAR_COLORS = listOf(
     Color(0xFFF44336), // bar 1 — red (weakest)
     Color(0xFFFF9800), // bar 2 — orange
     Color(0xFFFFC107), // bar 3 — amber
-    Color(0xFF4CAF50)  // bar 4 — green (full)
+    SuccessGreen  // bar 4 — green (full)
 )
 
 /**
@@ -193,7 +195,7 @@ fun KioskTopBar(
                         Text(
                             text = dateFormat.format(currentTime),
                             style = if (isCompact) {
-                                MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp)
+                                MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp)
                             } else {
                                 MaterialTheme.typography.labelMedium
                             },

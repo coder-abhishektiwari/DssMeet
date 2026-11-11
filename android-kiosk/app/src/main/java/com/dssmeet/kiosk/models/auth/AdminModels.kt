@@ -28,7 +28,7 @@ data class AdminVerifyPasswordRequest(
 /**
  * GET kiosk-admins/bootstrap-status — asked with the device credential only.
  * True while this kiosk's jail has no kiosk admin yet, i.e. the welcome
- * screen must offer "Create Login" instead of "Admin Login".
+ * screen must offer "Create Admin" instead of "Admin Login".
  */
 data class BootstrapStatusResponse(
     @SerializedName("needsBootstrap") val needsBootstrap: Boolean,

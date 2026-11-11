@@ -26,7 +26,7 @@ interface AuthDataSource {
     suspend fun adminIdentify(request: LoginRequest): ApiResponse<AdminProfile>
     suspend fun adminVerifyPassword(adminId: String, password: String, kioskId: String): ApiResponse<AuthToken>
 
-    // First-admin bootstrap (kiosk "Create Login") — device credential only
+    // First-admin bootstrap (kiosk "Create Admin") — device credential only
     suspend fun adminBootstrapStatus(): ApiResponse<BootstrapStatusResponse>
     suspend fun adminBootstrapCreate(request: AdminBootstrapCreateRequest): ApiResponse<AdminBootstrapResponse>
 

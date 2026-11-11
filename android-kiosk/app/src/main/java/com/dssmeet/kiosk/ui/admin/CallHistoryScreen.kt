@@ -1,5 +1,22 @@
 package com.dssmeet.kiosk.ui.admin
 
+import com.dssmeet.kiosk.ui.theme.PrimaryDarkNavy
+import com.dssmeet.kiosk.ui.theme.PrimaryNavy
+import com.dssmeet.kiosk.ui.theme.SuccessGreen
+
+import com.dssmeet.kiosk.ui.theme.AccentGreen
+import com.dssmeet.kiosk.ui.theme.InfoBg
+import com.dssmeet.kiosk.ui.theme.InfoText
+import com.dssmeet.kiosk.ui.theme.NeutralBg
+
+import com.dssmeet.kiosk.ui.theme.DangerRed
+import com.dssmeet.kiosk.ui.theme.GreenActiveBg
+import com.dssmeet.kiosk.ui.theme.LightBg
+import com.dssmeet.kiosk.ui.theme.MoneyRed
+import com.dssmeet.kiosk.ui.theme.MoneyRedBg
+
+import com.dssmeet.kiosk.ui.theme.TextGray
+
 import android.media.MediaPlayer
 import android.net.Uri
 import android.widget.VideoView
@@ -31,6 +48,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.dssmeet.kiosk.models.call.CallHistory
 import com.dssmeet.kiosk.models.call.CallType
 import com.dssmeet.kiosk.models.call.FamilyLocation
+import com.dssmeet.kiosk.ui.components.KioskTextField
 import com.dssmeet.kiosk.ui.components.KioskTopBar
 import com.dssmeet.kiosk.ui.components.LocationMapDialog
 import java.time.Instant
@@ -116,7 +134,7 @@ fun CallHistoryContent(
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
-        containerColor = Color(0xFFF5F7FA)
+        containerColor = LightBg
     ) { paddingValues ->
         LazyColumn(
             modifier = Modifier
@@ -137,21 +155,20 @@ fun CallHistoryContent(
                         modifier = Modifier.padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        OutlinedTextField(
+                        KioskTextField(
                             value = state.search,
                             onValueChange = onSearchChange,
-                            modifier = Modifier.fillMaxWidth(),
-                            placeholder = { Text("Search inmate or family member") },
-                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                            label = "Search",
+                            placeholder = "Search inmate or family member",
+                            leadingIcon = Icons.Default.Search,
+                            imeAction = androidx.compose.ui.text.input.ImeAction.Search,
                             trailingIcon = {
                                 if (state.search.isNotEmpty()) {
                                     IconButton(onClick = { onSearchChange("") }) {
                                         Icon(Icons.Default.Close, contentDescription = "Clear search")
                                     }
                                 }
-                            },
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp)
+                            }
                         )
 
                         Row(
@@ -208,7 +225,7 @@ fun CallHistoryContent(
                         "$recordedCount recording${if (recordedCount == 1) "" else "s"} on this kiosk"
                     },
                     fontSize = 13.sp,
-                    color = Color(0xFF687A8F),
+                    color = TextGray,
                     modifier = Modifier.padding(horizontal = 4.dp)
                 )
             }
@@ -219,14 +236,14 @@ fun CallHistoryContent(
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFFFFEBEE))
+                        colors = CardDefaults.cardColors(containerColor = MoneyRedBg)
                     ) {
                         Row(
                             modifier = Modifier.padding(16.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            Icon(Icons.Default.Error, contentDescription = null, tint = Color(0xFFD32F2F))
+                            Icon(Icons.Default.Error, contentDescription = null, tint = DangerRed)
                             Text(
                                 text = state.error,
                                 fontSize = 14.sp,
@@ -255,7 +272,7 @@ fun CallHistoryContent(
                     ) {
                         CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
                         Spacer(Modifier.width(12.dp))
-                        Text("Loading calls…", fontSize = 14.sp, color = Color(0xFF687A8F))
+                        Text("Loading calls…", fontSize = 14.sp, color = TextGray)
                     }
                 }
             }
@@ -279,7 +296,7 @@ fun CallHistoryContent(
                         Text(
                             text = if (state.recordedOnly) "No recordings match these filters" else "No calls match these filters",
                             fontSize = 15.sp,
-                            color = Color(0xFF687A8F),
+                            color = TextGray,
                             textAlign = TextAlign.Center
                         )
                     }
@@ -341,7 +358,7 @@ private fun CallHistoryCard(
             ) {
                 Surface(
                     shape = CircleShape,
-                    color = if (call.type == CallType.AUDIO) Color(0xFF8E24AA) else Color(0xFF003366),
+                    color = if (call.type == CallType.AUDIO) Color(0xFF8E24AA) else PrimaryNavy,
                     modifier = Modifier.size(40.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
@@ -359,14 +376,14 @@ private fun CallHistoryCard(
                         text = "${call.inmateName ?: "Inmate"}  →  ${call.contactName ?: "Family"}",
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF0B2240),
+                        color = PrimaryDarkNavy,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = formatTime(call.startTime),
                         fontSize = 12.sp,
-                        color = Color(0xFF687A8F),
+                        color = TextGray,
                         maxLines = 1
                     )
                 }
@@ -393,13 +410,13 @@ private fun CallHistoryCard(
                     Icon(
                         imageVector = Icons.Default.LocationOn,
                         contentDescription = null,
-                        tint = Color(0xFF1565C0),
+                        tint = InfoText,
                         modifier = Modifier.size(14.dp)
                     )
                     Text(
                         text = loc.displayLabel,
                         fontSize = 12.sp,
-                        color = Color(0xFF687A8F),
+                        color = TextGray,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
@@ -408,7 +425,7 @@ private fun CallHistoryCard(
                         Icon(
                             imageVector = Icons.Default.Map,
                             contentDescription = "Show on map",
-                            tint = Color(0xFF1565C0),
+                            tint = InfoText,
                             modifier = Modifier.size(16.dp)
                         )
                     }
@@ -423,7 +440,7 @@ private fun CallHistoryCard(
                     text = "${call.type?.name?.lowercase()?.replaceFirstChar { it.uppercase() } ?: "Call"}" +
                         (call.durationMinutes?.let { "  ·  ${it} min" } ?: ""),
                     fontSize = 13.sp,
-                    color = Color(0xFF687A8F),
+                    color = TextGray,
                     modifier = Modifier.weight(1f)
                 )
                 if (hasRecording && isPreparing) {
@@ -432,8 +449,8 @@ private fun CallHistoryCard(
                         enabled = false,
                         shape = RoundedCornerShape(10.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF2E7D32),
-                            disabledContainerColor = Color(0xFF2E7D32)
+                            containerColor = AccentGreen,
+                            disabledContainerColor = AccentGreen
                         ),
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
                     ) {
@@ -447,7 +464,7 @@ private fun CallHistoryCard(
                     Button(
                         onClick = onPlay,
                         shape = RoundedCornerShape(10.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
+                        colors = ButtonDefaults.buttonColors(containerColor = AccentGreen),
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
                     ) {
                         Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -471,7 +488,7 @@ private fun CallHistoryCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(6.dp),
-                    color = Color(0xFF2E7D32),
+                    color = AccentGreen,
                     trackColor = Color(0xFFE3E8EC)
                 )
             }
@@ -482,20 +499,20 @@ private fun CallHistoryCard(
 @Composable
 private fun StatusChip(status: String?) {
     val (bg, fg, label) = when (status?.lowercase()) {
-        "completed" -> Triple(Color(0xFFE8F5E9), Color(0xFF2E7D32), "Completed")
-        "active" -> Triple(Color(0xFFE3F2FD), Color(0xFF1565C0), "Active")
+        "completed" -> Triple(GreenActiveBg, AccentGreen, "Completed")
+        "active" -> Triple(InfoBg, InfoText, "Active")
         "failed", "missed", "rejected", "cancelled" ->
-            Triple(Color(0xFFFFEBEE), Color(0xFFC62828), status.replaceFirstChar { it.uppercase() })
+            Triple(MoneyRedBg, MoneyRed, status.replaceFirstChar { it.uppercase() })
         else -> Triple(
-            Color(0xFFEEF2F7),
-            Color(0xFF687A8F),
+            NeutralBg,
+            TextGray,
             status?.replaceFirstChar { it.uppercase() } ?: "Unknown"
         )
     }
     Surface(shape = RoundedCornerShape(8.dp), color = bg) {
         Text(
             text = label,
-            fontSize = 11.sp,
+            fontSize = 12.sp,
             fontWeight = FontWeight.Bold,
             color = fg,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
@@ -598,7 +615,7 @@ private fun RecordingPlaybackDialog(
                         .padding(horizontal = 16.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.PlayCircle, contentDescription = null, tint = Color(0xFF4CAF50))
+                    Icon(Icons.Default.PlayCircle, contentDescription = null, tint = SuccessGreen)
                     Spacer(Modifier.width(10.dp))
                     Text(
                         text = title,
@@ -748,7 +765,7 @@ private fun RecordingPlaybackDialog(
                     Text(
                         text = formatMs(pos),
                         color = Color(0xFFB0BEC5),
-                        fontSize = 11.sp,
+                        fontSize = 12.sp,
                         modifier = Modifier.widthIn(min = 46.dp)
                     )
                     // YouTube-style: a light-gray line rides the real seek
@@ -773,8 +790,8 @@ private fun RecordingPlaybackDialog(
                             valueRange = 0f..(if (dur > 0) dur else 1L).toFloat(),
                             modifier = Modifier.fillMaxWidth(),
                             colors = SliderDefaults.colors(
-                                thumbColor = Color(0xFF4CAF50),
-                                activeTrackColor = Color(0xFF4CAF50),
+                                thumbColor = SuccessGreen,
+                                activeTrackColor = SuccessGreen,
                                 inactiveTrackColor = Color(0xFF3A3A3A),
                                 disabledThumbColor = Color.Transparent,
                                 disabledActiveTrackColor = Color(0xFF3A3A3A),
@@ -805,7 +822,7 @@ private fun RecordingPlaybackDialog(
                     Text(
                         text = formatMs(dur),
                         color = Color(0xFFB0BEC5),
-                        fontSize = 11.sp,
+                        fontSize = 12.sp,
                         textAlign = TextAlign.End,
                         modifier = Modifier.widthIn(min = 46.dp)
                     )

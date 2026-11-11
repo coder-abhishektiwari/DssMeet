@@ -1,5 +1,12 @@
 package com.dssmeet.kiosk.ui.admin
 
+import com.dssmeet.kiosk.ui.theme.PrimaryDarkNavy
+
+import com.dssmeet.kiosk.ui.theme.DangerRed
+import com.dssmeet.kiosk.ui.theme.LightBg
+
+import com.dssmeet.kiosk.ui.theme.TextGray
+
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -23,8 +30,12 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.dssmeet.kiosk.models.admin.KioskAdmin
 import com.dssmeet.kiosk.ui.components.KioskLoadingState
+import com.dssmeet.kiosk.ui.components.KioskPasswordField
+import com.dssmeet.kiosk.ui.components.KioskTextField
 import com.dssmeet.kiosk.ui.components.KioskTopBar
 import com.dssmeet.kiosk.ui.theme.PrimaryNavy
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 
 private val EMPLOYEE_ID_PATTERN = Regex("^[A-Za-z0-9._-]{3,40}$")
 private val EMAIL_PATTERN = Regex("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$")
@@ -102,7 +113,7 @@ fun KioskAdminsContent(
         snackbarHost = {
             snackbarMessage?.let { message -> Snackbar { Text(message) } }
         },
-        containerColor = Color(0xFFF5F7FA)
+        containerColor = LightBg
     ) { paddingValues ->
         Box(
             modifier = Modifier
@@ -121,7 +132,7 @@ fun KioskAdminsContent(
                     ) {
                         Text(
                             text = state.error,
-                            color = Color(0xFFD32F2F),
+                            color = DangerRed,
                             fontSize = 14.sp
                         )
                         OutlinedButton(onClick = onRetry) { Text("Retry") }
@@ -139,10 +150,10 @@ fun KioskAdminsContent(
                             tint = Color.LightGray
                         )
                         Spacer(modifier = Modifier.height(16.dp))
-                        Text("No kiosk admins yet", color = Color.Gray)
+                        Text("No kiosk admins yet", color = TextGray)
                         Text(
                             text = "Tap + to add one",
-                            color = Color.Gray,
+                            color = TextGray,
                             fontSize = 13.sp
                         )
                     }
@@ -222,14 +233,14 @@ private fun KioskAdminRow(
         ) {
             Surface(
                 shape = CircleShape,
-                color = Color(0xFF003366).copy(alpha = 0.1f),
+                color = PrimaryNavy.copy(alpha = 0.1f),
                 modifier = Modifier.size(48.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         imageVector = Icons.Default.Person,
                         contentDescription = null,
-                        tint = Color(0xFF003366)
+                        tint = PrimaryNavy
                     )
                 }
             }
@@ -239,16 +250,16 @@ private fun KioskAdminRow(
                     text = admin.name,
                     fontWeight = FontWeight.Bold,
                     fontSize = 16.sp,
-                    color = Color(0xFF0B2240)
+                    color = PrimaryDarkNavy
                 )
                 Text(
                     text = admin.employeeId ?: "-",
-                    color = Color(0xFF003366),
+                    color = PrimaryNavy,
                     fontSize = 13.sp
                 )
                 Text(
                     text = admin.email ?: "-",
-                    color = Color(0xFF687A8F),
+                    color = TextGray,
                     fontSize = 13.sp
                 )
             }
@@ -281,134 +292,107 @@ private fun KioskAdminDialog(
     var employeeId by remember(initial?.adminId) { mutableStateOf(initial?.employeeId ?: "") }
     var email by remember(initial?.adminId) { mutableStateOf(initial?.email ?: "") }
     var password by remember { mutableStateOf("") }
+    var submitted by remember { mutableStateOf(false) }
 
-    var nameError by remember { mutableStateOf<String?>(null) }
-    var employeeIdError by remember { mutableStateOf<String?>(null) }
-    var emailError by remember { mutableStateOf<String?>(null) }
-    var passwordError by remember { mutableStateOf<String?>(null) }
+    val trimmedName = name.trim()
+    val trimmedUsername = employeeId.trim()
+    val trimmedEmail = email.trim()
+
+    val nameError = when {
+        submitted && trimmedName.isEmpty() -> "Name is required"
+        else -> null
+    }
+    val employeeIdError = when {
+        submitted && trimmedUsername.isEmpty() -> "Username is required"
+        submitted && !EMPLOYEE_ID_PATTERN.matches(trimmedUsername) ->
+            "3-40 characters: letters, digits, dot, dash or underscore"
+        trimmedUsername.isNotEmpty() && !EMPLOYEE_ID_PATTERN.matches(trimmedUsername) ->
+            "3-40 characters: letters, digits, dot, dash or underscore"
+        else -> null
+    }
+    val emailError = when {
+        trimmedEmail.isNotEmpty() && !EMAIL_PATTERN.matches(trimmedEmail) -> "Enter a valid email"
+        else -> null
+    }
+    val passwordError = when {
+        !isAdd -> null
+        submitted && password.isEmpty() -> "Password is required"
+        password.isNotEmpty() && password.length < 6 -> "At least 6 characters"
+        else -> null
+    }
+    val isValid = trimmedName.isNotEmpty() &&
+        EMPLOYEE_ID_PATTERN.matches(trimmedUsername) &&
+        (trimmedEmail.isEmpty() || EMAIL_PATTERN.matches(trimmedEmail)) &&
+        (!isAdd || password.length >= 6)
 
     AlertDialog(
         onDismissRequest = { if (!saving) onDismiss() },
         title = { Text(title, fontWeight = FontWeight.Bold) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                KioskTextField(
                     value = name,
-                    onValueChange = {
-                        name = it
-                        nameError = null
-                    },
-                    label = { Text("Full name *") },
-                    placeholder = { Text("e.g. Neha Gupta") },
-                    isError = nameError != null,
+                    onValueChange = { name = it },
+                    label = "Full name",
+                    required = true,
+                    placeholder = "e.g. Neha Gupta",
+                    errorText = nameError,
                     enabled = !saving,
-                    singleLine = true
+                    imeAction = ImeAction.Next
                 )
-                nameError?.let { Text(it, color = Color(0xFFD32F2F), fontSize = 12.sp) }
 
-                OutlinedTextField(
+                KioskTextField(
                     value = employeeId,
-                    onValueChange = {
-                        employeeId = it
-                        employeeIdError = null
-                    },
-                    label = { Text("Username (employee ID) *") },
-                    placeholder = { Text("e.g. empsa003") },
-                    isError = employeeIdError != null,
+                    onValueChange = { employeeId = it },
+                    label = "Username (employee ID)",
+                    required = true,
+                    placeholder = "e.g. empsa003",
+                    helperText = "What the operator types on the kiosk to sign in.",
+                    errorText = employeeIdError,
                     enabled = !saving,
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Ascii,
-                        imeAction = ImeAction.Next
-                    )
+                    imeAction = if (isAdd) ImeAction.Next else ImeAction.Done
                 )
-                employeeIdError?.let { Text(it, color = Color(0xFFD32F2F), fontSize = 12.sp) }
-                if (employeeIdError == null) {
-                    Text(
-                        text = "What the operator types on the kiosk to sign in.",
-                        color = Color(0xFF687A8F),
-                        fontSize = 12.sp
-                    )
-                }
 
-                OutlinedTextField(
+                KioskTextField(
                     value = email,
-                    onValueChange = {
-                        email = it
-                        emailError = null
-                    },
-                    label = { Text("Email (optional)") },
-                    placeholder = { Text("name@dssmeet.io") },
-                    isError = emailError != null,
+                    onValueChange = { email = it },
+                    label = "Email (optional)",
+                    placeholder = "name@dssmeet.io",
+                    errorText = emailError,
                     enabled = !saving,
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Email,
-                        imeAction = if (isAdd) ImeAction.Next else ImeAction.Done
-                    )
+                    keyboardType = KeyboardType.Email,
+                    imeAction = if (isAdd) ImeAction.Next else ImeAction.Done
                 )
-                emailError?.let { Text(it, color = Color(0xFFD32F2F), fontSize = 12.sp) }
 
                 if (isAdd) {
-                    OutlinedTextField(
+                    KioskPasswordField(
                         value = password,
-                        onValueChange = {
-                            password = it
-                            passwordError = null
-                        },
-                        label = { Text("Password *") },
-                        placeholder = { Text("At least 6 characters") },
-                        isError = passwordError != null,
+                        onValueChange = { password = it },
+                        label = "Password",
+                        required = true,
+                        placeholder = "At least 6 characters",
+                        helperText = "Signs in on any kiosk of this prison with username and password.",
+                        errorText = passwordError,
                         enabled = !saving,
-                        singleLine = true,
-                        visualTransformation = PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(
-                            keyboardType = KeyboardType.Password,
-                            imeAction = ImeAction.Done
-                        )
-                    )
-                    passwordError?.let { Text(it, color = Color(0xFFD32F2F), fontSize = 12.sp) }
-                    Text(
-                        text = "Signs in on any kiosk of this prison with username and password.",
-                        color = Color(0xFF687A8F),
-                        fontSize = 12.sp
+                        imeAction = ImeAction.Done
                     )
                 }
 
                 serverError?.let {
-                    Text(it, color = Color(0xFFD32F2F), fontSize = 13.sp)
+                    Text(it, color = DangerRed, fontSize = 13.sp)
                 }
             }
         },
         confirmButton = {
             TextButton(
                 onClick = {
-                    val trimmedName = name.trim()
-                    val trimmedUsername = employeeId.trim()
-                    val trimmedEmail = email.trim()
-
-                    nameError = if (trimmedName.isEmpty()) "Name is required" else null
-                    employeeIdError = when {
-                        trimmedUsername.isEmpty() -> "Username is required"
-                        !EMPLOYEE_ID_PATTERN.matches(trimmedUsername) ->
-                            "3-40 characters: letters, digits, dot, dash or underscore"
-                        else -> null
-                    }
-                    emailError = when {
-                        trimmedEmail.isEmpty() -> null
-                        !EMAIL_PATTERN.matches(trimmedEmail) -> "Enter a valid email"
-                        else -> null
-                    }
-                    passwordError = when {
-                        !isAdd -> null
-                        password.isEmpty() -> "Password is required"
-                        password.length < 6 -> "At least 6 characters"
-                        else -> null
-                    }
-
-                    if (nameError == null && employeeIdError == null &&
-                        emailError == null && passwordError == null
-                    ) {
+                    submitted = true
+                    if (isValid) {
                         onConfirm(
                             trimmedName,
                             trimmedUsername,
@@ -426,7 +410,7 @@ private fun KioskAdminDialog(
                         color = PrimaryNavy
                     )
                 } else {
-                    Text(if (isAdd) "Add Kiosk Admin" else "Save Changes")
+                    Text(if (isAdd) "Add Kiosk Admin" else "Save Changes", color = PrimaryNavy)
                 }
             }
         },

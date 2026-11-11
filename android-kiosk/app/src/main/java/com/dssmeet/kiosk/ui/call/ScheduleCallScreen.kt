@@ -3,8 +3,10 @@ package com.dssmeet.kiosk.ui.call
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -182,12 +184,12 @@ private fun StepIndicator(currentStep: ScheduleStep) {
                         if (isActive && !isCurrent) {
                             Icon(Icons.Default.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
                         } else {
-                            Text("${index + 1}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = if (isActive) Color.White else Color.Gray)
+                            Text("${index + 1}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = if (isActive) Color.White else TextGray)
                         }
                     }
                 }
                 Spacer(modifier = Modifier.height(4.dp))
-                Text(label, fontSize = 11.sp, fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal, color = if (isActive) PrimaryNavy else TextGray)
+                Text(label, fontSize = 12.sp, fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal, color = if (isActive) PrimaryNavy else TextGray)
             }
             if (index < steps.lastIndex) {
                 Surface(
@@ -205,7 +207,9 @@ private fun DateStep(selectedDate: LocalDate, onDateSelected: (LocalDate) -> Uni
     var viewMonth by remember { mutableStateOf(YearMonth.from(selectedDate)) }
 
     Column(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -314,7 +318,7 @@ private fun DateStep(selectedDate: LocalDate, onDateSelected: (LocalDate) -> Uni
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    val quickDates = listOf(today to "Today", today.plusDays(1) to "Tmrw", today.plusDays(2) to today.plusDays(2).format(DateTimeFormatter.ofPattern("EEE")))
+                    val quickDates = listOf(today to "Today", today.plusDays(1) to "Tomorrow", today.plusDays(2) to today.plusDays(2).format(DateTimeFormatter.ofPattern("EEE")))
                     quickDates.forEach { (date, label) ->
                         val isSelected = selectedDate == date
                         Surface(
@@ -344,7 +348,9 @@ private fun TimeStep(
     onConfirmTime: () -> Unit
 ) {
     Column(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -419,9 +425,9 @@ private fun ConfirmStep(
                     }
                     is UiState.Success -> {
                         // BOOKED
-                        Surface(modifier = Modifier.size(80.dp), shape = CircleShape, color = Color(0xFFE8F5E9)) {
+                        Surface(modifier = Modifier.size(80.dp), shape = CircleShape, color = GreenActiveBg) {
                             Box(contentAlignment = Alignment.Center) {
-                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF2E7D32), modifier = Modifier.size(50.dp))
+                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = AccentGreen, modifier = Modifier.size(50.dp))
                             }
                         }
                         Spacer(modifier = Modifier.height(20.dp))
@@ -587,7 +593,7 @@ fun ScheduleDetailDialog(
                         text = status.replaceFirstChar { it.uppercase() },
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
-                        color = if (status.equals("booked", true)) AccentGreen else Color.Gray,
+                        color = if (status.equals("booked", true)) AccentGreen else TextGray,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
                     )
                 }
@@ -616,7 +622,7 @@ fun ScheduleDetailDialog(
                         text = msg,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium,
-                        color = Color(0xFFC62828),
+                        color = MoneyRed,
                         modifier = Modifier.fillMaxWidth()
                     )
                 }

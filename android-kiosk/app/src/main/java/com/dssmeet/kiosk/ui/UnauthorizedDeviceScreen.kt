@@ -49,7 +49,7 @@ fun UnauthorizedDeviceScreen() {
             Spacer(modifier = Modifier.height(32.dp))
 
             Text(
-                text = "THIS DEVICE IS NOT AUTHORISED",
+                text = "THIS DEVICE IS NOT AUTHORIZED",
                 color = Red,
                 fontSize = 28.sp,
                 fontWeight = FontWeight.Bold,
@@ -60,7 +60,14 @@ fun UnauthorizedDeviceScreen() {
             Spacer(modifier = Modifier.height(24.dp))
 
             Text(
-                text = "This kiosk is not registered or authorised\nto access the DssMeet system.",
+                text = run {
+                    val reason = com.dssmeet.kiosk.core.DeviceIntegrity.blockReason
+                    if (reason != null) {
+                        "DEVICE SECURITY CHECK FAILED\n\nThis device appears to be rooted or\ncompromised and cannot run the\nDssMeet kiosk."
+                    } else {
+                        "This kiosk is not registered or authorized\nto access the DssMeet system."
+                    }
+                },
                 color = White,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Medium,

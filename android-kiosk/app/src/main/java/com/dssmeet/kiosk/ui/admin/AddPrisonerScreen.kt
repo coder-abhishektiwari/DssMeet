@@ -1,5 +1,18 @@
 package com.dssmeet.kiosk.ui.admin
 
+import com.dssmeet.kiosk.ui.theme.BorderColor
+import com.dssmeet.kiosk.ui.theme.PrimaryDarkNavy
+import com.dssmeet.kiosk.ui.theme.PrimaryNavy
+import com.dssmeet.kiosk.ui.theme.SuccessGreen
+
+import com.dssmeet.kiosk.ui.theme.InfoBg
+
+import com.dssmeet.kiosk.ui.theme.DangerRed
+import com.dssmeet.kiosk.ui.theme.LightBg
+import com.dssmeet.kiosk.ui.theme.MoneyRedBg
+
+import com.dssmeet.kiosk.ui.theme.TextGray
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -29,7 +42,10 @@ import com.dssmeet.kiosk.models.admin.PrisonerFormValues
 import com.dssmeet.kiosk.ui.auth.HiddenRfidTapInput
 import com.dssmeet.kiosk.ui.auth.RfidKeypadEntry
 import com.dssmeet.kiosk.ui.auth.RfidTapAnimation
+import com.dssmeet.kiosk.ui.components.KioskPasswordField
+import com.dssmeet.kiosk.ui.components.KioskPhoneField
 import com.dssmeet.kiosk.ui.components.KioskSelectField
+import com.dssmeet.kiosk.ui.components.KioskTextField
 import com.dssmeet.kiosk.ui.components.KioskTopBar
 import com.dssmeet.kiosk.ui.theme.PrisonKioskTheme
 
@@ -137,7 +153,7 @@ fun AddPrisonerContent(
                 onBackClick = onBackClick
             )
         },
-        containerColor = Color(0xFFF5F7FA)
+        containerColor = LightBg
     ) { paddingValues ->
         Column(
             modifier = Modifier
@@ -160,7 +176,7 @@ fun AddPrisonerContent(
                         .fillMaxWidth()
                         .height(56.dp),
                     shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50))
+                    colors = ButtonDefaults.buttonColors(containerColor = SuccessGreen)
                 ) {
                     Icon(Icons.Default.Check, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
@@ -188,7 +204,8 @@ fun AddPrisonerContent(
         onDraftNameChange = { familyDraftName = it; formError = "" },
         onDraftRelationshipChange = { familyDraftRelation = it },
         onDraftMobileChange = { mobile ->
-            familyDraftMobile = mobile.filter { it.isDigit() }.take(10)
+            // Keep only the national digits; KioskPhoneField re-prefixes +91.
+            familyDraftMobile = mobile.filter { it.isDigit() }.takeLast(10)
             formError = ""
         },
         onAddMember = {
@@ -263,8 +280,12 @@ fun AddPrisonerContent(
                             onClick = {
                                 if (step == ADD_STEP_TITLES.lastIndex) {
                                     val personalError = formState.validatePersonal()
+                                    val identityError = formState.validateIdentity()
+                                    val addressError = formState.validateAddress()
                                     formError = when {
                                         personalError.isNotEmpty() -> personalError
+                                        identityError.isNotEmpty() -> identityError
+                                        addressError.isNotEmpty() -> addressError
                                         pin.length != 6 -> "PIN must be exactly 6 digits"
                                         pin != confirmPin -> "PINs do not match"
                                         else -> ""
@@ -279,9 +300,9 @@ fun AddPrisonerContent(
                                         )
                                     }
                                 } else {
-                                    val personalError = formState.validatePersonal()
-                                    if (step == 0 && personalError.isNotEmpty()) {
-                                        formError = personalError
+                                    val stepError = formState.validateStep(step)
+                                    if (stepError.isNotEmpty()) {
+                                        formError = stepError
                                     } else {
                                         formError = ""
                                         step += 1
@@ -292,7 +313,7 @@ fun AddPrisonerContent(
                                 .weight(if (step > 0) 1f else 2f)
                                 .height(56.dp),
                             shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF003366)),
+                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryNavy),
                             enabled = !loading
                         ) {
                             if (loading) {
@@ -376,7 +397,7 @@ fun AddPrisonerContent(
 internal fun ErrorCard(message: String) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFFFFEBEE)),
+        colors = CardDefaults.cardColors(containerColor = MoneyRedBg),
         shape = RoundedCornerShape(12.dp)
     ) {
         Row(
@@ -386,13 +407,13 @@ internal fun ErrorCard(message: String) {
             Icon(
                 imageVector = Icons.Default.Error,
                 contentDescription = null,
-                tint = Color(0xFFD32F2F),
+                tint = DangerRed,
                 modifier = Modifier.size(24.dp)
             )
             Spacer(modifier = Modifier.width(12.dp))
             Text(
                 text = message,
-                color = Color(0xFFD32F2F),
+                color = DangerRed,
                 fontSize = 14.sp
             )
         }
@@ -426,63 +447,48 @@ private fun BiometricDataStep(
                 text = "Security Setup",
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color(0xFF0B2240)
+                color = PrimaryDarkNavy
             )
 
             Text(
                 text = "Set up a 6-digit PIN for the inmate. This PIN will be required for authentication.",
                 fontSize = 14.sp,
-                color = Color(0xFF687A8F)
+                color = TextGray
             )
 
-            OutlinedTextField(
+            KioskPasswordField(
                 value = pin,
                 onValueChange = {
                     if (it.length <= 6 && it.all { char -> char.isDigit() }) {
                         onPinChange(it)
                     }
                 },
-                label = { Text("6-Digit PIN *") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
-                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                    keyboardType = androidx.compose.ui.text.input.KeyboardType.NumberPassword
-                )
+                label = "6-Digit PIN",
+                required = true,
+                helperText = "Exactly 6 digits",
+                errorText = when {
+                    pin.isNotEmpty() && confirmPin.isNotEmpty() && pin != confirmPin ->
+                        "PINs do not match"
+                    pin.isNotEmpty() && pin.length != 6 -> "PIN must be exactly 6 digits"
+                    else -> null
+                },
+                imeAction = androidx.compose.ui.text.input.ImeAction.Next
             )
 
-            OutlinedTextField(
+            KioskPasswordField(
                 value = confirmPin,
                 onValueChange = {
                     if (it.length <= 6 && it.all { char -> char.isDigit() }) {
                         onConfirmPinChange(it)
                     }
                 },
-                label = { Text("Confirm PIN *") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
-                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                    keyboardType = androidx.compose.ui.text.input.KeyboardType.NumberPassword
-                ),
-                isError = pin.isNotEmpty() && confirmPin.isNotEmpty() && pin != confirmPin
+                label = "Confirm PIN",
+                required = true,
+                helperText = "Re-enter the same 6 digits",
+                errorText = if (pin.isNotEmpty() && confirmPin.isNotEmpty() && pin != confirmPin)
+                    "PINs do not match" else null,
+                imeAction = androidx.compose.ui.text.input.ImeAction.Done
             )
-
-            if (pin.isNotEmpty() && confirmPin.isNotEmpty() && pin != confirmPin) {
-                Text(
-                    text = "PINs do not match",
-                    color = Color(0xFFD32F2F),
-                    fontSize = 12.sp,
-                    modifier = Modifier.padding(start = 16.dp)
-                )
-            } else if (pin.isNotEmpty() && pin.length != 6) {
-                Text(
-                    text = "PIN must be exactly 6 digits",
-                    color = Color(0xFFD32F2F),
-                    fontSize = 12.sp,
-                    modifier = Modifier.padding(start = 16.dp)
-                )
-            }
 
             Spacer(modifier = Modifier.height(8.dp))
 
@@ -490,7 +496,7 @@ private fun BiometricDataStep(
                 text = "Biometric Data (Optional)",
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color(0xFF0B2240)
+                color = PrimaryDarkNavy
             )
 
             BiometricCard(
@@ -516,7 +522,7 @@ private fun BiometricDataStep(
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
-                color = Color(0xFFE3F2FD)
+                color = InfoBg
             ) {
                 Row(
                     modifier = Modifier.padding(16.dp),
@@ -525,7 +531,7 @@ private fun BiometricDataStep(
                     Icon(
                         imageVector = Icons.Default.Info,
                         contentDescription = null,
-                        tint = Color(0xFF003366),
+                        tint = PrimaryNavy,
                         modifier = Modifier.size(24.dp)
                     )
                     Spacer(modifier = Modifier.width(12.dp))
@@ -534,12 +540,12 @@ private fun BiometricDataStep(
                             text = "Biometric Registration",
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp,
-                            color = Color(0xFF003366)
+                            color = PrimaryNavy
                         )
                         Text(
                             text = "Capture the fingerprint or tap the RFID card — both are optional. Data can also be added later from the Biometrics screen.",
                             fontSize = 12.sp,
-                            color = Color(0xFF003366)
+                            color = PrimaryNavy
                         )
                     }
                 }
@@ -582,13 +588,13 @@ private fun FamilyContactStep(
                 text = "Family Members",
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color(0xFF0B2240)
+                color = PrimaryDarkNavy
             )
 
             Text(
                 text = "You can manage them later from Manage Inmates.",
                 fontSize = 14.sp,
-                color = Color(0xFF687A8F)
+                color = TextGray
             )
 
             if (members.isEmpty()) {
@@ -602,14 +608,14 @@ private fun FamilyContactStep(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(Color(0xFFF5F7FA), RoundedCornerShape(12.dp))
+                            .background(LightBg, RoundedCornerShape(12.dp))
                             .padding(horizontal = 12.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
                             imageVector = Icons.Default.Person,
                             contentDescription = null,
-                            tint = Color(0xFF003366),
+                            tint = PrimaryNavy,
                             modifier = Modifier.size(22.dp)
                         )
                         Spacer(modifier = Modifier.width(10.dp))
@@ -618,19 +624,19 @@ private fun FamilyContactStep(
                                 text = member.name,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 14.sp,
-                                color = Color(0xFF0B2240)
+                                color = PrimaryDarkNavy
                             )
                             Text(
                                 text = "${member.relationship} · ${member.mobileNumber}",
                                 fontSize = 12.sp,
-                                color = Color(0xFF687A8F)
+                                color = TextGray
                             )
                         }
                         IconButton(onClick = { onRemoveMember(index) }) {
                             Icon(
                                 imageVector = Icons.Default.Delete,
                                 contentDescription = "Remove ${member.name}",
-                                tint = Color(0xFFD32F2F),
+                                tint = DangerRed,
                                 modifier = Modifier.size(20.dp)
                             )
                         }
@@ -638,44 +644,40 @@ private fun FamilyContactStep(
                 }
             }
 
-            HorizontalDivider(color = Color(0xFFE2E8F0))
+            HorizontalDivider(color = BorderColor)
 
             Text(
                 text = "Add a family member",
                 fontWeight = FontWeight.Bold,
                 fontSize = 14.sp,
-                color = Color(0xFF0B2240)
+                color = PrimaryDarkNavy
             )
 
-            OutlinedTextField(
+            KioskTextField(
                 value = draftName,
                 onValueChange = onDraftNameChange,
-                label = { Text("Full Name *") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true
+                label = "Full Name",
+                required = true,
+                imeAction = androidx.compose.ui.text.input.ImeAction.Next
             )
 
             KioskSelectField(
                 value = draftRelationship,
                 onValueChange = onDraftRelationshipChange,
                 label = "Relationship",
-                options = listOf("") + RELATIONSHIP_OPTIONS,
-                display = { if (it.isBlank()) "Select" else it },
+                options = RELATIONSHIP_OPTIONS,
+                placeholder = "Select relationship",
                 modifier = Modifier.fillMaxWidth()
             )
 
-            OutlinedTextField(
+            KioskPhoneField(
                 value = draftMobile,
                 onValueChange = onDraftMobileChange,
-                label = { Text("Mobile Number *") },
-                placeholder = { Text("10-digit number") },
-                supportingText = { Text("Enter the 10-digit mobile number (no +91)") },
-                isError = draftMobile.isNotEmpty() && draftMobile.length != 10,
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                    keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
-                )
+                label = "Mobile Number",
+                required = true,
+                errorText = if (draftMobile.isNotEmpty() && draftMobile.length != 10)
+                    "Enter a valid 10-digit mobile number" else null,
+                imeAction = androidx.compose.ui.text.input.ImeAction.Done
             )
 
             Button(
@@ -685,7 +687,7 @@ private fun FamilyContactStep(
                     .fillMaxWidth()
                     .height(48.dp),
                 shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF003366))
+                colors = ButtonDefaults.buttonColors(containerColor = PrimaryNavy)
             ) {
                 Icon(Icons.Default.PersonAdd, contentDescription = null, modifier = Modifier.size(20.dp))
                 Spacer(modifier = Modifier.width(8.dp))
@@ -712,14 +714,14 @@ private fun CompleteStep(modifier: Modifier = Modifier, familyAdded: Boolean = f
         ) {
             Surface(
                 shape = CircleShape,
-                color = Color(0xFF4CAF50).copy(alpha = 0.1f),
+                color = SuccessGreen.copy(alpha = 0.1f),
                 modifier = Modifier.size(80.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         imageVector = Icons.Default.CheckCircle,
                         contentDescription = null,
-                        tint = Color(0xFF4CAF50),
+                        tint = SuccessGreen,
                         modifier = Modifier.size(48.dp)
                     )
                 }
@@ -729,42 +731,17 @@ private fun CompleteStep(modifier: Modifier = Modifier, familyAdded: Boolean = f
                 text = "Registration Complete!",
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color(0xFF0B2240),
+                color = PrimaryDarkNavy,
                 textAlign = TextAlign.Center
             )
 
             Text(
                 text = "The inmate has been successfully registered.",
                 fontSize = 14.sp,
-                color = Color(0xFF687A8F),
+                color = TextGray,
                 textAlign = TextAlign.Center
             )
 
-            if (familyAdded) {
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    color = Color(0xFFE3F2FD)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Message,
-                            contentDescription = null,
-                            tint = Color(0xFF003366),
-                            modifier = Modifier.size(24.dp)
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = "Family members added — the wallet-link SMS has been sent to each mobile number.",
-                            fontSize = 12.sp,
-                            color = Color(0xFF003366)
-                        )
-                    }
-                }
-            }
         }
     }
 }

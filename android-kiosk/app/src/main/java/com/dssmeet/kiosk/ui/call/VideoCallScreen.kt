@@ -1,4 +1,6 @@
-﻿package com.dssmeet.kiosk.ui.call
+package com.dssmeet.kiosk.ui.call
+
+import com.dssmeet.kiosk.ui.theme.ControlBtnBg
 
 import android.Manifest
 import android.content.pm.PackageManager
@@ -47,7 +49,7 @@ import com.dssmeet.kiosk.models.inmate.InmateProfile
 import com.dssmeet.kiosk.models.inmate.InmateStatus
 import com.dssmeet.kiosk.ui.components.KioskButton
 import com.dssmeet.kiosk.ui.components.KioskProgressIndicator
-import com.dssmeet.kiosk.ui.theme.AlertRed
+import com.dssmeet.kiosk.ui.theme.DangerRed
 import com.dssmeet.kiosk.ui.theme.PrimaryBlue
 import com.dssmeet.kiosk.ui.theme.PrisonKioskTheme
 import com.dssmeet.kiosk.ui.theme.TextDark
@@ -59,9 +61,9 @@ import org.webrtc.SurfaceViewRenderer
 import org.webrtc.VideoTrack
 import kotlin.math.roundToInt
 
-// Color Tokens (AccentGreen kept local — different shade from theme)
+// Color Tokens (VideoAccentGreen kept local � different shade from theme)
 private val DarkControlsBg = Color(0xD90F172A)
-private val AccentGreen = Color(0xFF10B981)
+private val VideoAccentGreen = Color(0xFF10B981)
 
 /**
  * Compose wrapper around a WebRTC [SurfaceViewRenderer] that renders a
@@ -86,7 +88,7 @@ fun WebRtcSurfaceView(
             SurfaceViewRenderer(ctx).apply {
                 setMirror(mirror)
                 // FIT shows the WHOLE remote frame (letterboxed); FILL crops.
-                // The remote peer must never be cropped — use FIT there.
+                // The remote peer must never be cropped � use FIT there.
                 setScalingType(
                     if (fit) RendererCommon.ScalingType.SCALE_ASPECT_FIT
                     else RendererCommon.ScalingType.SCALE_ASPECT_FILL
@@ -182,7 +184,7 @@ fun VideoCallScreen(
         if (!hasPermissions && !permissionDeniedOnce) {
             launcher.launch(arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO))
         }
-        // NOTE: initCall already happened on CallProgressScreen — the engine
+        // NOTE: initCall already happened on CallProgressScreen � the engine
         // is a singleton, so we just attach to the live session here.
     }
 
@@ -267,7 +269,7 @@ fun PermissionDeniedUI(onRetry: () -> Unit) {
                 Icon(
                     imageVector = Icons.Default.Security,
                     contentDescription = null,
-                    tint = AlertRed,
+                    tint = DangerRed,
                     modifier = Modifier.size(56.dp)
                 )
                 Spacer(modifier = Modifier.height(16.dp))
@@ -343,8 +345,8 @@ fun VideoCallContent(
         String.format("%02d:%02d", mins, secs)
     }
 
-    // Live billing from the engine: ceil(minutes) × actual per-minute rate.
-    // ₹0.00 until the first second of connected talk time.
+    // Live billing from the engine: ceil(minutes) � actual per-minute rate.
+    // ?0.00 until the first second of connected talk time.
     val currentCost = liveCost
 
     LaunchedEffect(lastInteractionTime) {
@@ -440,7 +442,7 @@ fun VideoCallContent(
                             modifier = Modifier.size(24.dp)
                         )
                         Spacer(modifier = Modifier.height(4.dp))
-                        Text("Off", color = Color.White.copy(alpha = 0.6f), fontSize = 10.sp)
+                        Text("Off", color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp)
                     }
                 } else if (localTrack != null) {
                     WebRtcSurfaceView(
@@ -484,7 +486,7 @@ fun VideoCallContent(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             if (isRecording) {
                                 Surface(
-                                    color = AlertRed,
+                                    color = DangerRed,
                                     shape = RoundedCornerShape(4.dp),
                                     modifier = Modifier.padding(end = 6.dp)
                                 ) {
@@ -501,7 +503,7 @@ fun VideoCallContent(
                                         Text(
                                             text = "REC",
                                             color = Color.White,
-                                            fontSize = 9.sp,
+                                            fontSize = 12.sp,
                                             fontWeight = FontWeight.Bold
                                         )
                                     }
@@ -511,21 +513,21 @@ fun VideoCallContent(
                             Icon(
                                 imageVector = Icons.Default.Security,
                                 contentDescription = null,
-                                tint = AccentGreen,
+                                tint = VideoAccentGreen,
                                 modifier = Modifier.size(14.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
                                 text = "MONITORED",
                                 color = Color.White,
-                                fontSize = 11.sp,
+                                fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold
                             )
                         }
                         Text(
                             text = "Inmate: ${inmateProfile?.displayName ?: "Unknown"} | $contactName",
                             color = Color.White.copy(alpha = 0.8f),
-                            fontSize = 11.sp,
+                            fontSize = 12.sp,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -533,7 +535,7 @@ fun VideoCallContent(
 
                     Spacer(modifier = Modifier.width(8.dp))
 
-                    // Live connection quality — sampled from the peer
+                    // Live connection quality � sampled from the peer
                     // connection, so a bad line is visible instead of silent.
                     QualityChip(connectionQuality)
                 }
@@ -559,7 +561,7 @@ fun VideoCallContent(
                     Box(
                         modifier = Modifier
                             .size(7.dp)
-                            .background(AlertRed, CircleShape)
+                            .background(DangerRed, CircleShape)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                 }
@@ -574,7 +576,7 @@ fun VideoCallContent(
                     Text(
                         text = "/ ${formatTime(maxCallSeconds)}",
                         color = Color.White.copy(alpha = 0.65f),
-                        fontSize = 11.sp,
+                        fontSize = 12.sp,
                         fontWeight = FontWeight.Medium
                     )
                 }
@@ -582,35 +584,15 @@ fun VideoCallContent(
         }
 
         // Family member's location (from device verification), right under
-        // the always-visible timer.
+        // the always-visible timer. Shared pill � same look as audio call.
         familyLocation?.let { loc ->
-            Surface(
+            com.dssmeet.kiosk.ui.components.FamilyLocationPill(
+                location = loc,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .padding(top = 118.dp)
-                    .zIndex(2f),
-                color = Color.Black.copy(alpha = 0.65f),
-                shape = RoundedCornerShape(14.dp)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                    horizontalArrangement = Arrangement.spacedBy(5.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.LocationOn,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(13.dp)
-                    )
-                    Text(
-                        text = loc.displayLabel,
-                        color = Color.White,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-            }
+                    .zIndex(2f)
+            )
         }
 
         // 4. NETWORK WARNING
@@ -649,7 +631,7 @@ fun VideoCallContent(
                     .align(Alignment.BottomCenter)
                     .padding(horizontal = 24.dp, vertical = 120.dp)
                     .zIndex(4f),
-                color = AlertRed,
+                color = DangerRed,
                 shape = RoundedCornerShape(12.dp)
             ) {
                 Row(
@@ -660,7 +642,7 @@ fun VideoCallContent(
                     Icon(Icons.Default.SignalCellularAlt, contentDescription = null, tint = Color.White)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Poor network quality — audio may break up",
+                        text = "Poor network quality � audio may break up",
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
                         fontSize = 13.sp
@@ -691,13 +673,13 @@ fun VideoCallContent(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Surface(
-                    color = AccentGreen,
+                    color = VideoAccentGreen,
                     shape = RoundedCornerShape(50)
                 ) {
                     Text(
                         text = "Live Billing: \u20B9${String.format("%.2f", currentCost)}",
                         color = Color.White,
-                        fontSize = 11.sp,
+                        fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
                     )
@@ -721,7 +703,7 @@ fun VideoCallContent(
                             icon = if (isMuted) Icons.Default.MicOff else Icons.Default.Mic,
                             label = if (isMuted) "Unmute" else "Mute",
                             isActive = isMuted,
-                            activeColor = AlertRed,
+                            activeColor = DangerRed,
                             onClick = {
                                 onMuteToggle()
                                 lastInteractionTime = System.currentTimeMillis()
@@ -732,7 +714,7 @@ fun VideoCallContent(
                             icon = if (!isCameraOn) Icons.Default.VideocamOff else Icons.Default.Videocam,
                             label = if (!isCameraOn) "Cam Off" else "Cam On",
                             isActive = !isCameraOn,
-                            activeColor = AlertRed,
+                            activeColor = DangerRed,
                             onClick = {
                                 onVideoToggle()
                                 lastInteractionTime = System.currentTimeMillis()
@@ -743,7 +725,7 @@ fun VideoCallContent(
                             icon = Icons.Default.CallEnd,
                             label = "End",
                             isActive = true,
-                            activeColor = AlertRed,
+                            activeColor = DangerRed,
                             isEndCall = true,
                             onClick = onEndCall
                         )
@@ -812,7 +794,7 @@ fun VideoCallContent(
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .background(Color(0xFFF1F5F9), RoundedCornerShape(12.dp))
+                                .background(ControlBtnBg, RoundedCornerShape(12.dp))
                                 .padding(12.dp),
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
@@ -826,7 +808,7 @@ fun VideoCallContent(
                             }
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                 Text("Time Remaining:", fontSize = 12.sp, color = TextGray)
-                                Text(formatTime(remainingSeconds), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = AlertRed)
+                                Text(formatTime(remainingSeconds), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = DangerRed)
                             }
                         }
                     }
@@ -854,7 +836,7 @@ fun VideoActionButton(
         Surface(
             onClick = onClick,
             shape = CircleShape,
-            color = if (isEndCall) AlertRed else if (isActive) activeColor else Color.White.copy(alpha = 0.15f),
+            color = if (isEndCall) DangerRed else if (isActive) activeColor else Color.White.copy(alpha = 0.15f),
             modifier = Modifier.size(42.dp)
         ) {
             Box(contentAlignment = Alignment.Center) {
@@ -870,7 +852,7 @@ fun VideoActionButton(
         Text(
             text = label,
             color = Color.White.copy(alpha = 0.8f),
-            fontSize = 9.sp,
+            fontSize = 12.sp,
             fontWeight = FontWeight.Medium
         )
     }
@@ -879,16 +861,16 @@ fun VideoActionButton(
 /**
  * Compact live-quality pill for the call header. Values come from
  * [com.dssmeet.kiosk.ui.call.CallEngine.connectionQuality], which samples
- * the peer connection once a second — this chip never reports a fixed state.
+ * the peer connection once a second � this chip never reports a fixed state.
  */
 @Composable
 private fun QualityChip(quality: String) {
     val (label, tint) = when (quality) {
-        "excellent" -> "Excellent" to AccentGreen
-        "good" -> "Stable" to AccentGreen
+        "excellent" -> "Excellent" to VideoAccentGreen
+        "good" -> "Stable" to VideoAccentGreen
         "fair" -> "Fair" to WarningOrange
-        "poor" -> "Poor network" to AlertRed
-        else -> "Measuring…" to TextGray
+        "poor" -> "Poor network" to DangerRed
+        else -> "Measuring�" to TextGray
     }
     Surface(
         color = tint.copy(alpha = 0.22f),
@@ -908,7 +890,7 @@ private fun QualityChip(quality: String) {
             Text(
                 text = label,
                 color = Color.White,
-                fontSize = 11.sp,
+                fontSize = 12.sp,
                 fontWeight = FontWeight.Bold
             )
         }

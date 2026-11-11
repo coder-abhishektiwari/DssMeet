@@ -1,5 +1,9 @@
 package com.dssmeet.kiosk.ui.call
 
+import com.dssmeet.kiosk.ui.theme.AccentGreen
+
+import com.dssmeet.kiosk.ui.theme.MoneyRed
+
 import android.R
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -97,7 +101,7 @@ fun CallLobbyDialog(
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    color = if (isSufficient) Color(0xFF2E7D32) else Color(0xFFC62828),
+                    color = if (isSufficient) AccentGreen else MoneyRed,
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Row(
@@ -129,7 +133,7 @@ fun CallLobbyDialog(
                         text = msg,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium,
-                        color = Color(0xFFC62828)
+                        color = MoneyRed
                     )
                 }
 

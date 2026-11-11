@@ -33,6 +33,7 @@ const { getPaymentByOrder, committedPaiseByContact, reservePaymentSlot, creditFr
 const { createOrder, verifyPaymentSignature, configured, keyId, RazorpayError } = require('../lib/razorpay');
 const { getStatement } = require('../lib/jail-account');
 const { callInmateName } = require('../lib/names');
+const { createPgStore } = require('../lib/rateLimitStore');
 
 const router = express.Router();
 
@@ -45,9 +46,9 @@ const rateMessage = {
   error: { code: 'RATE_LIMITED', message: 'Too many requests - please wait a moment and try again' },
 };
 
-const infoLimiter = rateLimit({ windowMs: 60_000, limit: 20, standardHeaders: true, legacyHeaders: false, message: rateMessage });
-const orderLimiter = rateLimit({ windowMs: 60_000, limit: 5, standardHeaders: true, legacyHeaders: false, message: rateMessage });
-const verifyLimiter = rateLimit({ windowMs: 60_000, limit: 10, standardHeaders: true, legacyHeaders: false, message: rateMessage });
+const infoLimiter = rateLimit({ windowMs: 60_000, limit: 20, standardHeaders: true, legacyHeaders: false, message: rateMessage, store: createPgStore(60_000) });
+const orderLimiter = rateLimit({ windowMs: 60_000, limit: 5, standardHeaders: true, legacyHeaders: false, message: rateMessage, store: createPgStore(60_000) });
+const verifyLimiter = rateLimit({ windowMs: 60_000, limit: 10, standardHeaders: true, legacyHeaders: false, message: rateMessage, store: createPgStore(60_000) });
 
 /** Reject browser calls from anywhere but the family portal itself. */
 let originUnconfiguredWarned = false;

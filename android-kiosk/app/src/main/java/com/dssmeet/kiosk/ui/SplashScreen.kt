@@ -19,6 +19,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.dssmeet.kiosk.R
 import com.dssmeet.kiosk.ui.theme.PrimaryNavy
 import com.dssmeet.kiosk.ui.theme.PrisonKioskTheme
+import com.dssmeet.kiosk.ui.theme.TextGray
 
 @Composable
 fun SplashScreen(
@@ -45,12 +46,28 @@ fun SplashScreen(
         modifier = Modifier.fillMaxSize().background(Color.White),
         contentAlignment = Alignment.Center
     ) {
-        Image(
-            painter = painterResource(id = R.drawable.ic_logo),
-            contentDescription = "DssMeet Logo",
-            modifier = Modifier.size(180.dp),
-            contentScale = ContentScale.Fit
-        )
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Image(
+                painter = painterResource(id = R.drawable.ic_logo),
+                contentDescription = "DssMeet Logo",
+                modifier = Modifier.size(180.dp),
+                contentScale = ContentScale.Fit
+            )
+            if (verificationState is SplashViewModel.KioskVerificationState.CheckingDevice) {
+                Spacer(modifier = Modifier.height(24.dp))
+                CircularProgressIndicator(
+                    modifier = Modifier.size(28.dp),
+                    color = PrimaryNavy,
+                    strokeWidth = 3.dp
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "Verifying device…",
+                    color = TextGray,
+                    fontSize = 14.sp
+                )
+            }
+        }
     }
 
     if (verificationState is SplashViewModel.KioskVerificationState.VerificationError) {
@@ -74,14 +91,12 @@ fun SplashScreen(
                 )
             },
             confirmButton = {
-                if (errorState.isTransient) {
-                    Button(
-                        onClick = { viewModel.startVerification() },
-                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryNavy),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Text("Retry", color = Color.White)
-                    }
+                Button(
+                    onClick = { viewModel.startVerification() },
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryNavy),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("Retry", color = Color.White)
                 }
             },
             containerColor = Color.White,

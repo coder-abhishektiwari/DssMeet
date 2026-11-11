@@ -1,13 +1,17 @@
 package com.dssmeet.kiosk.ui
 
+import android.content.Context
+import com.dssmeet.kiosk.BuildConfig
 import com.dssmeet.kiosk.config.AppConfig
 import com.dssmeet.kiosk.core.BaseViewModel
+import com.dssmeet.kiosk.core.DeviceIntegrity
 import com.dssmeet.kiosk.core.Logger
 import com.dssmeet.kiosk.network.NetworkResult
 import com.dssmeet.kiosk.hardware.DeviceInfoProvider
 import com.dssmeet.kiosk.models.auth.KioskVerifyRequest
 import com.dssmeet.kiosk.repository.AuthRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,7 +25,8 @@ import com.dssmeet.kiosk.core.SessionManager
 class SplashViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val deviceInfoProvider: DeviceInfoProvider,
-    private val sessionManager: SessionManager
+    private val sessionManager: SessionManager,
+    @ApplicationContext private val appContext: Context
 ) : BaseViewModel() {
 
     sealed interface KioskVerificationState {
@@ -54,6 +59,24 @@ class SplashViewModel @Inject constructor(
     private suspend fun verifyKiosk() {
         _verificationState.value = KioskVerificationState.CheckingDevice
         delay(1000)
+
+        // Root/jailbreak gate: release builds never run on a compromised
+        // device (tokens/recordings must not be extractable). Debug builds
+        // only log so rooted dev phones keep working.
+        DeviceIntegrity.blockReason = null
+        val integrityReasons = DeviceIntegrity.detect(appContext)
+        if (integrityReasons.isNotEmpty()) {
+            val reason = integrityReasons.joinToString("; ")
+            if (BuildConfig.DEBUG) {
+                Logger.w("SplashViewModel: device integrity warnings (debug, not blocking): $reason")
+            } else {
+                Logger.w("SplashViewModel: rooted/compromised device — blocking startup: $reason")
+                DeviceIntegrity.blockReason = reason
+                _verificationState.value = KioskVerificationState.Unauthorized
+                _navigationEvent.emit(SplashNavigation.NavigateToUnauthorized)
+                return
+            }
+        }
 
         // If Device Authorization is disabled in AppConfig, bypass registration/authorization flow
         if (!AppConfig.deviceAuthorizationEnabled) {

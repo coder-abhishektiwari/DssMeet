@@ -18,8 +18,13 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import com.dssmeet.kiosk.ui.theme.BorderColor
+import com.dssmeet.kiosk.ui.theme.DangerRed
+import com.dssmeet.kiosk.ui.theme.PrimaryDarkNavy
+import com.dssmeet.kiosk.ui.theme.PrimaryNavy
+import com.dssmeet.kiosk.ui.theme.TextGray
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -59,8 +64,9 @@ private fun storageOf(millis: Long): String =
     storageFormat().format(Date(millis))
 
 /**
- * Date input that stores an ISO `yyyy-MM-dd` value but only lets the admin
- * pick the value from a Material date picker, so dates stay consistent.
+ * The ONE date field every form uses. Stores ISO `yyyy-MM-dd` but only lets
+ * the admin pick from a Material date picker. Looks enabled (not greyed-out)
+ * with a calendar trailing icon so it reads as tappable.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -70,29 +76,52 @@ fun KioskDateField(
     label: String,
     modifier: Modifier = Modifier,
     required: Boolean = false,
+    placeholder: String = "Pick a date",
+    errorText: String? = null,
     onClear: (() -> Unit)? = null
 ) {
     var showPicker by remember { mutableStateOf(false) }
+    val isError = errorText != null
+    val display = displayOf(value)
+    val shown = display.ifBlank { placeholder }
 
     OutlinedTextField(
-        value = displayOf(value),
+        value = shown,
         onValueChange = {},
         label = { Text(if (required) "$label *" else label) },
         readOnly = true,
-        enabled = false,
+        enabled = true,
         singleLine = true,
+        isError = isError,
         trailingIcon = {
-            Icon(Icons.Default.CalendarToday, contentDescription = "Pick $label")
+            if (value.isNotBlank()) {
+                IconButton(onClick = { (onClear ?: { onValueChange("") })() }) {
+                    Icon(Icons.Default.Close, contentDescription = "Clear $label", tint = TextGray)
+                }
+            } else {
+                Icon(Icons.Default.CalendarToday, contentDescription = "Pick $label", tint = PrimaryNavy)
+            }
+        },
+        supportingText = {
+            Text(
+                text = errorText ?: " ",
+                color = if (isError) DangerRed else TextGray,
+                maxLines = 2
+            )
         },
         colors = OutlinedTextFieldDefaults.colors(
-            disabledTextColor = Color(0xFF0B2240),
-            disabledBorderColor = Color(0xFFB0BEC5),
-            disabledLabelColor = Color(0xFF687A8F),
-            disabledTrailingIconColor = Color(0xFF003366)
+            focusedBorderColor = PrimaryNavy,
+            unfocusedBorderColor = BorderColor,
+            focusedLabelColor = PrimaryNavy,
+            unfocusedLabelColor = TextGray,
+            focusedTextColor = PrimaryDarkNavy,
+            unfocusedTextColor = if (value.isBlank()) TextGray else PrimaryDarkNavy,
+            errorBorderColor = DangerRed,
+            errorLabelColor = DangerRed
         ),
         modifier = modifier
             .fillMaxWidth()
-            .clickable { showPicker = true }
+            .clickable(role = Role.Button) { showPicker = true }
     )
 
     if (showPicker) {
@@ -106,7 +135,7 @@ fun KioskDateField(
                         pickerState.selectedDateMillis?.let { onValueChange(storageOf(it)) }
                         showPicker = false
                     }
-                ) { Text("OK") }
+                ) { Text("OK", color = PrimaryNavy) }
             },
             dismissButton = {
                 if (value.isNotBlank() || onClear != null) {

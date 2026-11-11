@@ -18,6 +18,8 @@ const { buildInmateIndex } = require('./lib/kioskView');
 const { rfidCardNumberFor } = require('./lib/biometrics');
 const { verifyWebhookSignature } = require('./lib/razorpay');
 const { creditFromRazorpay, markPaymentFailed, sweepWalletPayments } = require('./lib/wallet-credit');
+const { createPgStore } = require('./lib/rateLimitStore');
+const { auditFromReq } = require('./lib/audit');
 
 /** Kiosk-admin username: what the operator types on the terminal to sign in. */
 const EMPLOYEE_ID_RE = /^[A-Za-z0-9._-]{3,40}$/;
@@ -37,6 +39,7 @@ const createStatisticsRouter = require('./routes/statistics');
 const prisonsRouter = require('./routes/prisons');
 const createSettingsRouter = require('./routes/settings');
 const misRouter = require('./routes/mis');
+const auditRouter = require('./routes/audit');
 
 const app = express();
 // Trust exactly one proxy hop (Render/nginx) so req.ip sees the real client
@@ -211,6 +214,7 @@ app.use('/prisons', prisonsRouter);
 app.use('/settings', settingsRouter);
 app.use('/wallets', walletsRouter);
 app.use('/mis', misRouter);
+app.use('/audit', auditRouter);
 
 // ==================== RAZORPAY WEBHOOK ====================
 // Signature is HMAC over the raw body; crediting uses the same idempotent
@@ -260,6 +264,10 @@ app.patch('/pricing', requireAuth, requireRole('admin', 'warden', 'super-admin',
     const base = all || {};
     const result = deepMerge(base, { ...req.body });
     return { data: result, result };
+  });
+  await auditFromReq(req, 'pricing.updated', {
+    entityType: 'pricing', entityId: 'pricing',
+    metadata: { keys: Array.isArray(req.body) ? [] : Object.keys(req.body || {}).slice(0, 30) }
   });
   broadcastEvent('pricing-updated', merged);
   return sendSuccess(res, merged);
@@ -417,6 +425,10 @@ app.post('/wardens', requireAuth, requireRole('admin', 'warden', 'super-admin', 
     prisons[idx] = { ...prisons[idx], wardenIds: [...roster, newWarden.wardenId] };
     return { data: prisons, result: prisons[idx] };
   });
+  await auditFromReq(req, 'warden.created', {
+    entityType: 'warden', entityId: newWarden.wardenId, prisonId: jailId,
+    metadata: { email, name, designation }
+  });
   return sendSuccess(res, withoutSecrets(newWarden), 201);
 }));
 
@@ -496,6 +508,11 @@ app.post('/kiosk-admins', requireAuth, requireRole('admin', 'kiosk_admin', 'ward
   };
   await updateDb('admins.json', (all) => ({ data: [...all, record], result: record }));
 
+  await auditFromReq(req, 'admin.created', {
+    entityType: 'admin', entityId: record.adminId, prisonId: record.prisonId || null,
+    metadata: { via: 'kiosk_admins_create', employeeId, name }
+  });
+
   const { password: _password, pin, biometricData, ...safe } = record;
   void _password;
   void pin;
@@ -503,9 +520,9 @@ app.post('/kiosk-admins', requireAuth, requireRole('admin', 'kiosk_admin', 'ward
   return sendSuccess(res, safe, 201);
 }));
 
-// ── First-admin bootstrap (kiosk "Create Login") ─────────────────────────────
+// ── First-admin bootstrap (kiosk "Create Admin") ─────────────────────────────
 // A jail whose kiosk is live but has no kiosk admin yet cannot sign anyone in,
-// so the kiosk swaps its "Admin Login" button for "Create Login". Both routes
+// so the kiosk swaps its "Admin Login" button for "Create Admin". Both routes
 // accept ONLY the device credential from POST /kiosks/verify (365d device
 // token) — a logged-in user session can never call them — and the prison scope
 // always comes from the device's own kiosks.json row, never the request body,
@@ -517,6 +534,7 @@ const bootstrapStatusLimiter = rateLimit({
   limit: 60,
   standardHeaders: true,
   legacyHeaders: false,
+  store: createPgStore(15 * 60 * 1000),
   message: { success: false, error: { code: 'RATE_LIMITED', message: 'Too many attempts, try again later' } }
 });
 const bootstrapCreateLimiter = rateLimit({
@@ -524,6 +542,7 @@ const bootstrapCreateLimiter = rateLimit({
   limit: 10,
   standardHeaders: true,
   legacyHeaders: false,
+  store: createPgStore(15 * 60 * 1000),
   message: { success: false, error: { code: 'RATE_LIMITED', message: 'Too many attempts, try again later' } }
 });
 
@@ -640,6 +659,10 @@ app.post('/kiosk-admins/bootstrap', requireAuth, bootstrapCreateLimiter, asyncRo
   // from this one response.
   const claims = { sub: record.adminId, role: record.role, kioskId: kiosk.kioskId, prisonId };
   const session = await createSession(claims, req);
+  await auditFromReq(req, 'admin.created', {
+    entityType: 'admin', entityId: record.adminId, prisonId, kioskId: kiosk.kioskId,
+    metadata: { via: 'kiosk_bootstrap', employeeId, name, actorKiosk: req.auth?.kioskId || null }
+  });
   const { password: _pw, pin, biometricData, ...safe } = record;
   void _pw;
   void pin;
@@ -724,6 +747,11 @@ app.patch('/kiosk-admins/:adminId', requireAuth, requireRole('admin', 'kiosk_adm
   });
   if (!updated) return sendError(res, 'NOT_FOUND', 'Kiosk admin not found', 404);
 
+  await auditFromReq(req, 'admin.updated', {
+    entityType: 'admin', entityId: updated.adminId, prisonId: updated.prisonId || jailId || null,
+    metadata: { fields: Object.keys(patch), passwordReset: patch.password !== undefined }
+  });
+
   const { password, pin, biometricData, ...safe } = updated;
   void password;
   void pin;
@@ -743,6 +771,11 @@ app.delete('/kiosk-admins/:adminId', requireAuth, requireRole('admin', 'warden',
     return { data: all, result: gone };
   });
   if (!removed) return sendError(res, 'NOT_FOUND', 'Kiosk admin not found', 404);
+
+  await auditFromReq(req, 'admin.deleted', {
+    entityType: 'admin', entityId: removed.adminId, prisonId: removed.prisonId || jailId || null,
+    metadata: { employeeId: removed.employeeId || null, name: removed.name || null }
+  });
 
   return sendSuccess(res, { message: 'Kiosk admin deleted', adminId: removed.adminId });
 }));
@@ -842,6 +875,11 @@ app.patch('/wardens/:wardenId', requireAuth, requireRole('admin', 'warden', 'sup
   });
   if (!updated) return sendError(res, refusal.code, refusal.message, refusal.status);
 
+  await auditFromReq(req, 'warden.updated', {
+    entityType: 'warden', entityId: updated.wardenId, prisonId: updated.prisonId || guard.jailId || null,
+    metadata: { fields: Object.keys(patch), passwordReset: patch.password !== undefined }
+  });
+
   return sendSuccess(res, withoutSecrets(updated));
 }));
 
@@ -877,6 +915,11 @@ app.delete('/wardens/:wardenId', requireAuth, requireRole('admin', 'warden', 'su
     }
     jail.wardenIds = jail.wardenIds.filter((id) => id !== removed.wardenId);
     return { data: prisons, result: jail };
+  });
+
+  await auditFromReq(req, 'warden.deleted', {
+    entityType: 'warden', entityId: removed.wardenId, prisonId: removed.prisonId || guard.jailId || null,
+    metadata: { email: removed.email || null, name: removed.name || null }
   });
 
   return sendSuccess(res, { message: 'Warden deleted', wardenId: removed.wardenId });

@@ -1,5 +1,20 @@
 package com.dssmeet.kiosk.ui.admin
 
+import com.dssmeet.kiosk.ui.theme.PrimaryDarkNavy
+import com.dssmeet.kiosk.ui.theme.PrimaryNavy
+
+import com.dssmeet.kiosk.ui.theme.AccentGreen
+import com.dssmeet.kiosk.ui.theme.GraySurface
+import com.dssmeet.kiosk.ui.theme.WarningOrange
+
+import com.dssmeet.kiosk.ui.theme.DangerRed
+import com.dssmeet.kiosk.ui.theme.GreenActiveBg
+import com.dssmeet.kiosk.ui.theme.LightBg
+import com.dssmeet.kiosk.ui.theme.MoneyRedBg
+
+import com.dssmeet.kiosk.ui.theme.TextGray
+import com.dssmeet.kiosk.ui.theme.WarningBg
+
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -49,7 +64,7 @@ fun InmateDetailsScreen(
                 onBackClick = onBackClick
             )
         },
-        containerColor = Color(0xFFF5F7FA)
+        containerColor = LightBg
     ) { paddingValues ->
         Box(
             modifier = Modifier
@@ -69,7 +84,7 @@ fun InmateDetailsScreen(
                 is NetworkResult.Failure -> {
                     Text(
                         text = result.error.message ?: "Failed to load inmate",
-                        color = Color(0xFFD32F2F),
+                        color = DangerRed,
                         modifier = Modifier.align(Alignment.Center)
                     )
                 }
@@ -100,7 +115,7 @@ private fun InfoCard(title: String, content: @Composable ColumnScope.() -> Unit)
                 text = title,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color(0xFF0B2240)
+                color = PrimaryDarkNavy
             )
             content()
         }
@@ -112,9 +127,9 @@ private fun DetailItem(label: String, value: String?, modifier: Modifier = Modif
     Column(modifier = modifier) {
         Text(
             text = label,
-            fontSize = 11.sp,
+            fontSize = 12.sp,
             fontWeight = FontWeight.Medium,
-            color = Color(0xFF687A8F),
+            color = TextGray,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
@@ -123,7 +138,7 @@ private fun DetailItem(label: String, value: String?, modifier: Modifier = Modif
             text = display(value),
             fontSize = 15.sp,
             fontWeight = FontWeight.Medium,
-            color = Color(0xFF0B2240)
+            color = PrimaryDarkNavy
         )
     }
 }
@@ -143,15 +158,15 @@ private fun DetailRow(labelA: String, valueA: String?, labelB: String, valueB: S
 private fun StatusChip(status: String) {
     val label = status.uppercase()
     val container = when (label) {
-        "ACTIVE" -> Color(0xFFE8F5E9)
-        "RESTRICTED" -> Color(0xFFFFF3E0)
-        "SUSPENDED" -> Color(0xFFFFEBEE)
-        else -> Color(0xFFF5F5F5)
+        "ACTIVE" -> GreenActiveBg
+        "RESTRICTED" -> WarningBg
+        "SUSPENDED" -> MoneyRedBg
+        else -> GraySurface
     }
     val content = when (label) {
-        "ACTIVE" -> Color(0xFF2E7D32)
-        "RESTRICTED" -> Color(0xFFF57C00)
-        "SUSPENDED" -> Color(0xFFD32F2F)
+        "ACTIVE" -> AccentGreen
+        "RESTRICTED" -> WarningOrange
+        "SUSPENDED" -> DangerRed
         else -> Color(0xFF757575)
     }
     Surface(shape = RoundedCornerShape(8.dp), color = container) {
@@ -203,7 +218,7 @@ private fun InmateDetailsContent(
             ) {
                 Surface(
                     shape = CircleShape,
-                    color = Color(0xFF003366).copy(alpha = 0.1f),
+                    color = PrimaryNavy.copy(alpha = 0.1f),
                     modifier = Modifier.size(72.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
@@ -211,7 +226,7 @@ private fun InmateDetailsContent(
                             text = initial,
                             fontSize = 28.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFF003366)
+                            color = PrimaryNavy
                         )
                     }
                 }
@@ -220,7 +235,7 @@ private fun InmateDetailsContent(
                     text = prisoner.displayName,
                     fontSize = 22.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color(0xFF0B2240),
+                    color = PrimaryDarkNavy,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -228,7 +243,7 @@ private fun InmateDetailsContent(
                 Text(
                     text = prisoner.prisonerNumber ?: prisoner.inmateId,
                     fontSize = 13.sp,
-                    color = Color(0xFF687A8F)
+                    color = TextGray
                 )
 
                 StatusChip(prisoner.status)
@@ -293,7 +308,7 @@ private fun InmateDetailsContent(
                 .fillMaxWidth()
                 .height(56.dp),
             shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF003366))
+            colors = ButtonDefaults.buttonColors(containerColor = PrimaryNavy)
         ) {
             Icon(Icons.Default.Edit, contentDescription = null)
             Spacer(modifier = Modifier.width(8.dp))

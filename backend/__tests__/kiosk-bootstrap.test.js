@@ -1,7 +1,7 @@
 /**
- * KIOSK FIRST-ADMIN BOOTSTRAP ("Create Login") SUITE
+ * KIOSK FIRST-ADMIN BOOTSTRAP ("Create Admin") SUITE
  *
- * Locks in the contract behind the kiosk's Create Login button:
+ * Locks in the contract behind the kiosk's Create Admin button:
  *   1. GET  /kiosk-admins/bootstrap-status — device token only; needsBootstrap
  *      is true exactly while the kiosk's jail has no active, non-super admin
  *      (the same predicate /auth/admin/identify uses).

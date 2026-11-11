@@ -8,6 +8,7 @@ const { jailScopeOf, inJailScope, kioskScopeOf, inAdminScope, adminScopeFilter, 
 const { paginate } = require('../lib/paginate');
 const { ensureWallet, creditWelcomeBonus } = require('../lib/wallets');
 const { biometricValidationError, rfidCardNumberFor } = require('../lib/biometrics');
+const { auditFromReq } = require('../lib/audit');
 
 const router = express.Router();
 
@@ -266,6 +267,10 @@ async function inmateCreateHandler(req, res) {
     await creditWelcomeBonus(newInmate.inmateId, newInmate.walletId).catch((err) =>
       console.error(`[wallet] provision failed for ${newInmate.inmateId}:`, err.message)
     );
+    await auditFromReq(req, 'prisoner.created', {
+      entityType: 'prisoner', entityId: newInmate.inmateId, prisonId: newInmate.prisonId || null,
+      metadata: { name: newInmate.name || null, kioskId: newInmate.assignedKioskId || null }
+    });
     // normalizeInmate strips the bcrypt PIN — the raw row must never leave.
     return sendSuccess(res, normalizeInmate(newInmate), 201);
   } catch (err) {
@@ -331,6 +336,10 @@ async function inmateUpdateHandler(req, res) {
       });
     }
   }
+  await auditFromReq(req, 'prisoner.updated', {
+    entityType: 'prisoner', entityId: updated.inmateId, prisonId: updated.prisonId || null,
+    metadata: { fields: Object.keys(updates || {}).filter((k) => !['biometricData', 'pin'].includes(k)).slice(0, 30) }
+  });
   // normalizeInmate strips the bcrypt PIN — the raw row must never leave.
   return sendSuccess(res, normalizeInmate(updated));
 }
@@ -372,6 +381,10 @@ async function inmateDeleteHandler(req, res) {
     return { data: inmates, result: removed };
   });
   if (!deleted) return sendError(res, 'NOT_FOUND', 'Inmate not found', 404);
+  await auditFromReq(req, 'prisoner.deleted', {
+    entityType: 'prisoner', entityId: deleted.inmateId, prisonId: deleted.prisonId || null,
+    metadata: { name: deleted.name || null }
+  });
   return sendSuccess(res, { message: 'Inmate deleted successfully', inmateId: deleted.inmateId });
 }
 
@@ -416,6 +429,10 @@ router.patch('/admin/prisoners/:prisonerId/toggle', requireAuth, requireRole('ad
       });
     }
   }
+  await auditFromReq(req, 'prisoner.status_changed', {
+    entityType: 'prisoner', entityId: updated.inmateId, prisonId: updated.prisonId || null,
+    metadata: { from: updated.status === 'active' ? 'inactive' : 'active', to: updated.status, via: 'toggle' }
+  });
   return sendSuccess(res, normalizeInmate(updated));
 }));
 

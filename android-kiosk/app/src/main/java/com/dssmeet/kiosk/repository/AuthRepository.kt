@@ -39,7 +39,7 @@ interface AuthRepository {
     fun adminLogin(request: LoginRequest): Flow<NetworkResult<AdminProfile>>
     fun adminVerifyPassword(request: AdminVerifyPasswordRequest): Flow<NetworkResult<AuthToken>>
 
-    // First-admin bootstrap (kiosk "Create Login") — device credential only.
+    // First-admin bootstrap (kiosk "Create Admin") — device credential only.
     // Status decides which button the welcome screen shows; create makes this
     // jail's first kiosk admin and signs the creator in from one response.
     fun adminBootstrapStatus(): Flow<NetworkResult<com.dssmeet.kiosk.models.auth.BootstrapStatusResponse>>

@@ -1,5 +1,9 @@
 package com.dssmeet.kiosk.ui.admin
 
+import com.dssmeet.kiosk.ui.theme.LightBg
+
+import com.dssmeet.kiosk.ui.theme.TextGray
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -20,10 +24,19 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.dssmeet.kiosk.models.admin.VerifiedContact
 import com.dssmeet.kiosk.network.NetworkResult
 import com.dssmeet.kiosk.ui.components.ConfirmDeleteDialog
+import com.dssmeet.kiosk.ui.components.KioskErrorState
 import com.dssmeet.kiosk.ui.components.KioskLoadingState
+import com.dssmeet.kiosk.ui.components.KioskPhoneField
+import com.dssmeet.kiosk.ui.components.KioskSelectField
+import com.dssmeet.kiosk.ui.components.KioskTextField
 import com.dssmeet.kiosk.ui.components.KioskTopBar
-import com.dssmeet.kiosk.ui.theme.AlertRed
+import com.dssmeet.kiosk.ui.components.normalizeIndianPhone
+import com.dssmeet.kiosk.ui.components.phoneNationalDigits
+import com.dssmeet.kiosk.ui.theme.DangerRed
 import com.dssmeet.kiosk.ui.theme.PrimaryNavy
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.text.input.ImeAction
 
 @Composable
 fun ManageContactsScreen(
@@ -35,6 +48,7 @@ fun ManageContactsScreen(
     val addResult by viewModel.addContactState.collectAsState()
     val editResult by viewModel.editContactState.collectAsState()
     val deleteResult by viewModel.deleteContactState.collectAsState()
+    val toggleError by viewModel.toggleError.collectAsState()
     var showAddDialog by remember { mutableStateOf(false) }
     var showEditDialog by remember { mutableStateOf<VerifiedContact?>(null) }
     var showDeleteConfirm by remember { mutableStateOf<VerifiedContact?>(null) }
@@ -45,6 +59,13 @@ fun ManageContactsScreen(
         if (snackbarMessage != null) {
             kotlinx.coroutines.delay(3000L)
             snackbarMessage = null
+        }
+    }
+
+    LaunchedEffect(toggleError) {
+        if (toggleError != null) {
+            snackbarMessage = toggleError
+            viewModel.clearToggleError()
         }
     }
 
@@ -99,7 +120,7 @@ fun ManageContactsScreen(
                 }
             }
         },
-        containerColor = Color(0xFFF5F7FA)
+        containerColor = LightBg
     ) { paddingValues ->
         Box(modifier = Modifier.padding(paddingValues).fillMaxSize()) {
             when (val result = contactsResult) {
@@ -124,9 +145,9 @@ fun ManageContactsScreen(
                     }
                 }
                 is NetworkResult.Failure -> {
-                    Text(
-                        text = result.error.message ?: "Failed to load contacts",
-                        color = Color(0xFFD32F2F),
+                    KioskErrorState(
+                        message = result.error.message ?: "Failed to load contacts",
+                        onRetry = { viewModel.loadContacts(prisonerId) },
                         modifier = Modifier.align(Alignment.Center)
                     )
                 }
@@ -190,7 +211,8 @@ fun ContactsList(
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(bottom = 88.dp)
     ) {
         items(contacts, key = { it.contactId }) { contact ->
             ContactItem(contact, onToggleStatus, onEdit, onDelete)
@@ -221,24 +243,24 @@ fun ContactItem(
         ) {
             Surface(
                 shape = CircleShape,
-                color = Color(0xFF003366).copy(alpha = 0.1f),
+                color = PrimaryNavy.copy(alpha = 0.1f),
                 modifier = Modifier.size(48.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Icon(Icons.Default.Person, contentDescription = null, tint = Color(0xFF003366))
+                    Icon(Icons.Default.Person, contentDescription = null, tint = PrimaryNavy)
                 }
             }
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(contact.displayName, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                Text(contact.phone, color = Color(0xFF687A8F), fontSize = 14.sp)
-                Text(contact.relationship ?: "Contact", color = Color(0xFF003366), fontSize = 12.sp)
+                Text(contact.phone, color = TextGray, fontSize = 14.sp)
+                Text(contact.relationship ?: "Contact", color = PrimaryNavy, fontSize = 12.sp)
             }
             IconButton(onClick = { onEdit(contact) }) {
                 Icon(Icons.Default.Edit, contentDescription = "Edit", tint = Color(0xFF666666))
             }
             IconButton(onClick = { onDelete(contact) }) {
-                Icon(Icons.Default.Delete, contentDescription = "Delete", tint = AlertRed)
+                Icon(Icons.Default.Delete, contentDescription = "Delete", tint = DangerRed)
             }
             Switch(
                 checked = localActive,
@@ -256,7 +278,7 @@ fun EmptyContactsView(modifier: Modifier = Modifier) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = modifier) {
         Icon(Icons.Default.GroupOff, contentDescription = null, modifier = Modifier.size(64.dp), tint = Color.LightGray)
         Spacer(modifier = Modifier.height(16.dp))
-        Text("No verified contacts found", color = Color.Gray)
+        Text("No verified contacts found", color = TextGray)
     }
 }
 
@@ -275,49 +297,68 @@ fun ContactFormDialog(
     onConfirm: (String, String, String) -> Unit
 ) {
     var name by remember { mutableStateOf(initialName) }
-    var mobile by remember { mutableStateOf(initialMobile) }
+    // Store the full +91 number; submit national digits to the backend.
+    var mobile by remember { mutableStateOf(normalizeIndianPhone(initialMobile)) }
     var relation by remember { mutableStateOf(initialRelationship) }
-    var nameError by remember { mutableStateOf(false) }
-    var mobileError by remember { mutableStateOf(false) }
+    var submitted by remember { mutableStateOf(false) }
+
+    val nameError = if (submitted && name.isBlank()) "Name is required" else null
+    val national = phoneNationalDigits(mobile)
+    val mobileError = when {
+        submitted && national.length != 10 -> "Enter a valid 10-digit mobile number"
+        mobile.isNotBlank() && national.length != 10 -> "Enter a valid 10-digit mobile number"
+        else -> null
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(title) },
+        title = { Text(title, fontWeight = FontWeight.Bold) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                KioskTextField(
                     value = name,
-                    onValueChange = { name = it; nameError = false },
-                    label = { Text("Full Name *") },
-                    isError = nameError,
-                    singleLine = true
+                    onValueChange = { name = it },
+                    label = "Full Name",
+                    required = true,
+                    placeholder = "e.g. Neha Gupta",
+                    errorText = nameError,
+                    imeAction = ImeAction.Next
                 )
-                if (nameError) Text("Name is required", color = Color(0xFFD32F2F), fontSize = 12.sp)
-                OutlinedTextField(
+
+                KioskSelectField(
                     value = relation,
                     onValueChange = { relation = it },
-                    label = { Text("Relationship") },
-                    singleLine = true
+                    label = "Relationship",
+                    options = RELATIONSHIP_OPTIONS,
+                    placeholder = "Select relationship",
+                    modifier = Modifier.fillMaxWidth()
                 )
-                OutlinedTextField(
+
+                KioskPhoneField(
                     value = mobile,
-                    onValueChange = { mobile = it; mobileError = false },
-                    label = { Text("Mobile Number *") },
-                    placeholder = { Text("+91XXXXXXXXXX") },
-                    isError = mobileError,
-                    singleLine = true
+                    onValueChange = { mobile = it },
+                    label = "Mobile Number",
+                    required = true,
+                    errorText = mobileError,
+                    imeAction = ImeAction.Done
                 )
-                if (mobileError) Text("Mobile number is required", color = Color(0xFFD32F2F), fontSize = 12.sp)
             }
         },
         confirmButton = {
-            Button(onClick = {
-                nameError = name.isBlank()
-                mobileError = mobile.isBlank()
-                if (!nameError && !mobileError) {
-                    onConfirm(name.trim(), mobile.trim(), relation.trim())
-                }
-            }) { Text(confirmLabel) }
+            Button(
+                onClick = {
+                    submitted = true
+                    if (name.isNotBlank() && national.length == 10) {
+                        onConfirm(name.trim(), national, relation.trim())
+                    }
+                },
+                shape = RoundedCornerShape(10.dp)
+            ) { Text(confirmLabel) }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("Cancel") }
