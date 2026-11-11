@@ -36,6 +36,10 @@ captures/
 *.apk
 *.aab
 *.keystore
+# Release keystore (never in git — the CI uses it from the repo secrets).
+android-kiosk/secrets/
+# Android Studio "Generate Signed APK" output folder (build artifacts only).
+android-kiosk/app/release/
 
 # Environment Variables & Secrets
 # NOTE: `.env` holds real secrets and is never committed. `.env.example` is the
