@@ -98,6 +98,8 @@ jobs:
           DSM_KEY_PASSWORD: ${{ secrets.DSM_KEY_PASSWORD }}
         run: |
           set -euo pipefail
+          # The Windows checkout does not carry the executable bit.
+          chmod +x gradlew
           ./gradlew assembleRelease \
             -PversionCode="${{ inputs.version_code }}" \
             -PversionName="${{ inputs.version_name }}" \
