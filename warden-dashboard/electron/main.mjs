@@ -14,7 +14,10 @@
  *  - DevTools, reload and refresh accelerators are disabled in production.
  */
 import { app, BrowserWindow, Menu, protocol, session, shell, net, ipcMain } from 'electron';
-import { autoUpdater } from 'electron-updater';
+// electron-updater is a CommonJS module: in an ESM file its exports arrive as
+// the default export (a named import fails with
+// "Named export 'autoUpdater' not found").
+import electronUpdater from 'electron-updater';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
@@ -229,6 +232,8 @@ ipcMain.handle('dss:open-external', async (_event, url) => {
 // published app metadata. The renderer falls back to the release registry
 // in that case.
 const isPackaged = app.isPackaged;
+
+const { autoUpdater } = electronUpdater;
 
 autoUpdater.autoDownload = false;
 autoUpdater.autoInstallOnAppQuit = true;
