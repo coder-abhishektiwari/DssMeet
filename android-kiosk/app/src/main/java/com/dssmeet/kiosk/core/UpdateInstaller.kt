@@ -46,7 +46,10 @@ class UpdateInstaller @Inject constructor(
     /**
      * Download the APK into the app cache and verify its sha256.
      */
-    suspend fun download(info: AppUpdateInfo): kotlin.Result<DownloadResult> = withContext(Dispatchers.IO) {
+    suspend fun download(
+        info: AppUpdateInfo,
+        onProgress: (percent: Int) -> Unit = {}
+    ): kotlin.Result<DownloadResult> = withContext(Dispatchers.IO) {
         runCatching {
             if (!info.downloadUrl.startsWith("https://")) {
                 error("Update URL must be https")
@@ -62,6 +65,7 @@ class UpdateInstaller @Inject constructor(
 
                 val digest = MessageDigest.getInstance("SHA-256")
                 var total = 0L
+                var lastPercent = -1
                 body.byteStream().use { input ->
                     target.outputStream().use { output ->
                         val buffer = ByteArray(64 * 1024)
@@ -71,6 +75,15 @@ class UpdateInstaller @Inject constructor(
                             digest.update(buffer, 0, read)
                             output.write(buffer, 0, read)
                             total += read
+                            val expectedTotal = body.contentLength().takeIf { it > 0 }
+                                ?: info.sizeBytes?.takeIf { it > 0 }
+                            if (expectedTotal != null) {
+                                val percent = ((total * 100) / expectedTotal).toInt().coerceIn(0, 100)
+                                if (percent != lastPercent) {
+                                    lastPercent = percent
+                                    onProgress(percent)
+                                }
+                            }
                         }
                     }
                 }

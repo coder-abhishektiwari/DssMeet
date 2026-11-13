@@ -17,8 +17,17 @@ import javax.inject.Inject
 class MainViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val sessionManager: SessionManager,
-    private val deviceInfoProvider: DeviceInfoProvider
+    private val deviceInfoProvider: DeviceInfoProvider,
+    private val updateManager: com.dssmeet.kiosk.core.UpdateManager
 ) : ViewModel() {
+
+    /**
+     * The kiosk is on the login screen — the mandatory update gate steps
+     * aside so the admin CAN sign in (installing a build is an admin action).
+     */
+    fun setAtLogin(value: Boolean) {
+        updateManager.setAtLogin(value)
+    }
 
     /**
      * Observable state of device authorization.

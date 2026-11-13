@@ -295,6 +295,31 @@ class SessionManager @Inject constructor(
                 !prefs[KEY_REFRESH_TOKEN].isNullOrBlank()
         }
 
+    /**
+     * The role of the CURRENT session (decoded from the access token), or null
+     * when nobody is signed in. Used to decide whether the current user may
+     * perform an admin action (e.g. installing a kiosk update).
+     */
+    val sessionRole: Flow<String?> = context.dataStore.data.map { prefs ->
+        val stored = prefs[KEY_ACCESS_TOKEN] ?: return@map null
+        val raw = if (TokenCipher.isEncrypted(stored)) TokenCipher.decrypt(stored) else stored
+        roleOf(raw)
+    }
+
+    private fun roleOf(accessToken: String?): String? {
+        if (accessToken.isNullOrBlank()) return null
+        return try {
+            val parts = accessToken.split(".")
+            if (parts.size != 3) return null
+            val padded = parts[1].replace('-', '+').replace('_', '/')
+            val b64 = padded.padEnd((padded.length + 3) / 4 * 4, '=')
+            val payload = String(android.util.Base64.decode(b64, android.util.Base64.DEFAULT))
+            Regex("\"role\"\\s*:\\s*\"([^\"]+)\"").find(payload)?.groupValues?.get(1)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     // ==================== KIOSK REGISTRATION MANAGEMENT ====================
 
     suspend fun saveRegistrationState(status: String, prisonId: String = "", requestId: String = "") {

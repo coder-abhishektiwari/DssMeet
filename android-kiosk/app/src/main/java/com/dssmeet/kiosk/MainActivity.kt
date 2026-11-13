@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Surface
 import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSizeClassApi
 import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -56,6 +57,39 @@ class MainActivity : FragmentActivity() {
     @Volatile private var updateProgressText: String? = null
     @Volatile private var updateErrorText: String? = null
 
+    /** Roles that may install a kiosk update (an admin action). */
+    private val ADMIN_ROLES = setOf("admin", "kiosk_admin", "super-admin", "super_admin", "vendor")
+
+    /**
+     * Install the update the user asked for.
+     *
+     * Installing a build is an ADMIN action: when an admin is signed in it
+     * starts right away; otherwise the kiosk is logged out and sent to the
+     * login screen, and the install resumes automatically once an admin
+     * signs in.
+     */
+    fun requestUpdateInstall(info: com.dssmeet.kiosk.models.appupdate.AppUpdateInfo) {
+        val role = currentRole
+        if (role != null && role.lowercase() in ADMIN_ROLES) {
+            startUpdateInstall(info)
+            return
+        }
+        // Not an admin (inmate session or logged out) → remember the request,
+        // drop any session and ask for an admin login.
+        updateManager.requestInstall(info)
+        Logger.w("MainActivity: update install needs an admin session (role=$role) — logging out")
+        lifecycleScope.launch {
+            try {
+                authRepository.logout().collect { }
+            } catch (e: Exception) {
+                Logger.w("MainActivity: logout before update failed: ${e.message}")
+            }
+            com.dssmeet.kiosk.core.SessionEvents.notifyExpired(
+                "Log in as admin to install the kiosk update"
+            )
+        }
+    }
+
     /**
      * Download the published APK, verify it and hand it to the installer.
      * On a device-owner kiosk this is a silent install — the new version is
@@ -64,19 +98,25 @@ class MainActivity : FragmentActivity() {
     fun startUpdateInstall(info: com.dssmeet.kiosk.models.appupdate.AppUpdateInfo) {
         if (updateWorkInProgress) return
         updateWorkInProgress = true
-        updateProgressText = "Downloading update…"
+        updateProgressText = null
         updateErrorText = null
+        updateManager.requestInstall(info)
+        updateManager.beginInstall()
         lifecycleScope.launch {
-            val downloaded = updateInstaller.download(info)
+            val downloaded = updateInstaller.download(info) { percent ->
+                updateManager.setInstallPhase("Downloading…", percent)
+            }
             downloaded.onFailure { err ->
                 updateWorkInProgress = false
                 updateProgressText = null
                 updateErrorText = err.message ?: "Download failed"
+                updateManager.setInstallError(err.message ?: "Download failed")
                 Logger.w("MainActivity: update download failed: ${err.message}")
                 return@launch
             }
             val file = downloaded.getOrThrow().file
             updateProgressText = "Installing update…"
+            updateManager.setInstallPhase("Installing…", 100)
             val installed = updateInstaller.install(file)
             installed.onSuccess {
                 updateProgressText = "Update installed — restarting…"
@@ -85,6 +125,7 @@ class MainActivity : FragmentActivity() {
                 updateWorkInProgress = false
                 updateProgressText = null
                 updateErrorText = err.message ?: "Install failed"
+                updateManager.setInstallError(err.message ?: "Install failed")
                 Logger.w("MainActivity: update install failed: ${err.message}")
             }
         }
@@ -111,6 +152,9 @@ class MainActivity : FragmentActivity() {
      */
     @Volatile var isLobbyOpen: Boolean = false
 
+    /** Role of the current session (null = nobody signed in). */
+    @Volatile private var currentRole: String? = null
+
     @OptIn(ExperimentalMaterial3WindowSizeClassApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -126,6 +170,26 @@ class MainActivity : FragmentActivity() {
                 val windowSizeClass = calculateWindowSizeClass(this)
                 val isOnline by networkMonitor.isOnline.collectAsState()
                 val updateState by updateManager.state.collectAsState()
+                val installState by updateManager.installState.collectAsState()
+                val pendingInstall by updateManager.pendingInstall.collectAsState()
+                val sessionRole by sessionManager.sessionRole.collectAsState(initial = null)
+                val atLogin by updateManager.atLogin.collectAsState()
+
+                // Keep the activity's copy of the role in sync (the install
+                // gate needs it outside the composition too).
+                LaunchedEffect(sessionRole) { currentRole = sessionRole }
+
+                // A pending install resumes by itself as soon as an ADMIN
+                // session exists (the user was asked to log in as admin).
+                LaunchedEffect(sessionRole, pendingInstall) {
+                    val pending = pendingInstall ?: return@LaunchedEffect
+                    val role = sessionRole?.lowercase()
+                    if (role != null && role in ADMIN_ROLES && !updateWorkInProgress) {
+                        Logger.i("MainActivity: admin session present — resuming the pending update install")
+                        startUpdateInstall(pending)
+                    }
+                }
+
                 Surface(modifier = Modifier.fillMaxSize()) {
                     Box(modifier = Modifier.fillMaxSize()) {
                         // One-time setup gate: nothing runs until every runtime
@@ -164,23 +228,39 @@ class MainActivity : FragmentActivity() {
                             ) {
                                 com.dssmeet.kiosk.ui.update.OptionalUpdateBanner(
                                     info = optionalUpdate.info,
-                                    onInstall = { startUpdateInstall(optionalUpdate.info) },
+                                    onInstall = { requestUpdateInstall(optionalUpdate.info) },
                                     onDismiss = { dismissOptionalUpdate() }
                                 )
                             }
                         }
 
+                        // The install itself (download → verify → install).
+                        // Only reachable with an admin session.
+                        val installing = pendingInstall
+                        if (installing != null && installState.active) {
+                            com.dssmeet.kiosk.ui.update.UpdateInstallScreen(
+                                info = installing,
+                                phase = installState.phase,
+                                percent = installState.percent,
+                                error = installState.error,
+                                onRetry = { requestUpdateInstall(installing) },
+                                onCancel = { updateManager.clearPendingInstall() }
+                            )
+                        }
+
                         // Mandatory update gate: a published build that says
                         // "mandatory" blocks the kiosk completely — the screen
                         // stays unusable until the new APK is installed.
+                        // EXCEPTION: on the login screen the gate steps aside,
+                        // otherwise the admin could never sign in to install it.
                         val mandatory = updateState as? com.dssmeet.kiosk.core.UpdateManager.State.Mandatory
-                        if (mandatory != null) {
+                        if (mandatory != null && !atLogin) {
                             com.dssmeet.kiosk.ui.update.MandatoryUpdateScreen(
                                 info = mandatory.info,
                                 isWorking = updateWorkInProgress,
                                 progressText = updateProgressText,
                                 errorText = updateErrorText,
-                                onInstall = { startUpdateInstall(mandatory.info) }
+                                onInstall = { requestUpdateInstall(mandatory.info) }
                             )
                         }
                     }

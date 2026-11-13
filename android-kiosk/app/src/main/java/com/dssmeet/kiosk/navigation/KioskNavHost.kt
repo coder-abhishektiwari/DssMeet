@@ -80,6 +80,9 @@ fun KioskNavHost(
             currentRoute!!.startsWith("video_call") ||
             currentRoute!!.startsWith("audio_call")
         )
+        // The mandatory update gate must not cover the login screen — the
+        // admin has to be able to sign in to install the update.
+        viewModel.setAtLogin(currentRoute == KioskRoutes.LOGIN)
     }
 
     // The session died (expired token, revoked session, inactivity timeout):
