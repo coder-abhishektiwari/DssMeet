@@ -6,6 +6,7 @@ import androidx.activity.compose.setContent
 import androidx.fragment.app.FragmentActivity
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Surface
 import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSizeClassApi
 import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
@@ -14,7 +15,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -145,6 +148,26 @@ class MainActivity : FragmentActivity() {
                         // instant it returns (driven by NetworkMonitor's callback).
                         if (!isOnline) {
                             NoInternetScreen(onRetry = { networkMonitor.refresh() })
+                        }
+
+                        // Optional update notice — floats above EVERY screen
+                        // (login, inmate dashboard, admin screens) so the
+                        // admin who actually maintains the kiosk always sees
+                        // it, not just the inmate dashboard.
+                        val optionalUpdate =
+                            updateState as? com.dssmeet.kiosk.core.UpdateManager.State.Optional
+                        if (optionalUpdate != null) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .padding(16.dp)
+                            ) {
+                                com.dssmeet.kiosk.ui.update.OptionalUpdateBanner(
+                                    info = optionalUpdate.info,
+                                    onInstall = { startUpdateInstall(optionalUpdate.info) },
+                                    onDismiss = { dismissOptionalUpdate() }
+                                )
+                            }
                         }
 
                         // Mandatory update gate: a published build that says

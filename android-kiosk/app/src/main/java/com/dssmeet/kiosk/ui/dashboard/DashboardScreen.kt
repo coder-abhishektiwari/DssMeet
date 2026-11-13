@@ -79,13 +79,10 @@ fun DashboardScreen(
     onLogoutClick: () -> Unit,
     onStartCall: (contactId: String, contactName: String, roomId: String, isVideo: Boolean) -> Unit,
     onLobbyOpenChange: (Boolean) -> Unit = {},
-    onInstallUpdate: (com.dssmeet.kiosk.models.appupdate.AppUpdateInfo) -> Unit = {},
-    onDismissUpdate: () -> Unit = {},
     viewModel: DashboardViewModel = hiltViewModel()
 ) {
     val dashboardState by viewModel.dashboardState.collectAsState()
     val jailBalance by viewModel.jailBalance.collectAsState()
-    val updateState by viewModel.updateState.collectAsState()
     var currentTab by remember { mutableIntStateOf(0) }
 
     var showLobbyDialog by remember { mutableStateOf(false) }
@@ -132,37 +129,22 @@ fun DashboardScreen(
                 is UiState.Loading -> KioskLoadingState()
                 is UiState.Error -> KioskErrorState(message = state.message, onRetry = { viewModel.loadDashboardData() })
                 is UiState.Success -> {
-                    Column(modifier = Modifier.fillMaxSize()) {
-                        // Optional update notice (dismissible) — a mandatory
-                        // update never reaches here, it blocks the whole app.
-                        val optionalUpdate =
-                            updateState as? com.dssmeet.kiosk.core.UpdateManager.State.Optional
-                        if (optionalUpdate != null) {
-                            com.dssmeet.kiosk.ui.update.OptionalUpdateBanner(
-                                info = optionalUpdate.info,
-                                onInstall = { onInstallUpdate(optionalUpdate.info) },
-                                onDismiss = onDismissUpdate
-                            )
-                        }
-                        Box(modifier = Modifier.weight(1f)) {
-                            when (currentTab) {
-                                0 -> DashboardContent(
-                                    windowWidthSizeClass = windowSizeClass.widthSizeClass,
-                                    data = state.data,
-                                    onContactClick = { id, name, type ->
-                                        lobbyContactId = id
-                                        lobbyContactName = name
-                                        lobbyCallType = type
-                                        showLobbyDialog = true
-                                    },
-                                    onWalletClick = onWalletClick,
-                                    onProfileClick = onProfileClick
-                                )
-                                1 -> HistoryTabContent(
-                                    callHistory = state.data.callHistory
-                                )
-                            }
-                        }
+                    when (currentTab) {
+                        0 -> DashboardContent(
+                            windowWidthSizeClass = windowSizeClass.widthSizeClass,
+                            data = state.data,
+                            onContactClick = { id, name, type ->
+                                lobbyContactId = id
+                                lobbyContactName = name
+                                lobbyCallType = type
+                                showLobbyDialog = true
+                            },
+                            onWalletClick = onWalletClick,
+                            onProfileClick = onProfileClick
+                        )
+                        1 -> HistoryTabContent(
+                            callHistory = state.data.callHistory
+                        )
                     }
                 }
                 else -> Unit
