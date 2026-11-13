@@ -1,6 +1,7 @@
 package com.dssmeet.kiosk.ui.components
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -18,6 +19,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.dssmeet.kiosk.ui.theme.BorderColor
@@ -85,44 +87,59 @@ fun KioskDateField(
     val display = displayOf(value)
     val shown = display.ifBlank { placeholder }
 
-    OutlinedTextField(
-        value = shown,
-        onValueChange = {},
-        label = { Text(if (required) "$label *" else label) },
-        readOnly = true,
-        enabled = true,
-        singleLine = true,
-        isError = isError,
-        trailingIcon = {
-            if (value.isNotBlank()) {
-                IconButton(onClick = { (onClear ?: { onValueChange("") })() }) {
-                    Icon(Icons.Default.Close, contentDescription = "Clear $label", tint = TextGray)
-                }
-            } else {
-                Icon(Icons.Default.CalendarToday, contentDescription = "Pick $label", tint = PrimaryNavy)
-            }
-        },
-        supportingText = {
-            Text(
-                text = errorText ?: " ",
-                color = if (isError) DangerRed else TextGray,
-                maxLines = 2
-            )
-        },
-        colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = PrimaryNavy,
-            unfocusedBorderColor = BorderColor,
-            focusedLabelColor = PrimaryNavy,
-            unfocusedLabelColor = TextGray,
-            focusedTextColor = PrimaryDarkNavy,
-            unfocusedTextColor = if (value.isBlank()) TextGray else PrimaryDarkNavy,
-            errorBorderColor = DangerRed,
-            errorLabelColor = DangerRed
-        ),
+    // A readOnly OutlinedTextField still SWALLOWS the tap (it wants to focus
+    // and place the cursor), so the picker never opened. The field is
+    // therefore rendered as a non-interactive (disabled) input — which does
+    // not consume touches — inside a clickable wrapper, and the disabled
+    // colours are overridden so it still LOOKS enabled.
+    Box(
         modifier = modifier
             .fillMaxWidth()
             .clickable(role = Role.Button) { showPicker = true }
-    )
+    ) {
+        OutlinedTextField(
+            value = shown,
+            onValueChange = {},
+            label = { Text(if (required) "$label *" else label) },
+            readOnly = true,
+            enabled = false,
+            singleLine = true,
+            isError = isError,
+            trailingIcon = {
+                if (value.isNotBlank()) {
+                    IconButton(onClick = { (onClear ?: { onValueChange("") })() }) {
+                        Icon(Icons.Default.Close, contentDescription = "Clear $label", tint = TextGray)
+                    }
+                } else {
+                    Icon(Icons.Default.CalendarToday, contentDescription = "Pick $label", tint = PrimaryNavy)
+                }
+            },
+            supportingText = {
+                Text(
+                    text = errorText ?: " ",
+                    color = if (isError) DangerRed else TextGray,
+                    maxLines = 2
+                )
+            },
+            colors = OutlinedTextFieldDefaults.colors(
+                disabledContainerColor = Color.Transparent,
+                disabledTextColor = if (value.isBlank()) TextGray else PrimaryDarkNavy,
+                disabledBorderColor = if (isError) DangerRed else BorderColor,
+                disabledLabelColor = TextGray,
+                disabledTrailingIconColor = PrimaryNavy,
+                disabledSupportingTextColor = TextGray,
+                focusedBorderColor = PrimaryNavy,
+                unfocusedBorderColor = BorderColor,
+                focusedLabelColor = PrimaryNavy,
+                unfocusedLabelColor = TextGray,
+                focusedTextColor = PrimaryDarkNavy,
+                unfocusedTextColor = if (value.isBlank()) TextGray else PrimaryDarkNavy,
+                errorBorderColor = DangerRed,
+                errorLabelColor = DangerRed
+            ),
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
 
     if (showPicker) {
         val initialMillis = millisOf(value) ?: System.currentTimeMillis()

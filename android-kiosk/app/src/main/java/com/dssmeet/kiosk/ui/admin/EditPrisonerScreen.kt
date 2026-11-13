@@ -48,6 +48,7 @@ fun EditPrisonerScreen(
     val updateResult by viewModel.updateState.collectAsState()
     val resetPinResult by viewModel.resetPinState.collectAsState()
     val kioskOptions by viewModel.kioskOptions.collectAsState()
+    val currentKioskId by viewModel.currentKioskId.collectAsState()
 
     LaunchedEffect(prisonerId) {
         viewModel.loadPrisoner(prisonerId)
@@ -72,6 +73,7 @@ fun EditPrisonerScreen(
                     EditPrisonerForm(
                         prisoner = result.data,
                         kioskOptions = kioskOptions,
+                        currentKioskId = currentKioskId,
                         onUpdate = { request -> viewModel.updatePrisoner(prisonerId, request) },
                         onResetPin = { pin -> viewModel.resetPin(prisonerId, pin) },
                         onResetPinDismissed = { viewModel.resetResetPinState() },
@@ -105,6 +107,7 @@ fun EditPrisonerScreen(
 fun EditPrisonerForm(
     prisoner: Prisoner,
     kioskOptions: List<KioskDevice> = emptyList(),
+    currentKioskId: String = "",
     onUpdate: (EditPrisonerRequest) -> Unit,
     onResetPin: (String) -> Unit,
     onResetPinDismissed: () -> Unit,
@@ -120,6 +123,11 @@ fun EditPrisonerForm(
     var resetPinError by remember { mutableStateOf("") }
     var resetPinSuccess by remember { mutableStateOf(false) }
 
+    // An inmate without a kiosk gets the one this device IS.
+    LaunchedEffect(currentKioskId) {
+        formState.applyDefaultKiosk(currentKioskId)
+    }
+
     val resetPinLoading = resetPinResult is NetworkResult.Loading
     LaunchedEffect(resetPinResult) {
         if (resetPinResult is NetworkResult.Success) {
@@ -134,10 +142,14 @@ fun EditPrisonerForm(
     val submit: () -> Unit = {
         val values = formState.toValues()
         val ageNum = values.age?.toIntOrNull()
+        // Same required-field rules as the Add form.
+        val personalError = formState.validatePersonal()
+        val identityError = formState.validateIdentity()
+        val addressError = formState.validateAddress()
         saveError = when {
-            values.name.isEmpty() -> "Full name is required"
-            values.age != null && ageNum == null -> "Age must be a number"
-            ageNum != null && (ageNum < 1 || ageNum > 120) -> "Age must be between 1 and 120"
+            personalError.isNotEmpty() -> personalError
+            identityError.isNotEmpty() -> identityError
+            addressError.isNotEmpty() -> addressError
             else -> {
                 onUpdate(
                     EditPrisonerRequest(

@@ -62,6 +62,7 @@ fun AddPrisonerScreen(
     val fingerprintState by viewModel.fingerprintState.collectAsState()
     val rfidState by viewModel.rfidState.collectAsState()
     val kioskOptions by viewModel.kioskOptions.collectAsState()
+    val currentKioskId by viewModel.currentKioskId.collectAsState()
 
     // Screen left mid-capture — no hardware session may keep running.
     DisposableEffect(Unit) {
@@ -79,6 +80,7 @@ fun AddPrisonerScreen(
         fingerprintState = fingerprintState,
         rfidState = rfidState,
         kioskOptions = kioskOptions,
+        currentKioskId = currentKioskId,
         onStartCapture = viewModel::startCapture,
         onStopCapture = viewModel::stopCapture,
         onAcknowledgeCapture = viewModel::acknowledgeCapture,
@@ -96,6 +98,7 @@ fun AddPrisonerContent(
     fingerprintState: FingerprintCaptureState = FingerprintCaptureState.Idle,
     rfidState: RfidReaderState = RfidReaderState.Idle,
     kioskOptions: List<KioskDevice> = emptyList(),
+    currentKioskId: String = "",
     onStartCapture: (String) -> Unit = {},
     onStopCapture: () -> Unit = {},
     onAcknowledgeCapture: (String) -> Unit = {},
@@ -141,6 +144,11 @@ fun AddPrisonerContent(
         if (registrationState is AddPrisonerViewModel.RegistrationState.Success) {
             completed = true
         }
+    }
+
+    // Default the assignment to the kiosk this device IS.
+    LaunchedEffect(currentKioskId) {
+        formState.applyDefaultKiosk(currentKioskId)
     }
 
     val loading = registrationState is AddPrisonerViewModel.RegistrationState.Loading
@@ -288,6 +296,8 @@ fun AddPrisonerContent(
                                         addressError.isNotEmpty() -> addressError
                                         pin.length != 6 -> "PIN must be exactly 6 digits"
                                         pin != confirmPin -> "PINs do not match"
+                                        fingerprintTemplate.isBlank() && rfidTag.isBlank() ->
+                                            "Register at least one biometric — fingerprint or RFID"
                                         else -> ""
                                     }
                                     if (formError.isEmpty()) {
@@ -493,7 +503,7 @@ private fun BiometricDataStep(
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-                text = "Biometric Data (Optional)",
+                text = "Biometric Data (Required — at least one)",
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
                 color = PrimaryDarkNavy
@@ -543,7 +553,7 @@ private fun BiometricDataStep(
                             color = PrimaryNavy
                         )
                         Text(
-                            text = "Capture the fingerprint or tap the RFID card — both are optional. Data can also be added later from the Biometrics screen.",
+                            text = "Capture the fingerprint OR tap the RFID card — at least one is required to register the inmate. The other one can be added later from the Biometrics screen.",
                             fontSize = 12.sp,
                             color = PrimaryNavy
                         )

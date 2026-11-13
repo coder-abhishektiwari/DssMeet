@@ -10,6 +10,7 @@ import com.dssmeet.kiosk.ui.theme.InfoText
 import com.dssmeet.kiosk.ui.theme.NeutralBg
 
 import com.dssmeet.kiosk.ui.theme.DangerRed
+import com.dssmeet.kiosk.ui.theme.BorderColor
 import com.dssmeet.kiosk.ui.theme.GreenActiveBg
 import com.dssmeet.kiosk.ui.theme.LightBg
 import com.dssmeet.kiosk.ui.theme.MoneyRed
@@ -21,17 +22,17 @@ import android.media.MediaPlayer
 import android.net.Uri
 import android.widget.VideoView
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.material3.windowsizeclass.WindowSizeClass
+import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,7 +49,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.dssmeet.kiosk.models.call.CallHistory
 import com.dssmeet.kiosk.models.call.CallType
 import com.dssmeet.kiosk.models.call.FamilyLocation
-import com.dssmeet.kiosk.ui.components.KioskTextField
+import com.dssmeet.kiosk.ui.components.KioskCompactSelectField
+import com.dssmeet.kiosk.ui.components.KioskDateField
 import com.dssmeet.kiosk.ui.components.KioskTopBar
 import com.dssmeet.kiosk.ui.components.LocationMapDialog
 import java.time.Instant
@@ -94,24 +96,31 @@ fun CallHistoryScreen(
         state = state,
         snackbarHostState = snackbarHostState,
         onBackClick = onBackClick,
+        wide = windowSizeClass.widthSizeClass == WindowWidthSizeClass.Expanded,
         onSearchChange = viewModel::onSearchChange,
         onTypeFilter = viewModel::setTypeFilter,
+        onStatusFilter = viewModel::setStatusFilter,
         onDatePreset = viewModel::setDatePreset,
-        onToggleRecordedOnly = viewModel::toggleRecordedOnly,
+        onCustomRange = viewModel::setCustomRange,
+        onClearFilters = viewModel::clearFilters,
         onRetry = viewModel::retry,
         onPlay = viewModel::startPlayback
     )
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun CallHistoryContent(
     state: CallHistoryViewModel.UiState,
     snackbarHostState: SnackbarHostState,
     onBackClick: () -> Unit,
+    wide: Boolean = false,
     onSearchChange: (String) -> Unit,
     onTypeFilter: (CallHistoryViewModel.TypeFilter) -> Unit,
+    onStatusFilter: (CallHistoryViewModel.StatusFilter) -> Unit,
     onDatePreset: (CallHistoryViewModel.DatePreset) -> Unit,
-    onToggleRecordedOnly: () -> Unit,
+    onCustomRange: (String, String) -> Unit,
+    onClearFilters: () -> Unit,
     onRetry: () -> Unit,
     onPlay: (CallHistory) -> Unit
 ) {
@@ -119,7 +128,7 @@ fun CallHistoryContent(
         call.callId in state.localCallIds ||
             (call.roomId?.let { it in state.localCallIds } == true)
 
-    val visibleCalls = if (state.recordedOnly) state.calls.filter { hasLocal(it) } else state.calls
+    val visibleCalls = state.calls
     val recordedCount = state.calls.count { hasLocal(it) }
 
     // Non-null while the in-app location map dialog is open (admin-only view).
@@ -144,6 +153,9 @@ fun CallHistoryContent(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             // ---- Filters ----
+            // One compact row of dropdowns instead of tall chip rows: the card
+            // stays short, and FlowRow wraps the dropdowns onto a second line
+            // on a narrow phone while keeping them on ONE line on a tablet.
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -152,65 +164,181 @@ fun CallHistoryContent(
                     elevation = CardDefaults.cardElevation(2.dp)
                 ) {
                     Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        KioskTextField(
-                            value = state.search,
-                            onValueChange = onSearchChange,
-                            label = "Search",
-                            placeholder = "Search inmate or family member",
-                            leadingIcon = Icons.Default.Search,
-                            imeAction = androidx.compose.ui.text.input.ImeAction.Search,
-                            trailingIcon = {
-                                if (state.search.isNotEmpty()) {
-                                    IconButton(onClick = { onSearchChange("") }) {
-                                        Icon(Icons.Default.Close, contentDescription = "Clear search")
-                                    }
-                                }
-                            }
-                        )
-
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            CallHistoryViewModel.TypeFilter.entries.forEach { filter ->
-                                FilterChip(
-                                    selected = state.typeFilter == filter,
-                                    onClick = { onTypeFilter(filter) },
-                                    label = { Text(filter.label, fontSize = 13.sp) }
+                            OutlinedTextField(
+                                value = state.search,
+                                onValueChange = onSearchChange,
+                                placeholder = { Text("Search inmate, family or call ID", fontSize = 13.sp) },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Default.Search,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                },
+                                trailingIcon = {
+                                    if (state.search.isNotEmpty()) {
+                                        IconButton(
+                                            onClick = { onSearchChange("") },
+                                            modifier = Modifier.size(32.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Close,
+                                                contentDescription = "Clear search",
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    }
+                                },
+                                singleLine = true,
+                                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = PrimaryNavy,
+                                    unfocusedBorderColor = BorderColor,
+                                    focusedTextColor = PrimaryDarkNavy,
+                                    unfocusedTextColor = PrimaryDarkNavy
+                                ),
+                                modifier = Modifier.weight(1f)
+                            )
+
+                            if (state.hasActiveFilters) {
+                                IconButton(onClick = onClearFilters) {
+                                    Icon(
+                                        Icons.Default.FilterAltOff,
+                                        contentDescription = "Clear all filters",
+                                        tint = DangerRed
+                                    )
+                                }
+                            }
+                        }
+
+                        // Three dropdowns only — Type, Status, Date. On a wide
+                        // screen they share one row; on a phone they wrap.
+                        if (wide) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                KioskCompactSelectField(
+                                    value = state.typeFilter.name,
+                                    onValueChange = { name ->
+                                        onTypeFilter(
+                                            CallHistoryViewModel.TypeFilter.entries.first { it.name == name }
+                                        )
+                                    },
+                                    label = "Type",
+                                    options = CallHistoryViewModel.TypeFilter.entries.map { it.name },
+                                    display = { name ->
+                                        CallHistoryViewModel.TypeFilter.entries.first { it.name == name }.label
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                )
+                                KioskCompactSelectField(
+                                    value = state.statusFilter.name,
+                                    onValueChange = { name ->
+                                        onStatusFilter(
+                                            CallHistoryViewModel.StatusFilter.entries.first { it.name == name }
+                                        )
+                                    },
+                                    label = "Status",
+                                    options = CallHistoryViewModel.StatusFilter.entries.map { it.name },
+                                    display = { name ->
+                                        CallHistoryViewModel.StatusFilter.entries.first { it.name == name }.label
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                )
+                                KioskCompactSelectField(
+                                    value = state.datePreset.name,
+                                    onValueChange = { name ->
+                                        onDatePreset(
+                                            CallHistoryViewModel.DatePreset.entries.first { it.name == name }
+                                        )
+                                    },
+                                    label = "Date",
+                                    options = CallHistoryViewModel.DatePreset.entries.map { it.name },
+                                    display = { name ->
+                                        CallHistoryViewModel.DatePreset.entries.first { it.name == name }.label
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        } else {
+                            FlowRow(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                KioskCompactSelectField(
+                                    value = state.typeFilter.name,
+                                    onValueChange = { name ->
+                                        onTypeFilter(
+                                            CallHistoryViewModel.TypeFilter.entries.first { it.name == name }
+                                        )
+                                    },
+                                    label = "Type",
+                                    options = CallHistoryViewModel.TypeFilter.entries.map { it.name },
+                                    display = { name ->
+                                        CallHistoryViewModel.TypeFilter.entries.first { it.name == name }.label
+                                    },
+                                    modifier = Modifier.width(140.dp)
+                                )
+                                KioskCompactSelectField(
+                                    value = state.statusFilter.name,
+                                    onValueChange = { name ->
+                                        onStatusFilter(
+                                            CallHistoryViewModel.StatusFilter.entries.first { it.name == name }
+                                        )
+                                    },
+                                    label = "Status",
+                                    options = CallHistoryViewModel.StatusFilter.entries.map { it.name },
+                                    display = { name ->
+                                        CallHistoryViewModel.StatusFilter.entries.first { it.name == name }.label
+                                    },
+                                    modifier = Modifier.width(140.dp)
+                                )
+                                KioskCompactSelectField(
+                                    value = state.datePreset.name,
+                                    onValueChange = { name ->
+                                        onDatePreset(
+                                            CallHistoryViewModel.DatePreset.entries.first { it.name == name }
+                                        )
+                                    },
+                                    label = "Date",
+                                    options = CallHistoryViewModel.DatePreset.entries.map { it.name },
+                                    display = { name ->
+                                        CallHistoryViewModel.DatePreset.entries.first { it.name == name }.label
+                                    },
+                                    modifier = Modifier.width(140.dp)
                                 )
                             }
                         }
 
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            CallHistoryViewModel.DatePreset.entries.forEach { preset ->
-                                FilterChip(
-                                    selected = state.datePreset == preset,
-                                    onClick = { onDatePreset(preset) },
-                                    label = { Text(preset.label, fontSize = 13.sp) }
+                        // Custom range → two calendar pickers (from / to).
+                        if (state.datePreset == CallHistoryViewModel.DatePreset.CUSTOM) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                KioskDateField(
+                                    value = state.customFrom,
+                                    onValueChange = { onCustomRange(it, state.customTo) },
+                                    label = "From",
+                                    modifier = Modifier.weight(1f)
+                                )
+                                KioskDateField(
+                                    value = state.customTo,
+                                    onValueChange = { onCustomRange(state.customFrom, it) },
+                                    label = "To",
+                                    modifier = Modifier.weight(1f)
                                 )
                             }
-                            FilterChip(
-                                selected = state.recordedOnly,
-                                onClick = onToggleRecordedOnly,
-                                label = { Text("With recording", fontSize = 13.sp) },
-                                leadingIcon = {
-                                    Icon(
-                                        Icons.Default.FilterList,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                }
-                            )
                         }
                     }
                 }
@@ -294,7 +422,7 @@ fun CallHistoryContent(
                             modifier = Modifier.size(48.dp)
                         )
                         Text(
-                            text = if (state.recordedOnly) "No recordings match these filters" else "No calls match these filters",
+                            text = "No calls match these filters",
                             fontSize = 15.sp,
                             color = TextGray,
                             textAlign = TextAlign.Center

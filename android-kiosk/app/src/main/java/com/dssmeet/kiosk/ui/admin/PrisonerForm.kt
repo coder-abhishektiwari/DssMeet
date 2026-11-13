@@ -82,6 +82,16 @@ class PrisonerFormState(initial: Prisoner?) {
     var assignedKioskId by mutableStateOf(initial?.assignedKioskId ?: "")
     var active by mutableStateOf(initial?.active ?: true)
 
+    /**
+     * Pre-select the kiosk this device is running as — the admin is standing
+     * at that kiosk, so it is the obvious assignment. An inmate that already
+     * has a kiosk keeps it.
+     */
+    fun applyDefaultKiosk(kioskId: String) {
+        if (kioskId.isBlank()) return
+        if (assignedKioskId.isBlank()) assignedKioskId = kioskId
+    }
+
     fun toValues(): PrisonerFormValues = PrisonerFormValues(
         name = fullName.trim(),
         gender = gender.ifBlank { null },
@@ -100,31 +110,40 @@ class PrisonerFormState(initial: Prisoner?) {
         assignedKioskId = assignedKioskId.trim().ifBlank { null }
     )
 
-    /** Returns an error message for the personal step, or "" when it is valid. */
+    /**
+     * Personal step — every field is required.
+     */
     fun validatePersonal(): String {
         val values = toValues()
         if (values.name.isEmpty()) return "Prisoner name is required"
+        if (values.age.isNullOrBlank()) return "Age is required"
         val ageNum = values.age?.toIntOrNull()
-        if (values.age != null && ageNum == null) return "Age must be a number"
-        if (ageNum != null && (ageNum < 1 || ageNum > 120)) return "Age must be between 1 and 120"
+        if (ageNum == null) return "Age must be a number"
+        if (ageNum < 1 || ageNum > 120) return "Age must be between 1 and 120"
+        if (values.fatherName.isNullOrBlank()) return "Father/Husband name is required"
+        if (values.motherName.isNullOrBlank()) return "Mother name is required"
         return ""
     }
 
-    /** Identity step — only ID number format is checked (all fields optional). */
+    /** Identity step — every field is required. */
     fun validateIdentity(): String {
         val values = toValues()
-        if (values.idProof != null && values.idNumber.isNullOrBlank()) {
-            return "ID number is required when ID proof is selected"
-        }
+        if (values.idProof.isNullOrBlank()) return "ID proof is required"
+        if (values.idNumber.isNullOrBlank()) return "ID number is required"
+        if (values.dateOfAdmission.isNullOrBlank()) return "Admission date is required"
+        if (values.prisonerNumber.isBlank()) return "Inmate number is required"
+        if (values.assignedKioskId.isNullOrBlank()) return "Assigned kiosk is required"
         return ""
     }
 
-    /** Address step — district required only when state is chosen. */
+    /** Address step — every field is required. */
     fun validateAddress(): String {
         val values = toValues()
-        if (values.state != null && values.district.isNullOrBlank()) {
-            return "District is required when state is selected"
-        }
+        if (values.religion.isNullOrBlank()) return "Religion is required"
+        if (values.nationality.isNullOrBlank()) return "Nationality is required"
+        if (values.state.isNullOrBlank()) return "State is required"
+        if (values.district.isNullOrBlank()) return "District is required"
+        if (values.address.isNullOrBlank()) return "Address is required"
         return ""
     }
 
@@ -224,7 +243,7 @@ fun PersonalDetailsCard(state: PrisonerFormState) {
             label = "Age",
             placeholder = "Years",
             required = true,
-            keyboardType = androidx.compose.ui.text.input.KeyboardType.Number,
+            keyboardType = KeyboardType.Number,
             imeAction = androidx.compose.ui.text.input.ImeAction.Next
         )
         KioskTextField(
@@ -232,13 +251,14 @@ fun PersonalDetailsCard(state: PrisonerFormState) {
             onValueChange = { state.fatherName = it },
             label = "Father/Husband Name",
             required = true,
-            imeAction = androidx.compose.ui.text.input.ImeAction.Done
+            imeAction = androidx.compose.ui.text.input.ImeAction.Next
         )
 
         KioskTextField(
             value = state.motherName,
             onValueChange = { state.motherName = it },
             label = "Mother Name",
+            required = true,
             imeAction = androidx.compose.ui.text.input.ImeAction.Done
         )
     }
@@ -256,6 +276,7 @@ fun IdentityAdmissionCard(
             label = "ID Proof",
             options = ID_PROOF_OPTIONS,
             placeholder = "Select ID proof",
+            required = true,
             modifier = Modifier.fillMaxWidth()
         )
 
@@ -265,21 +286,25 @@ fun IdentityAdmissionCard(
             label = "ID Number",
             placeholder = "Number on the selected ID",
             helperText = "Number of the selected ID proof",
+            required = true,
             imeAction = androidx.compose.ui.text.input.ImeAction.Next
         )
 
         KioskDateField(
             value = state.dateOfAdmission,
             onValueChange = { state.dateOfAdmission = it },
-            label = "Admission Date"
+            label = "Admission Date",
+            required = true
         )
 
         KioskTextField(
             value = state.prisonerNumber,
-            onValueChange = { state.prisonerNumber = it },
+            onValueChange = { input -> state.prisonerNumber = input.filter { it.isDigit() }.take(12) },
             label = "Inmate Number",
             placeholder = "e.g. 420",
+            helperText = "Numbers only",
             required = true,
+            keyboardType = KeyboardType.Number,
             imeAction = androidx.compose.ui.text.input.ImeAction.Next
         )
 
@@ -288,9 +313,10 @@ fun IdentityAdmissionCard(
             onValueChange = { state.assignedKioskId = it },
             label = "Assigned Kiosk",
             options = listOf("") + kioskOptions.map { it.kioskId },
-            placeholder = "None",
+            placeholder = "Select kiosk",
+            required = true,
             display = { id ->
-                if (id.isBlank()) "None"
+                if (id.isBlank()) "Select kiosk"
                 else kioskOptions.find { it.kioskId == id }
                     ?.location?.takeIf { it.isNotBlank() }
                     ?.let { "$id · $it" } ?: id
@@ -309,6 +335,7 @@ fun AddressCard(state: PrisonerFormState) {
             label = "Religion",
             options = RELIGION_OPTIONS,
             placeholder = "Select religion",
+            required = true,
             modifier = Modifier.fillMaxWidth()
         )
 
@@ -318,6 +345,7 @@ fun AddressCard(state: PrisonerFormState) {
             label = "Nationality",
             options = NATIONALITY_OPTIONS,
             placeholder = "Select nationality",
+            required = true,
             modifier = Modifier.fillMaxWidth()
         )
 
@@ -327,6 +355,7 @@ fun AddressCard(state: PrisonerFormState) {
             label = "State",
             options = STATE_OPTIONS,
             placeholder = "Select state",
+            required = true,
             modifier = Modifier.fillMaxWidth()
         )
 

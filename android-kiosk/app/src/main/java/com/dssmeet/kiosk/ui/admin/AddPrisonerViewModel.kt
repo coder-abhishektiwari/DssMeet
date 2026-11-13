@@ -8,6 +8,7 @@ import com.dssmeet.kiosk.models.admin.CreatePrisonerRequest
 import com.dssmeet.kiosk.models.admin.KioskDevice
 import com.dssmeet.kiosk.network.NetworkResult
 import com.dssmeet.kiosk.repository.AdminRepository
+import com.dssmeet.kiosk.repository.AuthRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -19,7 +20,8 @@ import javax.inject.Inject
 class AddPrisonerViewModel @Inject constructor(
     private val adminRepository: AdminRepository,
     private val rfidReaderManager: RfidReaderManager,
-    private val fingerprintHardwareManager: FingerprintHardwareManager
+    private val fingerprintHardwareManager: FingerprintHardwareManager,
+    private val authRepository: AuthRepository
 ) : ViewModel() {
 
     private val _registrationState = MutableStateFlow<RegistrationState>(RegistrationState.Idle)
@@ -28,12 +30,20 @@ class AddPrisonerViewModel @Inject constructor(
     private val _kioskOptions = MutableStateFlow<List<KioskDevice>>(emptyList())
     val kioskOptions: StateFlow<List<KioskDevice>> = _kioskOptions.asStateFlow()
 
+    /**
+     * The kiosk this device IS — the admin is standing at it, so it is the
+     * default "Assigned Kiosk" for a new inmate.
+     */
+    private val _currentKioskId = MutableStateFlow("")
+    val currentKioskId: StateFlow<String> = _currentKioskId.asStateFlow()
+
     init {
         viewModelScope.launch {
             adminRepository.getKiosks().collect { result ->
                 if (result is NetworkResult.Success) _kioskOptions.value = result.data
             }
         }
+        _currentKioskId.value = authRepository.getVerifiedKiosk()?.kioskId.orEmpty()
     }
 
     /** Live hardware sessions consumed by the Security step's capture dialogs. */
@@ -72,6 +82,12 @@ class AddPrisonerViewModel @Inject constructor(
         }
         if (pin.length != 6) {
             _registrationState.value = RegistrationState.Error("PIN must be exactly 6 digits")
+            return
+        }
+        if (fingerprintTemplate.isNullOrBlank() && rfidTag.isNullOrBlank()) {
+            _registrationState.value = RegistrationState.Error(
+                "Register at least one biometric — fingerprint or RFID"
+            )
             return
         }
 

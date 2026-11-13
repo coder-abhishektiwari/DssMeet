@@ -106,6 +106,7 @@ interface TrustApiService {
     suspend fun getCallHistoryPage(
         @Query("search") search: String? = null,
         @Query("type") type: String? = null,
+        @Query("status") status: String? = null,
         @Query("dateFrom") dateFrom: String? = null,
         @Query("dateTo") dateTo: String? = null,
         @Query("limit") limit: Int = 50,

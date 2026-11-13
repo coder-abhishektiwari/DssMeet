@@ -7,6 +7,7 @@ import com.dssmeet.kiosk.models.admin.KioskDevice
 import com.dssmeet.kiosk.models.admin.Prisoner
 import com.dssmeet.kiosk.network.NetworkResult
 import com.dssmeet.kiosk.repository.AdminRepository
+import com.dssmeet.kiosk.repository.AuthRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -16,7 +17,8 @@ import javax.inject.Inject
 
 @HiltViewModel
 class EditPrisonerViewModel @Inject constructor(
-    private val adminRepository: AdminRepository
+    private val adminRepository: AdminRepository,
+    private val authRepository: AuthRepository
 ) : ViewModel() {
 
     private val _prisoner = MutableStateFlow<NetworkResult<Prisoner>>(NetworkResult.Idle)
@@ -31,12 +33,17 @@ class EditPrisonerViewModel @Inject constructor(
     private val _kioskOptions = MutableStateFlow<List<KioskDevice>>(emptyList())
     val kioskOptions: StateFlow<List<KioskDevice>> = _kioskOptions.asStateFlow()
 
+    /** The kiosk this device IS — the default assignment for an inmate. */
+    private val _currentKioskId = MutableStateFlow("")
+    val currentKioskId: StateFlow<String> = _currentKioskId.asStateFlow()
+
     init {
         viewModelScope.launch {
             adminRepository.getKiosks().collect { result ->
                 if (result is NetworkResult.Success) _kioskOptions.value = result.data
             }
         }
+        _currentKioskId.value = authRepository.getVerifiedKiosk()?.kioskId.orEmpty()
     }
 
     fun loadPrisoner(prisonerId: String) {

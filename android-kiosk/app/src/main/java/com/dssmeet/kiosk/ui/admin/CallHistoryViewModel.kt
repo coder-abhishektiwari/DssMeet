@@ -43,11 +43,25 @@ class CallHistoryViewModel @Inject constructor(
         AUDIO("Audio", "audio")
     }
 
+    /** Call outcome — the backend filters on the stored call status. */
+    enum class StatusFilter(val label: String, val query: String?) {
+        ALL("All", null),
+        COMPLETED("Completed", "completed"),
+        ACTIVE("Active", "active"),
+        MISSED("Missed", "missed"),
+        FAILED("Failed", "failed"),
+        CANCELLED("Cancelled", "cancelled"),
+        REJECTED("Rejected", "rejected")
+    }
+
     enum class DatePreset(val label: String) {
         ALL("All time"),
         TODAY("Today"),
-        THIS_WEEK("This week"),
-        THIS_MONTH("This month")
+        YESTERDAY("Yesterday"),
+        LAST_7_DAYS("Last 7 days"),
+        LAST_30_DAYS("Last 30 days"),
+        THIS_MONTH("This month"),
+        CUSTOM("Custom range")
     }
 
     data class Playback(
@@ -64,8 +78,11 @@ class CallHistoryViewModel @Inject constructor(
     data class UiState(
         val search: String = "",
         val typeFilter: TypeFilter = TypeFilter.ALL,
+        val statusFilter: StatusFilter = StatusFilter.ALL,
         val datePreset: DatePreset = DatePreset.ALL,
-        val recordedOnly: Boolean = false,
+        /** Custom range boundaries (yyyy-MM-dd) — only used by CUSTOM. */
+        val customFrom: String = "",
+        val customTo: String = "",
         val isLoading: Boolean = false,
         val error: String? = null,
         val calls: List<CallHistory> = emptyList(),
@@ -77,7 +94,14 @@ class CallHistoryViewModel @Inject constructor(
         val preparingCallId: String? = null,
         /** Vault-decrypt progress for the preparing playback, 0f..1f. */
         val playbackProgress: Float = 0f
-    )
+    ) {
+        /** True when anything other than the default view is applied. */
+        val hasActiveFilters: Boolean
+            get() = search.isNotBlank() ||
+                typeFilter != TypeFilter.ALL ||
+                statusFilter != StatusFilter.ALL ||
+                datePreset != DatePreset.ALL
+    }
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -103,13 +127,44 @@ class CallHistoryViewModel @Inject constructor(
         load()
     }
 
-    fun setDatePreset(preset: DatePreset) {
-        _state.update { it.copy(datePreset = preset) }
+    fun setStatusFilter(filter: StatusFilter) {
+        _state.update { it.copy(statusFilter = filter) }
         load()
     }
 
-    fun toggleRecordedOnly() {
-        _state.update { it.copy(recordedOnly = !it.recordedOnly) }
+    fun setDatePreset(preset: DatePreset) {
+        // A preset replaces the custom boundaries; CUSTOM keeps whatever the
+        // admin picked in the two date fields.
+        _state.update {
+            it.copy(
+                datePreset = preset,
+                customFrom = if (preset == DatePreset.CUSTOM) it.customFrom else "",
+                customTo = if (preset == DatePreset.CUSTOM) it.customTo else ""
+            )
+        }
+        load()
+    }
+
+    /** Custom range boundaries picked with the calendar (yyyy-MM-dd). */
+    fun setCustomRange(from: String, to: String) {
+        _state.update {
+            it.copy(datePreset = DatePreset.CUSTOM, customFrom = from, customTo = to)
+        }
+        load()
+    }
+
+    /** Back to the default view in one tap. */
+    fun clearFilters() {
+        _state.update {
+            it.copy(
+                search = "",
+                typeFilter = TypeFilter.ALL,
+                statusFilter = StatusFilter.ALL,
+                datePreset = DatePreset.ALL,
+                customFrom = "",
+                customTo = ""
+            )
+        }
         load()
     }
 
@@ -241,10 +296,11 @@ class CallHistoryViewModel @Inject constructor(
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true, error = null) }
             try {
-                val (from, to) = rangeFor(snapshot.datePreset)
+                val (from, to) = rangeFor(snapshot.datePreset, snapshot.customFrom, snapshot.customTo)
                 val response = apiService.getCallHistoryPage(
                     search = snapshot.search.trim().takeIf { it.isNotBlank() },
                     type = snapshot.typeFilter.query,
+                    status = snapshot.statusFilter.query,
                     dateFrom = from,
                     dateTo = to,
                     limit = 100
@@ -278,13 +334,20 @@ class CallHistoryViewModel @Inject constructor(
     }
 
     /** Backend dateFrom/dateTo are inclusive `yyyy-MM-dd` day boundaries. */
-    private fun rangeFor(preset: DatePreset): Pair<String?, String?> {
+    private fun rangeFor(
+        preset: DatePreset,
+        customFrom: String = "",
+        customTo: String = ""
+    ): Pair<String?, String?> {
         val today = LocalDate.now()
         return when (preset) {
             DatePreset.ALL -> null to null
             DatePreset.TODAY -> today.format(isoDay) to today.format(isoDay)
-            DatePreset.THIS_WEEK -> today.with(DayOfWeek.MONDAY).format(isoDay) to today.format(isoDay)
+            DatePreset.YESTERDAY -> today.minusDays(1).format(isoDay) to today.minusDays(1).format(isoDay)
+            DatePreset.LAST_7_DAYS -> today.minusDays(6).format(isoDay) to today.format(isoDay)
+            DatePreset.LAST_30_DAYS -> today.minusDays(29).format(isoDay) to today.format(isoDay)
             DatePreset.THIS_MONTH -> today.withDayOfMonth(1).format(isoDay) to today.format(isoDay)
+            DatePreset.CUSTOM -> customFrom.takeIf { it.isNotBlank() } to customTo.takeIf { it.isNotBlank() }
         }
     }
 }
