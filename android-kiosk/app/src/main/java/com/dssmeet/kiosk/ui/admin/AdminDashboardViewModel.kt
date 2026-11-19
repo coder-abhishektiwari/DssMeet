@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.dssmeet.kiosk.core.Logger
 import com.dssmeet.kiosk.core.SessionManager
+import com.dssmeet.kiosk.core.UpdateManager
 import com.dssmeet.kiosk.models.auth.AdminProfile
 import com.dssmeet.kiosk.network.NetworkResult
 import com.dssmeet.kiosk.repository.AdminRepository
@@ -17,8 +18,19 @@ import javax.inject.Inject
 @HiltViewModel
 class AdminDashboardViewModel @Inject constructor(
     private val adminRepository: AdminRepository,
-    private val sessionManager: SessionManager
+    private val sessionManager: SessionManager,
+    private val updateManager: UpdateManager
 ) : ViewModel() {
+
+    /**
+     * A newer published build, if the last heartbeat reported one. Only the
+     * ADMIN DASHBOARD renders it — nowhere else in the app.
+     */
+    val updateState: StateFlow<UpdateManager.State> = updateManager.state
+
+    fun dismissUpdate() {
+        updateManager.dismissOptional()
+    }
 
     private val _adminProfile = MutableStateFlow<AdminProfile?>(null)
     val adminProfile: StateFlow<AdminProfile?> = _adminProfile.asStateFlow()

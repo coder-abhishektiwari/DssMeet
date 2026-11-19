@@ -53,10 +53,15 @@ interface TrustApiService {
     @GET("admin/profile")
     suspend fun getAdminProfile(): ApiResponse<AdminProfile>
 
-    @POST("auth/fingerprint-identify")
-    suspend fun identifyFingerprint(
-        @Body request: FingerprintIdentifyRequest
-    ): ApiResponse<InmateProfile>
+    /**
+     * Enrolled templates this kiosk is allowed to compare a fresh capture
+     * against. Matching itself happens on-device (SecuGenMatcher) — the server
+     * has no SecuGen matcher and a new capture never equals the stored one.
+     */
+    @POST("auth/fingerprint-candidates")
+    suspend fun fingerprintCandidates(
+        @Body request: FingerprintCandidatesRequest
+    ): ApiResponse<List<FingerprintCandidate>>
 
     @POST("auth/rfid-identify")
     suspend fun identifyRfid(@Body request: LoginRequest): ApiResponse<InmateProfile>

@@ -182,4 +182,11 @@ dependencies {
 
     // WorkManager: recording uploads must outlive the process
     implementation(libs.androidx.work.runtime.ktx)
+
+    // SecuGen FDx SDK Pro for Android — USB capture + minutiae matching for the
+    // Hamster Pro 20 (HU20-AP). Drop FDxSDKProFDAndroid.jar into app/libs/ and
+    // the SDK's native libs into app/src/main/jniLibs/<abi>/. Without the jar
+    // this module does not compile: FingerprintHardwareManager and
+    // SecuGenMatcher reference SecuGen.FDxSDKPro.* directly.
+    implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.jar"))))
 }

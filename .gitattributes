@@ -5,3 +5,11 @@ Caddyfile text eol=lf
 coturn/*.conf text eol=lf
 docker-compose*.yml text eol=lf
 .env.production.example text eol=lf
+
+# Binary blobs — autocrlf must never rewrite these (it would corrupt the
+# SecuGen native libraries and the FDx SDK jar).
+*.so binary
+*.jar binary
+*.apk binary
+*.aab binary
+*.jks binary

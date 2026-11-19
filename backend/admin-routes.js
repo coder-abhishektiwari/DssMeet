@@ -6,9 +6,9 @@ const { hashSecret } = require('./lib/auth');
 const { requireRole } = require('./middleware/auth');
 const { inAdminScope, adminScopeFilter, jailScopeOf, kioskScopeOf } = require('./lib/scoping');
 const { paginate } = require('./lib/paginate');
-const { inmateDeleteHandler, validateInmateRefs, stripRemovedInmateFields, hashBiometricData } = require('./routes/inmates');
+const { inmateDeleteHandler, validateInmateRefs, stripRemovedInmateFields, hashBiometricData, mergeBiometricData, foldTopLevelBiometrics } = require('./routes/inmates');
 const { creditWelcomeBonus } = require('./lib/wallets');
-const { isValidRfidNumber, rfidCardNumberFor, biometricValidationError } = require('./lib/biometrics');
+const { isValidRfidNumber, rfidCardNumberFor, biometricValidationError, fingerprintTemplateValidationError, normalizeFingerprintTemplate } = require('./lib/biometrics');
 const { auditFromReq } = require('./lib/audit');
 
 const ALL_ROLES = ['admin', 'warden', 'kiosk_admin', 'super-admin', 'super_admin'];
@@ -89,7 +89,7 @@ router.get('/prisoners/:prisonerId', requireRole(...ALL_ROLES), async (req, res)
 });
 
 router.post('/prisoners', requireRole(...ALL_ROLES), async (req, res) => {
-  const inmateData = stripRemovedInmateFields(req.body);
+  let inmateData = stripRemovedInmateFields(req.body);
   // Optional one-shot family members (kiosk Add Prisoner "Family" step): each
   // is created right after the prisoner commits, exactly like POST
   // /prisoners/:id/contacts including the auto wallet-link SMS. Stripped from
@@ -114,30 +114,10 @@ router.post('/prisoners', requireRole(...ALL_ROLES), async (req, res) => {
     }
     normalizedFamily.push({ name: familyName, mobileNumber: familyMobile, relationship: familyRelationship });
   }
-  // Kiosk "Add Prisoner" sends the captured biometrics at the TOP level of
-  // the payload. Fold them into biometricData — the shape the identify
-  // endpoints (routes/auth.js) and the Biometrics screen actually read — and
-  // drop the strays so a raw template never persists on the inmate record.
-  // Same fold as routes/inmates.js inmateCreateHandler; this route is the one
-  // mounted at POST /admin/prisoners that the kiosk actually hits.
-  if (inmateData.fingerprintTemplate && !inmateData.biometricData?.fingerprintRegistered) {
-    inmateData.biometricData = {
-      ...(inmateData.biometricData || {}),
-      fingerprintRegistered: true,
-      fingerprintTemplate: String(inmateData.fingerprintTemplate),
-      lastBiometricUpdate: new Date().toISOString()
-    };
-  }
-  if (inmateData.rfidTag) {
-    inmateData.biometricData = {
-      ...(inmateData.biometricData || {}),
-      rfidRegistered: true,
-      rfidToken: String(inmateData.rfidTag).trim(),
-      lastBiometricUpdate: new Date().toISOString()
-    };
-  }
-  delete inmateData.fingerprintTemplate;
-  delete inmateData.rfidTag;
+  // Kiosk "Add Prisoner" sends the captured biometrics at the TOP level of the
+  // payload. Same fold as routes/inmates.js inmateCreateHandler — this route is
+  // the one mounted at POST /admin/prisoners that the kiosk actually hits.
+  inmateData = foldTopLevelBiometrics(inmateData);
   const jailId = jailScopeOf(req);
   const kioskId = kioskScopeOf(req);
   if (jailId && inmateData.prisonId && inmateData.prisonId !== jailId) {
@@ -156,6 +136,10 @@ router.post('/prisoners', requireRole(...ALL_ROLES), async (req, res) => {
   const bioError = biometricValidationError(inmateData.biometricData);
   if (bioError) {
     return res.status(422).json({ success: false, error: { code: 'INVALID_BIOMETRIC', message: bioError } });
+  }
+  const fpError = fingerprintTemplateValidationError(inmateData.biometricData?.fingerprintTemplate);
+  if (fpError) {
+    return res.status(422).json({ success: false, error: { code: 'INVALID_BIOMETRIC', message: fpError } });
   }
   const inmateId = inmateData.inmateId || `INM-${uuidv4().substring(0, 8).toUpperCase()}`;
   // One biometrics[] record per registered type — the same ids/shape the
@@ -231,7 +215,9 @@ router.post('/prisoners', requireRole(...ALL_ROLES), async (req, res) => {
 });
 
 router.put('/prisoners/:prisonerId', requireRole(...ALL_ROLES), async (req, res) => {
-  const updates = stripRemovedInmateFields(req.body);
+  // Same top-level fold as create — a kiosk edit may carry fingerprintTemplate
+  // / rfidTag at the top level, and neither may persist as a stray field.
+  const updates = foldTopLevelBiometrics(stripRemovedInmateFields(req.body));
   delete updates.inmateId; delete updates.createdAt;
   // A prisoner's jail never changes through an edit — same rule as the
   // /inmates handler, and prison_id is a foreign key.
@@ -251,7 +237,20 @@ router.put('/prisoners/:prisonerId', requireRole(...ALL_ROLES), async (req, res)
     if (bioError) {
       return res.status(422).json({ success: false, error: { code: 'INVALID_BIOMETRIC', message: bioError } });
     }
-    updates.biometricData = await hashBiometricData(updates.biometricData);
+    const fpError = fingerprintTemplateValidationError(updates.biometricData.fingerprintTemplate);
+    if (fpError) {
+      return res.status(422).json({ success: false, error: { code: 'INVALID_BIOMETRIC', message: fpError } });
+    }
+    // GET strips fingerprintTemplate/rfidToken, and the warden dashboard sends
+    // that stripped object straight back on save. Merge over the stored row so
+    // an ordinary edit can never silently un-enroll a biometric.
+    const current = (await readDb('inmates.json')).find((i) => i.inmateId === req.params.prisonerId && inAdminScope(req, i));
+    if (!current) {
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Prisoner not found' } });
+    }
+    updates.biometricData = await hashBiometricData(
+      mergeBiometricData(current.biometricData, updates.biometricData)
+    );
   }
   const updated = await updateDb('inmates.json', (inmates) => {
     const idx = inmates.findIndex((i) => i.inmateId === req.params.prisonerId && inAdminScope(req, i));
@@ -516,10 +515,16 @@ router.post('/prisoners/:prisonerId/biometrics', requireRole(...ALL_ROLES), asyn
 
   if (type === 'fingerprint') {
     if (!capture) return res.status(400).json({ success: false, error: { code: 'INVALID_REQUEST', message: 'capture is required for fingerprint' } });
-    // Store hashed at rest — login verifies by hashing the presented capture
-    // (see routes/auth.js matchesBiometric). Legacy rows stay plain and keep working.
+    // Stored RAW, not hashed: the kiosk matches a fresh SecuGen capture against
+    // this template with the vendor matcher (routes/auth.js
+    // /fingerprint-candidates -> device-side 1:N). A bcrypt digest is one-way
+    // and could never match a new capture.
+    const fpError = fingerprintTemplateValidationError(capture);
+    if (fpError) {
+      return res.status(422).json({ success: false, error: { code: 'INVALID_BIOMETRIC', message: fpError } });
+    }
     updateFields = {
-      biometricData: { ...inmates[inmateIdx].biometricData, fingerprintRegistered: true, fingerprintTemplate: await hashSecret(String(capture)), lastBiometricUpdate: new Date().toISOString() }
+      biometricData: { ...inmates[inmateIdx].biometricData, fingerprintRegistered: true, fingerprintTemplate: normalizeFingerprintTemplate(capture), lastBiometricUpdate: new Date().toISOString() }
     };
     biometricRecord = { biometricId: `BIO-${prisonerId}-FGP`, prisonerId, type: 'fingerprint', status: 'registered', registeredAt: new Date().toISOString() };
   } else if (type === 'rfid') {

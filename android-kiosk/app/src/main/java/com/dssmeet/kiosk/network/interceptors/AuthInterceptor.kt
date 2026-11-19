@@ -89,9 +89,18 @@ class AuthInterceptor @Inject constructor(
 
         // User session first; fall back to the device token when nobody is
         // logged in (idle kiosk, app just restarted).
-        val token = cachedToken ?: run {
+        // Except on the one route that hands out enrolled fingerprint
+        // templates: the server there only accepts the DEVICE credential, so
+        // leading with a leftover user session would just buy a 401 and a
+        // pointless refresh round-trip right in the middle of login.
+        val token = if (isDeviceCredentialRequest(originalRequest)) {
             loadDeviceTokenFromStorage()
             cachedDeviceToken
+        } else {
+            cachedToken ?: run {
+                loadDeviceTokenFromStorage()
+                cachedDeviceToken
+            }
         }
         val requestBuilder = originalRequest.newBuilder()
 
@@ -200,6 +209,14 @@ class AuthInterceptor @Inject constructor(
         return segments.size >= 2 &&
             segments[segments.size - 2] == "auth" &&
             segments.last() == "refresh"
+    }
+
+    /** Routes that must carry the device credential, never a user session. */
+    private fun isDeviceCredentialRequest(request: Request): Boolean {
+        val segments = request.url.pathSegments
+        return segments.size >= 2 &&
+            segments[segments.size - 2] == "auth" &&
+            segments.last() == "fingerprint-candidates"
     }
 
     private fun isTokenStillValid(token: String): Boolean {

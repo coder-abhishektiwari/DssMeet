@@ -42,10 +42,35 @@ data class PinVerifyRequest(
     @SerializedName("kioskId") val kioskId: String
 )
 
-data class FingerprintIdentifyRequest(
-    @SerializedName("kioskId") val kioskId: String,
-    @SerializedName("capture") val capture: String
+/**
+ * Fingerprint identification is device-side: the kiosk asks for the enrolled
+ * templates it is allowed to compare against (scoped to its own prison and
+ * assignment on the server) and runs the SecuGen matcher locally.
+ */
+data class FingerprintCandidatesRequest(
+    @SerializedName("kioskId") val kioskId: String
 )
+
+/** One enrolled inmate the kiosk may attempt to match a captured finger against. */
+data class FingerprintCandidate(
+    @SerializedName("inmateId") val inmateId: String,
+    @SerializedName("name") val name: String = "",
+    @SerializedName("prisonId") val prisonId: String = "",
+    @SerializedName("facility") val facility: String = "",
+    @SerializedName("status") val status: com.dssmeet.kiosk.models.inmate.InmateStatus? = null,
+    @SerializedName("photoUrl") val photoUrl: String? = null,
+    /** Base64 SecuGen SG400 template — never leaves the kiosk's own scope. */
+    @SerializedName("fingerprintTemplate") val fingerprintTemplate: String
+) {
+    fun toInmateProfile() = com.dssmeet.kiosk.models.inmate.InmateProfile(
+        inmateId = inmateId,
+        name = name,
+        prisonId = prisonId,
+        facility = facility,
+        status = status,
+        photoUrl = photoUrl
+    )
+}
 
 data class KioskVerifyRequest(
     @SerializedName("deviceSerialNumber") val deviceSerialNumber: String

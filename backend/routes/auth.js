@@ -561,10 +561,12 @@ async function identifyInmate(req, res, matchFn, confidence) {
   });
 }
 
-// Biometric values are stored hashed at rest (admin-routes.js
-// POST /prisoners/:prisonerId/biometrics). Legacy rows may still hold the raw
-// value, so a presented token matches when it equals the stored value (legacy)
-// or verifies against the stored bcrypt hash (current storage).
+// RFID tokens are stored hashed at rest (admin-routes.js POST
+// /prisoners/:prisonerId/biometrics) and a tap always presents the exact same
+// string, so an equality/verify compare is correct for them. Legacy rows may
+// still hold the raw value, so a presented token matches when it equals the
+// stored value (legacy) or verifies against the stored bcrypt hash (current
+// storage). Fingerprints do NOT go through here — see /fingerprint-candidates.
 async function matchesBiometric(presented, stored) {
   if (!presented || !stored) return false;
   if (String(stored) === String(presented)) return true; // legacy plain value
@@ -593,19 +595,84 @@ async function persistBiometricRehash(inmateId, field, presented) {
   }
 }
 
-router.post('/fingerprint-identify', identifyLimiter, asyncRoute(async (req, res) => {
-  const { capture } = req.body;
-  if (!capture) return sendError(res, 'INVALID_REQUEST', 'capture is required', 400);
-  const presented = Buffer.from(String(capture), 'base64').toString('utf8').trim();
-  if (!presented) return sendError(res, 'INVALID_REQUEST', 'capture is empty', 400);
-  return identifyInmate(req, res, async (i) => {
-    const stored = i.biometricData?.fingerprintTemplate;
-    if (!i.biometricData?.fingerprintRegistered || !(await matchesBiometric(presented, stored))) return false;
-    if (stored && !/^\$2[aby]\$/.test(String(stored))) {
-      await persistBiometricRehash(i.inmateId, 'fingerprintTemplate', presented);
-    }
-    return true;
-  }, 0.92);
+// Fingerprint identification happens ON THE KIOSK, not here. There is no
+// SecuGen matcher on this server, and a fresh capture is never byte-identical
+// to the enrolled template — which is why the old bcrypt/equality compare
+// against fingerprintTemplate could never match. The kiosk pulls the templates
+// it is allowed to compare against, runs the SecuGen 1:N matcher locally, and
+// then the PIN check below is what actually authenticates the inmate.
+//
+// Templates leave the DB only to the kiosk they were enrolled for, and that
+// kiosk has to prove it. /kiosks/verify hands it a long-lived device credential
+// (365d, role kiosk, device:true, kioskId bound) which AuthInterceptor already
+// attaches — so requiring it costs the login flow nothing, while it stops an
+// anonymous caller who merely guessed a kioskId from walking off with a whole
+// jail's biometric templates. A normal user session token is deliberately NOT
+// accepted: this is a device-scoped read, not a dashboard one.
+// normalizeInmate keeps stripping templates from every other response.
+function requireKioskDeviceCredential(req, res, next) {
+  const requested = req.body && req.body.kioskId;
+  // No kioskId at all -> the handler's own 400 fires; there is nothing to
+  // scope the credential to yet, and no data can come back either way.
+  if (!requested) return next();
+
+  const denied = (message) => sendError(res, 'UNAUTHORIZED', message, 401);
+  const header = req.headers.authorization || '';
+  const token = header.replace(/^bearer\s+/i, '').trim();
+  if (!token) return denied('Kiosk device credential is required');
+
+  let claims;
+  try {
+    claims = verifyToken(token);
+  } catch (err) {
+    return denied('Kiosk device credential is required');
+  }
+  if (!(claims.device === true || claims.role === 'kiosk')) {
+    return denied('Kiosk device credential is required');
+  }
+  // One registered device may only ever read its own jail's templates.
+  const bound = claims.kioskId || claims.sub;
+  if (String(bound) !== String(requested)) {
+    return sendError(res, 'FORBIDDEN', 'Device credential does not match kioskId', 403);
+  }
+  return next();
+}
+
+router.post('/fingerprint-candidates', identifyLimiter, requireKioskDeviceCredential, asyncRoute(async (req, res) => {
+  const { kioskId } = req.body;
+  if (!kioskId) return sendError(res, 'INVALID_REQUEST', 'kioskId is required', 400);
+
+  const [inmates, kiosks] = await Promise.all([readDb('inmates.json'), readDb('kiosks.json')]);
+  const kiosk = kiosks.find((k) => k.kioskId === kioskId);
+  if (!kiosk) return sendError(res, 'NOT_FOUND', 'Record not found', 404);
+
+  const candidates = [];
+  let stale = 0;
+  for (const i of inmates) {
+    const inScope = (!kiosk.prisonId || !i.prisonId || kiosk.prisonId === i.prisonId) &&
+      (!i.assignedKioskId || i.assignedKioskId === kioskId) &&
+      (!i.status || i.status === 'active');
+    if (!inScope) continue;
+    const template = i.biometricData?.fingerprintTemplate;
+    if (!i.biometricData?.fingerprintRegistered || !template) continue;
+    // A legacy bcrypt digest can never match a live capture. Skip it instead of
+    // handing the kiosk a template that is guaranteed to fail, and shout so the
+    // inmate gets re-enrolled.
+    if (/^\$2[aby]\$/.test(String(template))) { stale += 1; continue; }
+    candidates.push({
+      inmateId: i.inmateId,
+      name: i.name || i.fullName || [i.firstName, i.lastName].filter(Boolean).join(' ').trim() || 'Unknown',
+      prisonId: i.prisonId,
+      facility: i.facility,
+      status: i.status,
+      photoUrl: i.photoUrl || i.photo || null,
+      fingerprintTemplate: String(template)
+    });
+  }
+  if (stale > 0) {
+    console.warn(`[auth] skipped ${stale} stale bcrypt fingerprint template(s) for kiosk ${kioskId} — those inmates need re-enrolling`);
+  }
+  return sendSuccess(res, candidates);
 }));
 
 router.post('/rfid-identify', identifyLimiter, asyncRoute(async (req, res) => {

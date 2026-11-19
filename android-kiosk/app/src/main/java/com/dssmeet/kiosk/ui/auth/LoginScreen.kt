@@ -421,6 +421,9 @@ fun FingerprintScanningLayout(
 ) {
     val device by viewModel.connectedScanner.collectAsState()
     val hasPermission by viewModel.usbPermissionGranted.collectAsState()
+    // While identify is running the session has already been stopped (the USB
+    // port is handed to SecuGenMatcher), so captureState alone reads as Idle.
+    val uiState by viewModel.uiState.collectAsState()
 
     Column(
         modifier = Modifier
@@ -495,14 +498,34 @@ fun FingerprintScanningLayout(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Enter the fingerprint ID below instead.",
+                            text = "Lift your finger and try again, or use another login method.",
                             textAlign = TextAlign.Center,
                             color = TextGray,
                             fontSize = 13.sp
                         )
                     }
                     else -> {
-                        if (device == null) {
+                        if (uiState is UiState.Loading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                strokeWidth = 2.dp,
+                                color = PrimaryNavy
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = "Verifying fingerprint…",
+                                fontWeight = FontWeight.Medium,
+                                textAlign = TextAlign.Center,
+                                color = PrimaryDarkNavy
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "Hold on — matching against enrolled prints.",
+                                textAlign = TextAlign.Center,
+                                color = TextGray,
+                                fontSize = 13.sp
+                            )
+                        } else if (device == null) {
                             CircularProgressIndicator(
                                 modifier = Modifier.size(24.dp),
                                 strokeWidth = 2.dp,

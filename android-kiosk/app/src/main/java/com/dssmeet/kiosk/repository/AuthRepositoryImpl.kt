@@ -3,6 +3,7 @@ package com.dssmeet.kiosk.repository
 import com.dssmeet.kiosk.core.Logger
 import com.dssmeet.kiosk.core.SessionManager
 import com.dssmeet.kiosk.datasource.AuthDataSource
+import com.dssmeet.kiosk.hardware.SecuGenMatcher
 import com.dssmeet.kiosk.models.auth.*
 import com.dssmeet.kiosk.models.common.ApiError
 import com.dssmeet.kiosk.models.common.ApiResponse
@@ -22,7 +23,8 @@ class AuthRepositoryImpl @Inject constructor(
     private val dataSource: AuthDataSource,
     private val authInterceptor: AuthInterceptor,
     private val sessionManager: SessionManager,
-    private val deviceInfoProvider: com.dssmeet.kiosk.hardware.DeviceInfoProvider
+    private val deviceInfoProvider: com.dssmeet.kiosk.hardware.DeviceInfoProvider,
+    private val secuGenMatcher: com.dssmeet.kiosk.hardware.SecuGenMatcher
     ) : AuthRepository {
 
     private var verifiedKiosk: KioskInfo? = null
@@ -137,7 +139,7 @@ class AuthRepositoryImpl @Inject constructor(
         }
     }
 
-    override fun identifyFingerprint(capture: ByteArray): Flow<NetworkResult<InmateProfile>> = flow {
+    override fun identifyFingerprint(probeTemplate: String): Flow<NetworkResult<InmateProfile>> = flow {
         emit(NetworkResult.Loading)
         try {
             val kioskId = verifiedKiosk?.kioskId
@@ -145,16 +147,30 @@ class AuthRepositoryImpl @Inject constructor(
                 emit(NetworkResult.Failure(ApiError("DEVICE_NOT_REGISTERED", "Kiosk device is not verified. Please complete device registration.")))
                 return@flow
             }
-            val response = dataSource.identifyFingerprint(kioskId, capture)
-            if (response.success && response.data != null) {
-                sessionManager.saveInmateProfile(response.data)
-                emit(NetworkResult.Success(response.data))
-            } else {
+            // The server only ever hands out templates for this kiosk's own
+            // prison/assignment scope; the actual comparison is done here
+            // because there is no SecuGen matcher on the backend.
+            val response = dataSource.fingerprintCandidates(kioskId)
+            if (!response.success) {
                 val error = response.error?.let {
                     getFriendlyError("Fingerprint not recognized. Please try again.", it.code)
                 } ?: ApiError("IDENTIFY_FAILED", "Fingerprint not recognized. Please try again.")
                 emit(NetworkResult.Failure(error))
+                return@flow
             }
+            val candidates = response.data.orEmpty()
+            if (candidates.isEmpty()) {
+                emit(NetworkResult.Failure(ApiError("NOT_FOUND", "Fingerprint not recognized. Please try again.")))
+                return@flow
+            }
+            val best = secuGenMatcher.identify(probeTemplate, candidates.map { it.fingerprintTemplate })
+            if (best == SecuGenMatcher.NO_MATCH || best !in candidates.indices) {
+                emit(NetworkResult.Failure(ApiError("NOT_FOUND", "Fingerprint not recognized. Please try again.")))
+                return@flow
+            }
+            val profile = candidates[best].toInmateProfile()
+            sessionManager.saveInmateProfile(profile)
+            emit(NetworkResult.Success(profile))
         } catch (e: Exception) {
             val statusCode = if (e is HttpException) e.code() else null
             val error = when {

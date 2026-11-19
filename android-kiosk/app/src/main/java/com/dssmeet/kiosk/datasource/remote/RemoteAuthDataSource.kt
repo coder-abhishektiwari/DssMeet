@@ -1,6 +1,5 @@
 package com.dssmeet.kiosk.datasource.remote
 
-import android.util.Base64
 import com.dssmeet.kiosk.api.TrustApiService
 import com.dssmeet.kiosk.core.ApiCache
 import com.dssmeet.kiosk.datasource.AuthDataSource
@@ -27,10 +26,8 @@ class RemoteAuthDataSource @Inject constructor(
         // the server for the whole refresh TTL.
         apiService.logout("Bearer $accessToken", LogoutRequest(refreshToken))
 
-    override suspend fun identifyFingerprint(kioskId: String, capture: ByteArray): ApiResponse<InmateProfile> {
-        val captureBase64 = Base64.encodeToString(capture, Base64.NO_WRAP)
-        return apiService.identifyFingerprint(FingerprintIdentifyRequest(kioskId, captureBase64))
-    }
+    override suspend fun fingerprintCandidates(kioskId: String): ApiResponse<List<FingerprintCandidate>> =
+        apiService.fingerprintCandidates(FingerprintCandidatesRequest(kioskId))
 
     override suspend fun identifyRfid(request: LoginRequest): ApiResponse<InmateProfile> =
         apiService.identifyRfid(request)

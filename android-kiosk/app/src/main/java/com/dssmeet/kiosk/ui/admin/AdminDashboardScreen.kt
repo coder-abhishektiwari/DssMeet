@@ -28,16 +28,21 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.dssmeet.kiosk.MainActivity
+import com.dssmeet.kiosk.core.UpdateManager
+import com.dssmeet.kiosk.models.appupdate.AppUpdateInfo
 import com.dssmeet.kiosk.models.auth.AdminProfile
 import com.dssmeet.kiosk.ui.components.ConfirmDeleteDialog
 import com.dssmeet.kiosk.ui.components.KioskTopBar
 import com.dssmeet.kiosk.ui.theme.PrisonKioskTheme
+import com.dssmeet.kiosk.ui.update.OptionalUpdateCard
 
 @Composable
 fun AdminDashboardScreen(
@@ -52,9 +57,22 @@ fun AdminDashboardScreen(
     viewModel: AdminDashboardViewModel = hiltViewModel()
 ) {
     val adminProfile by viewModel.adminProfile.collectAsState()
+    val updateState by viewModel.updateState.collectAsState()
+    val context = LocalContext.current
+
+    // The update card lives ONLY here — the admin dashboard is the one screen
+    // an admin actually looks at, so it is the only place a newer build is
+    // offered. (The mandatory gate stays global; that one blocks the kiosk.)
+    val optionalUpdate =
+        updateState as? com.dssmeet.kiosk.core.UpdateManager.State.Optional
 
     AdminDashboardContent(
         adminProfile = adminProfile,
+        optionalUpdate = optionalUpdate?.info,
+        onInstallUpdate = { info ->
+            (context as? MainActivity)?.requestUpdateInstall(info)
+        },
+        onDismissUpdate = { viewModel.dismissUpdate() },
         onAddPrisonerClick = onAddPrisonerClick,
         onManagePrisonersClick = onManagePrisonersClick,
         onDeviceInfoClick = onDeviceInfoClick,
@@ -68,6 +86,9 @@ fun AdminDashboardScreen(
 @Composable
 fun AdminDashboardContent(
     adminProfile: AdminProfile?,
+    optionalUpdate: AppUpdateInfo? = null,
+    onInstallUpdate: (AppUpdateInfo) -> Unit = {},
+    onDismissUpdate: () -> Unit = {},
     onAddPrisonerClick: () -> Unit,
     onManagePrisonersClick: () -> Unit,
     onDeviceInfoClick: () -> Unit,
@@ -95,6 +116,18 @@ fun AdminDashboardContent(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // Newer build published — the one place the admin is told about it.
+            if (optionalUpdate != null) {
+                val updateInfo = optionalUpdate
+                item {
+                    OptionalUpdateCard(
+                        info = updateInfo,
+                        onInstall = { onInstallUpdate(updateInfo) },
+                        onDismiss = onDismissUpdate
+                    )
+                }
+            }
+
             // Admin Info Card
             item {
                 Card(

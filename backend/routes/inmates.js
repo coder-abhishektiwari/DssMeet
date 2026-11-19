@@ -7,7 +7,7 @@ const { sendSuccess, sendError, asyncRoute } = require('../lib/response');
 const { jailScopeOf, inJailScope, kioskScopeOf, inAdminScope, adminScopeFilter, inScopeOf, scopeList } = require('../lib/scoping');
 const { paginate } = require('../lib/paginate');
 const { ensureWallet, creditWelcomeBonus } = require('../lib/wallets');
-const { biometricValidationError, rfidCardNumberFor } = require('../lib/biometrics');
+const { biometricValidationError, rfidCardNumberFor, fingerprintTemplateValidationError, normalizeFingerprintTemplate } = require('../lib/biometrics');
 const { auditFromReq } = require('../lib/audit');
 
 const router = express.Router();
@@ -33,8 +33,12 @@ function stripRemovedInmateFields(payload) {
  * Biometric tokens are stored hashed at rest; login verifies them via
  * routes/auth.js matchesBiometric (bcrypt at rest, legacy plain accepted).
  * Applied wherever biometricData may enter a write so create/update payloads
- * never persist a raw card number or fingerprint template. Values that are
- * already bcrypt hashes pass through untouched.
+ * never persist a raw card number. Values that are already bcrypt hashes pass
+ * through untouched.
+ *
+ * fingerprintTemplate is deliberately NOT hashed: the kiosk compares a fresh
+ * SecuGen capture against the stored template with the vendor matcher, which
+ * needs the original bytes. It is only normalized here.
  */
 async function hashBiometricData(biometricData) {
   if (!biometricData) return biometricData;
@@ -43,9 +47,58 @@ async function hashBiometricData(biometricData) {
     out.rfidCardNumber = String(out.rfidToken); // display copy for inmate details
     out.rfidToken = await hashSecret(String(out.rfidToken));
   }
-  if (out.fingerprintTemplate && !/^\$2[aby]\$/.test(String(out.fingerprintTemplate))) {
-    out.fingerprintTemplate = await hashSecret(String(out.fingerprintTemplate));
+  if (out.fingerprintTemplate != null) {
+    out.fingerprintTemplate = normalizeFingerprintTemplate(out.fingerprintTemplate);
   }
+  return out;
+}
+
+/**
+ * An update payload must never be able to erase a stored biometric by
+ * round-tripping a response that had the secret stripped from it: GET
+ * normalizeInmate removes fingerprintTemplate/rfidToken, and the warden
+ * dashboard sends that stripped object straight back on save. Merge the
+ * incoming biometricData over the stored one so absent/null secrets keep
+ * their stored value — deleting still happens through DELETE /biometrics/:id,
+ * which sets the field to null explicitly.
+ */
+function mergeBiometricData(existing, incoming) {
+  if (!incoming || typeof incoming !== 'object') return incoming;
+  const base = existing && typeof existing === 'object' ? existing : {};
+  const out = { ...base, ...incoming };
+  for (const secret of ['fingerprintTemplate', 'rfidToken', 'rfidCardNumber']) {
+    if (incoming[secret] == null && base[secret] != null) out[secret] = base[secret];
+  }
+  return out;
+}
+
+/**
+ * Kiosk clients send biometrics at the TOP level of the payload (both create
+ * and update). Fold them into biometricData — the shape the identify endpoints
+ * and the Biometrics screen read — and drop the strays so a raw template never
+ * persists as an uncontrolled field. Returns the payload unchanged when there
+ * is nothing to fold.
+ */
+function foldTopLevelBiometrics(inmateData) {
+  const out = { ...inmateData };
+  if (out.fingerprintTemplate && !out.biometricData?.fingerprintRegistered) {
+    out.biometricData = {
+      ...(out.biometricData || {}),
+      fingerprintRegistered: true,
+      fingerprintTemplate: String(out.fingerprintTemplate),
+      lastBiometricUpdate: new Date().toISOString()
+    };
+  }
+  if (out.rfidTag) {
+    out.biometricData = {
+      ...(out.biometricData || {}),
+      rfidRegistered: true,
+      rfidToken: String(out.rfidTag).trim(),
+      lastBiometricUpdate: new Date().toISOString()
+    };
+  }
+  delete out.fingerprintTemplate;
+  delete out.rfidTag;
   return out;
 }
 
@@ -150,29 +203,7 @@ function inmateGetHandler(req, res) {
 }
 
 async function inmateCreateHandler(req, res) {
-  const inmateData = stripRemovedInmateFields(req.body);
-  // Kiosk "Add Prisoner" sends the captured biometrics at the TOP level of
-  // the payload. Fold them into biometricData — the shape the identify
-  // endpoints (auth.js) and the Biometrics screen actually read — and drop
-  // the strays so a raw template never persists on the inmate record.
-  if (inmateData.fingerprintTemplate && !inmateData.biometricData?.fingerprintRegistered) {
-    inmateData.biometricData = {
-      ...(inmateData.biometricData || {}),
-      fingerprintRegistered: true,
-      fingerprintTemplate: String(inmateData.fingerprintTemplate),
-      lastBiometricUpdate: new Date().toISOString()
-    };
-  }
-  if (inmateData.rfidTag) {
-    inmateData.biometricData = {
-      ...(inmateData.biometricData || {}),
-      rfidRegistered: true,
-      rfidToken: String(inmateData.rfidTag).trim(),
-      lastBiometricUpdate: new Date().toISOString()
-    };
-  }
-  delete inmateData.fingerprintTemplate;
-  delete inmateData.rfidTag;
+  const inmateData = foldTopLevelBiometrics(stripRemovedInmateFields(req.body));
   const jailId = jailScopeOf(req);
   const kioskId = kioskScopeOf(req);
   if (jailId && inmateData.prisonId && inmateData.prisonId !== jailId) {
@@ -200,6 +231,8 @@ async function inmateCreateHandler(req, res) {
   if (!refs.ok) return sendError(res, 'INVALID_REFERENCE', refs.message, 422);
   const bioError = biometricValidationError(inmateData.biometricData);
   if (bioError) return sendError(res, 'INVALID_BIOMETRIC', bioError, 422);
+  const fpError = fingerprintTemplateValidationError(inmateData.biometricData?.fingerprintTemplate);
+  if (fpError) return sendError(res, 'INVALID_BIOMETRIC', fpError, 422);
   try {
     const newInmate = await updateDb('inmates.json', async (inmates) => {
       if (inmateData.prisonerNumber && inmates.find((i) => i.prisonerNumber === inmateData.prisonerNumber)) {
@@ -281,7 +314,9 @@ async function inmateCreateHandler(req, res) {
 
 async function inmateUpdateHandler(req, res) {
   const id = req.params.inmateId || req.params.prisonerId;
-  const updates = stripRemovedInmateFields(req.body);
+  // Same top-level fold as create: a kiosk edit may carry fingerprintTemplate
+  // / rfidTag at the top level, and neither may persist as a stray field.
+  const updates = foldTopLevelBiometrics(stripRemovedInmateFields(req.body));
   INMATE_IMMUTABLE_FIELDS.forEach((f) => delete updates[f]);
   const jailId = jailScopeOf(req);
   const kioskId = kioskScopeOf(req);
@@ -306,7 +341,13 @@ async function inmateUpdateHandler(req, res) {
   if (updates.biometricData) {
     const bioError = biometricValidationError(updates.biometricData);
     if (bioError) return sendError(res, 'INVALID_BIOMETRIC', bioError, 422);
-    updates.biometricData = await hashBiometricData(updates.biometricData);
+    const fpError = fingerprintTemplateValidationError(updates.biometricData.fingerprintTemplate);
+    if (fpError) return sendError(res, 'INVALID_BIOMETRIC', fpError, 422);
+    const current = (await readDb('inmates.json')).find((i) => i.inmateId === id && inAdminScope(req, i));
+    if (!current) return sendError(res, 'NOT_FOUND', 'Inmate not found', 404);
+    updates.biometricData = await hashBiometricData(
+      mergeBiometricData(current.biometricData, updates.biometricData)
+    );
   }
   const updatedRefs = await validateInmateRefs({
     assignedKioskId: updates.assignedKioskId,
@@ -455,3 +496,5 @@ module.exports.inmateDeleteHandler = inmateDeleteHandler;
 module.exports.validateInmateRefs = validateInmateRefs;
 module.exports.stripRemovedInmateFields = stripRemovedInmateFields;
 module.exports.hashBiometricData = hashBiometricData;
+module.exports.mergeBiometricData = mergeBiometricData;
+module.exports.foldTopLevelBiometrics = foldTopLevelBiometrics;

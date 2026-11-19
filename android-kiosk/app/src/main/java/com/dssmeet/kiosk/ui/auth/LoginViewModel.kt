@@ -152,15 +152,18 @@ class LoginViewModel @Inject constructor(
 
     /**
      * Hardware path: the external scanner pushes a template → identify.
-     * The session stays in Searching until consumed, so a retry after a
-     * failed identify is just placing the finger again.
+     *
+     * The session is STOPPED (not merely acknowledged) before matching so the
+     * capture thread releases the USB port — SecuGenMatcher then has the
+     * algorithm module to itself. A failed identify restarts the session, so
+     * the retry is just placing the finger again.
      */
     private fun startFingerprintSession() {
         fingerprintSessionJob?.cancel()
         fingerprintSessionJob = viewModelScope.launch {
             fingerprintHardwareManager.captureState.collect { state ->
                 if (state is FingerprintCaptureState.Captured && uiState.value !is UiState.Loading) {
-                    fingerprintHardwareManager.acknowledgeCapture()
+                    fingerprintHardwareManager.stopCapture(HARDWARE_OWNER)
                     identifyFingerprint(state.template)
                 }
             }
@@ -172,7 +175,7 @@ class LoginViewModel @Inject constructor(
 
         launch {
             setLoading()
-            authRepository.identifyFingerprint(template.toByteArray(Charsets.UTF_8)).collect { result ->
+            authRepository.identifyFingerprint(template).collect { result ->
                 when (result) {
                     is NetworkResult.Success -> {
                         _identifiedInmate.value = result.data

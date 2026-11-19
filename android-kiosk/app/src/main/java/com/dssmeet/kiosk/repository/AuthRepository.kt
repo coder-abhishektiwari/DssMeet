@@ -16,7 +16,14 @@ interface AuthRepository {
     fun login(request: LoginRequest): Flow<NetworkResult<AuthToken>>
     fun refreshToken(): Flow<NetworkResult<AuthToken>>
     fun logout(): Flow<NetworkResult<Unit>>
-    fun identifyFingerprint(capture: ByteArray): Flow<NetworkResult<InmateProfile>>
+    /**
+     * Identify an inmate from a freshly captured fingerprint.
+     *
+     * [probeTemplate] is the base64 SecuGen template the scanner produced. The
+     * enrolled templates are fetched for this kiosk's scope and matched
+     * locally — the server has no SecuGen matcher, so it cannot compare.
+     */
+    fun identifyFingerprint(probeTemplate: String): Flow<NetworkResult<InmateProfile>>
     fun identifyRfid(request: LoginRequest): Flow<NetworkResult<InmateProfile>>
     fun identifyPrisoner(id: String): Flow<NetworkResult<InmateProfile>>
     fun verifyPin(inmateId: String, pin: String): Flow<NetworkResult<AuthToken>>

@@ -47,9 +47,20 @@ Calls are **pure 1-to-1 P2P WebRTC**. The backend holds no media stack at all:
   from concurrent requests.
 
 ## Honest limitations — what you still need before production
-- **Fingerprint matching**: `/auth/fingerprint-identify` checks the kiosk
-  assignment correctly but does **not** compare biometric templates — that
-  needs a real matcher wired into `identifyInmate()` in `server.js`.
+- **Fingerprint matching runs on the kiosk, not here.** This server has no
+  SecuGen matcher, so `POST /auth/fingerprint-candidates` only hands a
+  registered kiosk the enrolled templates for its own prison / kiosk
+  assignment (active inmates, stale bcrypt digests skipped); the device runs
+  the FDx SDK 1:N match and `POST /auth/verify-pin` is what actually
+  authenticates. Templates are stored RAW on every write path (a bcrypt digest
+  could never match a fresh capture) and `normalizeInmate` strips them from
+  every other response. `POST /auth/fingerprint-candidates` demands the
+  kiosk's own device credential from `/kiosks/verify` (bound to that kioskId),
+  so a caller who only knows a kioskId gets a 401 instead of a jail's
+  biometric templates. Remaining gaps: `/auth/rfid-identify` and
+  `/auth/prisoner/identify` are still pre-auth (rate-limited only), and
+  enrollment captures a single image, with no quality gate or second-capture
+  confirmation.
 - **NAT traversal**: clients behind symmetric NAT need the TURN server
   reachable (see `coturn/turnserver.conf`); STUN-only networks will fail to
   connect without it.

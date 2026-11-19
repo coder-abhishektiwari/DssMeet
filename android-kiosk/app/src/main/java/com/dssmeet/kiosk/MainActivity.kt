@@ -56,6 +56,8 @@ class MainActivity : FragmentActivity() {
     @Volatile private var updateWorkInProgress = false
     @Volatile private var updateProgressText: String? = null
     @Volatile private var updateErrorText: String? = null
+    /** Bumped on every start/cancel so an abandoned download cannot write back. */
+    @Volatile private var updateGeneration = 0
 
     /** Roles that may install a kiosk update (an admin action). */
     private val ADMIN_ROLES = setOf("admin", "kiosk_admin", "super-admin", "super_admin", "vendor")
@@ -96,17 +98,26 @@ class MainActivity : FragmentActivity() {
      * live after the system restarts the app.
      */
     fun startUpdateInstall(info: com.dssmeet.kiosk.models.appupdate.AppUpdateInfo) {
-        if (updateWorkInProgress) return
+        // A previous attempt that died without reporting back must not block
+        // every later tap on Install forever.
+        if (updateWorkInProgress) {
+            val s = updateManager.installState.value
+            if (s.active && s.error == null) return // genuinely still running
+            updateWorkInProgress = false
+        }
         updateWorkInProgress = true
         updateProgressText = null
         updateErrorText = null
         updateManager.requestInstall(info)
         updateManager.beginInstall()
+        val generation = ++updateGeneration
         lifecycleScope.launch {
             val downloaded = updateInstaller.download(info) { percent ->
+                if (generation != updateGeneration) return@download
                 updateManager.setInstallPhase("Downloading…", percent)
             }
             downloaded.onFailure { err ->
+                if (generation != updateGeneration) return@launch
                 updateWorkInProgress = false
                 updateProgressText = null
                 updateErrorText = err.message ?: "Download failed"
@@ -114,10 +125,12 @@ class MainActivity : FragmentActivity() {
                 Logger.w("MainActivity: update download failed: ${err.message}")
                 return@launch
             }
+            if (generation != updateGeneration) return@launch
             val file = downloaded.getOrThrow().file
             updateProgressText = "Installing update…"
             updateManager.setInstallPhase("Installing…", 100)
             val installed = updateInstaller.install(file)
+            if (generation != updateGeneration) return@launch
             installed.onSuccess {
                 updateProgressText = "Update installed — restarting…"
                 Logger.i("MainActivity: update install handed off")
@@ -129,6 +142,21 @@ class MainActivity : FragmentActivity() {
                 Logger.w("MainActivity: update install failed: ${err.message}")
             }
         }
+    }
+
+    /**
+     * The user backed out of the install screen (or it failed and they chose
+     * Cancel). Everything — the in-progress flag included — has to be reset,
+     * otherwise the next tap on Install hits the `updateWorkInProgress` guard
+     * and silently does nothing.
+     */
+    fun cancelUpdateInstall() {
+        updateGeneration++
+        updateWorkInProgress = false
+        updateProgressText = null
+        updateErrorText = null
+        updateManager.clearPendingInstall()
+        Logger.i("MainActivity: update install cancelled")
     }
 
     /**
@@ -214,37 +242,20 @@ class MainActivity : FragmentActivity() {
                             NoInternetScreen(onRetry = { networkMonitor.refresh() })
                         }
 
-                        // Optional update notice — floats above EVERY screen
-                        // (login, inmate dashboard, admin screens) so the
-                        // admin who actually maintains the kiosk always sees
-                        // it, not just the inmate dashboard.
-                        val optionalUpdate =
-                            updateState as? com.dssmeet.kiosk.core.UpdateManager.State.Optional
-                        if (optionalUpdate != null) {
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.BottomCenter)
-                                    .padding(16.dp)
-                            ) {
-                                com.dssmeet.kiosk.ui.update.OptionalUpdateBanner(
-                                    info = optionalUpdate.info,
-                                    onInstall = { requestUpdateInstall(optionalUpdate.info) },
-                                    onDismiss = { dismissOptionalUpdate() }
-                                )
-                            }
-                        }
-
                         // The install itself (download → verify → install).
-                        // Only reachable with an admin session.
+                        // Only reachable with an admin session. Kept mounted
+                        // while an error is pending too — otherwise a failed
+                        // download would unmount this screen instantly and the
+                        // user would see NOTHING happen on tapping Install.
                         val installing = pendingInstall
-                        if (installing != null && installState.active) {
+                        if (installing != null && (installState.active || installState.error != null)) {
                             com.dssmeet.kiosk.ui.update.UpdateInstallScreen(
                                 info = installing,
                                 phase = installState.phase,
                                 percent = installState.percent,
                                 error = installState.error,
                                 onRetry = { requestUpdateInstall(installing) },
-                                onCancel = { updateManager.clearPendingInstall() }
+                                onCancel = { cancelUpdateInstall() }
                             )
                         }
 

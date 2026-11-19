@@ -8,10 +8,16 @@ import android.content.IntentFilter
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.os.Build
+import android.util.Base64
 import com.dssmeet.kiosk.core.Logger
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import SecuGen.FDxSDKPro.JSGFPLib
+import SecuGen.FDxSDKPro.SGFDxDeviceName
+import SecuGen.FDxSDKPro.SGFDxErrorCode
+import SecuGen.FDxSDKPro.SGFDxTemplateFormat
+import SecuGen.FDxSDKPro.SGFingerInfo
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -28,18 +34,21 @@ sealed class FingerprintCaptureState {
     /** A finger was captured — session code must consume it (acknowledgeCapture). */
     data class Captured(val template: String) : FingerprintCaptureState()
 
-    /** The scanner reported a fault — UI falls back to manual entry. */
+    /** The scanner reported a fault — UI offers a retry (or RFID/PIN). */
     data class Failed(val message: String) : FingerprintCaptureState()
 }
 
 /**
- * Handles genuine USB discovery for physical fingerprint scanners.
+ * Handles genuine USB discovery and capture for the SecuGen Hamster Pro 20
+ * (HU20-AP) fingerprint scanner through the FDx SDK Pro for Android.
  *
- * >>> HARDWARE SWAP: when the external scanner model is final, change ONLY
- * this file. Implement [startCaptureDriver]/[stopCaptureDriver] at the bottom
- * (VID/PID + vendor capture protocol) and push results with
- * [onTemplateCaptured]/[onCaptureError]. Login (LoginViewModel) and
- * registration (BiometricRegistrationViewModel) already consume [captureState].
+ * >>> HARDWARE SWAP: change ONLY this file plus res/xml/device_filter.xml.
+ * The VID/PID check lives in [isPotentialScanner], the capture protocol in
+ * [runCaptureLoop], and results are pushed with [onTemplateCaptured] /
+ * [onCaptureError]. Login (LoginViewModel) and registration
+ * (AddPrisonerScreen / BiometricRegistrationScreen) already consume
+ * [captureState], and matching against enrolled templates is done separately
+ * by SecuGenMatcher.
  */
 @Singleton
 class FingerprintHardwareManager @Inject constructor(
@@ -65,6 +74,34 @@ class FingerprintHardwareManager @Inject constructor(
     @Volatile
     private var sessionOwner: String? = null
 
+    // ---- SecuGen driver session ---------------------------------------
+    // The vendor SDK is driven from a single background thread so the port
+    // lifecycle stays strictly paired: opened only inside the loop, released
+    // only in its finally. `driverGeneration` is bumped on every stop so a
+    // superseded loop exits on its own, and the NEXT session joins the old
+    // thread before opening — that is what guarantees the port is free.
+    @Volatile
+    private var driverGeneration = 0
+    @Volatile
+    private var driverRunning = false
+    private var driverThread: Thread? = null
+    private val driverLock = Any()
+
+    private companion object {
+        /** Quality floor SecuGen recommends for registration-grade captures. */
+        const val CAPTURE_QUALITY = 50L
+        /** How long one GetImageEx waits for a finger before returning. */
+        const val CAPTURE_TIMEOUT_MS = 10_000L
+        /** Upper bound on waiting for a superseded session to release the port. */
+        const val PORT_RELEASE_WAIT_MS = 15_000L
+        /** Backoff after a capture fault so a dead reader cannot busy-spin. */
+        const val FAULT_BACKOFF_MS = 150L
+        /** SecuGen's USB vendor id — every reader they make uses it. */
+        const val SECUGEN_VENDOR_ID = 0x1162
+        /** SG400 templates are a fixed 400-byte buffer. */
+        const val SG400_TEMPLATE_BYTES = 400
+    }
+
     private val usbReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (ACTION_USB_PERMISSION == intent.action) {
@@ -80,9 +117,12 @@ class FingerprintHardwareManager @Inject constructor(
                             Logger.i("USB Permission GRANTED for $deviceName")
                             _hasPermission.value = true
                         }
+                        // The live session was waiting on this — open the port now.
+                        syncDriver()
                     } else {
                         Logger.w("USB Permission DENIED for device")
                         _hasPermission.value = false
+                        syncDriver()
                     }
                 }
             } else if (UsbManager.ACTION_USB_DEVICE_ATTACHED == intent.action) {
@@ -108,14 +148,14 @@ class FingerprintHardwareManager @Inject constructor(
     }
 
     /**
-     * Performs a genuine scan of all physical USB devices.
+     * Performs a genuine scan of all physical USB devices and reconciles the
+     * vendor driver with whatever is currently attached / permitted.
      */
     fun scanForDevices() {
         val deviceList = usbManager.deviceList
         Logger.d("FingerprintHardwareManager: Scanning ${deviceList.size} USB devices.")
 
-        // We look for devices that might be fingerprint scanners.
-        // Once we have a specific vendor, we will add their VID/PID here.
+        // SecuGen readers all sit behind vendor id 0x1162 (see device_filter.xml).
         val potentialScanner = deviceList.values.firstOrNull { device ->
             isPotentialScanner(device)
         }
@@ -127,6 +167,7 @@ class FingerprintHardwareManager @Inject constructor(
         } else {
             _hasPermission.value = false
         }
+        syncDriver()
     }
 
     /**
@@ -204,43 +245,187 @@ class FingerprintHardwareManager @Inject constructor(
         _captureState.value = FingerprintCaptureState.Captured(cleaned)
     }
 
-    /** Call from the driver on a capture fault — UI shows manual entry. */
+    /** Call from the driver on a capture fault — the UI offers a retry. */
     fun onCaptureError(message: String) {
         Logger.w("FingerprintHardwareManager: capture error: $message")
         _captureState.value = FingerprintCaptureState.Failed(message)
     }
 
+    /**
+     * Block until the capture driver has released the USB port (or [timeoutMs]
+     * elapses). Called by SecuGenMatcher before it loads the algorithm module,
+     * so two JSGFPLib instances never drive the SDK at the same time — a
+     * capture loop can sit inside GetImageEx for up to CAPTURE_TIMEOUT_MS
+     * after stopCapture() returns.
+     *
+     * @return true when the port is free (no driver, or it has finished).
+     */
+    fun awaitDriverIdle(timeoutMs: Long = PORT_RELEASE_WAIT_MS): Boolean {
+        val thread = synchronized(driverLock) { driverThread } ?: return true
+        if (thread === Thread.currentThread()) return true
+        return try {
+            thread.join(timeoutMs)
+            !thread.isAlive
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            false
+        }
+    }
+
     private fun isPotentialScanner(device: UsbDevice): Boolean {
-        // Many scanners use Class 255 (Vendor Specific) or specific VIDs.
-        // For now, we report any vendor-specific device as a potential scanner
-        // to show detection in the UI.
-        return device.deviceClass == 255 || device.vendorId != 0
+        // Only SecuGen's own vendor id counts. Matching on "any non-zero VID"
+        // used to report the keyboard/RFID wedge as a fingerprint scanner.
+        return device.vendorId == SECUGEN_VENDOR_ID
     }
 
     // ================================================================
-    // HARDWARE DRIVER HOOK — the ONLY place to change when the external
-    // scanner model is final. Until then the session stays in Searching
-    // and the UI offers manual fingerprint-ID entry.
+    // SECUGEN DRIVER (FDx SDK Pro for Android) — Hamster Pro 20 / HU20-AP.
     //
-    // LIFECYCLE CONTRACT (strict): the R307 Serial/USB port may be opened
-    // ONLY inside startCaptureDriver and MUST be fully released inside
-    // stopCaptureDriver — usbSerialPort.close(), UsbDeviceConnection.close(),
-    // and any read-listener/thread torn down. stopCaptureDriver is invoked
-    // on every takeover (startCapture from a new screen force-closes the
-    // previous session first) and on every screen exit, so a port left open
-    // here will deadlock every later registration screen.
+    // LIFECYCLE CONTRACT (strict): the USB port is opened ONLY inside
+    // runCaptureLoop and released ONLY in its finally block. stopCaptureDriver
+    // bumps a generation counter instead of touching the port; the loop
+    // notices, unwinds and closes. The NEXT startCaptureDriver joins that
+    // thread before opening, so a port left open here can never deadlock a
+    // later registration screen.
     // ================================================================
 
+    /**
+     * Reconcile the vendor driver with the current device, USB permission and
+     * session state. Safe to call from anywhere, any number of times.
+     *
+     * A missing scanner or a missing USB permission is deliberately NOT turned
+     * into [FingerprintCaptureState.Failed] — the UI already branches on
+     * `connectedScanner` / `usbPermissionGranted` and shows the right prompt
+     * ("reader not detected" / "Allow USB Access"). Failed is reserved for
+     * real capture faults.
+     */
+    private fun syncDriver() {
+        val sessionLive = sessionOwner != null &&
+            _captureState.value is FingerprintCaptureState.Searching
+        val ready = sessionLive && _connectedScanner.value != null && _hasPermission.value
+        if (ready) startCaptureDriver() else stopCaptureDriver()
+    }
+
     private fun startCaptureDriver() {
-        // TODO(hardware): match the scanner by VID/PID (see connectedScanner),
-        // open it with UsbManager / the vendor SDK and stream captures:
-        //   onTemplateCaptured(template)  on each finger
-        //   onCaptureError(message)       on faults
+        synchronized(driverLock) {
+            if (driverRunning) return
+            driverRunning = true
+            val generation = driverGeneration
+            val previous = driverThread
+            val thread = Thread({
+                // A superseded session may still be inside GetImageEx holding
+                // the port — let it unwind before we open our own.
+                try {
+                    previous?.join(PORT_RELEASE_WAIT_MS)
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                }
+                if (generation != driverGeneration) return@Thread
+                runCaptureLoop(generation)
+            }, "secugen-capture")
+            thread.isDaemon = true
+            driverThread = thread
+            thread.start()
+            Logger.i("FingerprintHardwareManager: SecuGen driver session started (generation=$generation)")
+        }
     }
 
     private fun stopCaptureDriver() {
-        // TODO(hardware): usbSerialPort?.close(); connection?.close();
-        // stop any reader thread / unbind listeners here. Must be safe to
-        // call even when nothing is open.
+        synchronized(driverLock) {
+            driverGeneration++
+            driverRunning = false
+            // driverThread is kept on purpose: the next startCaptureDriver
+            // joins it, which is what proves the port was released.
+            Logger.d("FingerprintHardwareManager: SecuGen driver stop requested (generation=$driverGeneration)")
+        }
+    }
+
+    private fun runCaptureLoop(generation: Int) {
+        var sg: JSGFPLib? = null
+        try {
+            val usbManager = context.getSystemService(Context.USB_SERVICE) as UsbManager
+            sg = JSGFPLib(context, usbManager)
+            Logger.i("FingerprintHardwareManager: jnisgfplib ${sg.Version()}")
+
+            var err = sg.Init(SGFDxDeviceName.SG_DEV_AUTO)
+            if (err != SGFDxErrorCode.SGFDX_ERROR_NONE.toLong()) {
+                if (generation == driverGeneration) {
+                    onCaptureError("Fingerprint scanner could not be initialised (error $err)")
+                }
+                return
+            }
+            sg.SetTemplateFormat(SGFDxTemplateFormat.TEMPLATE_FORMAT_SG400)
+
+            err = sg.OpenDevice(0)
+            if (err != SGFDxErrorCode.SGFDX_ERROR_NONE.toLong()) {
+                if (generation == driverGeneration) {
+                    onCaptureError("Fingerprint scanner could not be opened (error $err)")
+                }
+                return
+            }
+            Logger.i("FingerprintHardwareManager: SecuGen reader open")
+
+            // Sized for the largest sensor the SDK supports (the U20 in the
+            // HU20-AP is 300x400) so the buffer never depends on reading
+            // GetDeviceInfo fields, whose names differ between SDK releases.
+            val image = ByteArray(
+                JSGFPLib.MAX_IMAGE_WIDTH_ALL_DEVICES.toInt() *
+                    JSGFPLib.MAX_IMAGE_HEIGHT_ALL_DEVICES.toInt()
+            )
+            val maxTemplateSize = IntArray(1)
+            sg.GetMaxTemplateSize(maxTemplateSize)
+            // SG400 templates are a fixed 400 bytes; only trust the SDK when it
+            // actually told us something.
+            val template = ByteArray(maxTemplateSize[0].takeIf { it > 0 } ?: SG400_TEMPLATE_BYTES)
+            val fingerInfo = SGFingerInfo()
+
+            while (generation == driverGeneration) {
+                if (_connectedScanner.value == null) break // unplugged
+
+                err = sg.GetImageEx(image, CAPTURE_TIMEOUT_MS, CAPTURE_QUALITY)
+                if (err != SGFDxErrorCode.SGFDX_ERROR_NONE.toLong()) {
+                    // Timeout / no finger / quality too low all mean "keep
+                    // waiting"; the backoff stops a dead reader busy-spinning.
+                    Thread.sleep(FAULT_BACKOFF_MS)
+                    continue
+                }
+
+                err = sg.CreateTemplate(fingerInfo, image, template)
+                if (err != SGFDxErrorCode.SGFDX_ERROR_NONE.toLong()) {
+                    Logger.w("FingerprintHardwareManager: CreateTemplate failed ($err) — try the finger again")
+                    Thread.sleep(FAULT_BACKOFF_MS)
+                    continue
+                }
+
+                onTemplateCaptured(Base64.encodeToString(template, Base64.NO_WRAP))
+                // Hold until the session consumes it, so a second finger cannot
+                // overwrite a Captured nobody has acknowledged yet.
+                while (
+                    generation == driverGeneration &&
+                    _captureState.value is FingerprintCaptureState.Captured
+                ) {
+                    Thread.sleep(80)
+                }
+            }
+        } catch (t: Throwable) {
+            Logger.e("FingerprintHardwareManager: SecuGen driver died: ${t.message}", t)
+            if (generation == driverGeneration) {
+                onCaptureError("Fingerprint scanner error: ${t.message ?: "unknown"}")
+            }
+        } finally {
+            if (sg != null) {
+                try {
+                    sg.CloseDevice()
+                } catch (t: Throwable) {
+                    Logger.w("FingerprintHardwareManager: CloseDevice failed: ${t.message}")
+                }
+                try {
+                    sg.Close()
+                } catch (t: Throwable) {
+                    Logger.w("FingerprintHardwareManager: Close failed: ${t.message}")
+                }
+                Logger.i("FingerprintHardwareManager: SecuGen port released (generation=$generation)")
+            }
+        }
     }
 }

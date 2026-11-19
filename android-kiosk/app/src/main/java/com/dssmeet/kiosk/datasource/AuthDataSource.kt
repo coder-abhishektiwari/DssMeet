@@ -5,6 +5,7 @@ import com.dssmeet.kiosk.models.auth.AdminBootstrapResponse
 import com.dssmeet.kiosk.models.auth.AdminProfile
 import com.dssmeet.kiosk.models.auth.AuthToken
 import com.dssmeet.kiosk.models.auth.BootstrapStatusResponse
+import com.dssmeet.kiosk.models.auth.FingerprintCandidate
 import com.dssmeet.kiosk.models.auth.KioskVerifyRequest
 import com.dssmeet.kiosk.models.auth.KioskVerifyResponse
 import com.dssmeet.kiosk.models.auth.LoginRequest
@@ -16,7 +17,12 @@ interface AuthDataSource {
     suspend fun login(request: LoginRequest): ApiResponse<AuthToken>
     suspend fun refreshToken(refreshToken: String): ApiResponse<AuthToken>
     suspend fun logout(accessToken: String, refreshToken: String? = null): ApiResponse<Unit>
-    suspend fun identifyFingerprint(kioskId: String, capture: ByteArray): ApiResponse<InmateProfile>
+    /**
+     * Enrolled fingerprint templates scoped to [kioskId]. The caller matches a
+     * fresh capture against them locally (SecuGenMatcher) — the backend cannot,
+     * it has no SecuGen matcher.
+     */
+    suspend fun fingerprintCandidates(kioskId: String): ApiResponse<List<FingerprintCandidate>>
     suspend fun identifyRfid(request: LoginRequest): ApiResponse<InmateProfile>
     suspend fun identifyPrisoner(kioskId: String, prisonerId: String): ApiResponse<InmateProfile>
     suspend fun verifyPin(request: PinVerifyRequest): ApiResponse<AuthToken>

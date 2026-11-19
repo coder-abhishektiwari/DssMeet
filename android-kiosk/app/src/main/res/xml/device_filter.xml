@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SecuGen USB scanners the kiosk accepts. Values are DECIMAL (0x1162 = 4450).
+
+  0x1162:0x2200  HU20 / U20   Hamster Pro 20  <- the HU20-AP in the field
+  0x1162:0x2201  UPx          Hamster Pro
+  0x1162:0x2000  SDU04P       Hamster IV
+  0x1162:0x1000  SDU03P       Hamster Plus
+
+  A hardware swap to another SecuGen model only needs a new line here (and the
+  matching entry in FingerprintHardwareManager.SECUGEN_VENDOR_ID checks).
+-->
+<resources>
+    <usb-device vendor-id="4450" product-id="8704" />
+    <usb-device vendor-id="4450" product-id="8705" />
+    <usb-device vendor-id="4450" product-id="8192" />
+    <usb-device vendor-id="4450" product-id="4096" />
+</resources>

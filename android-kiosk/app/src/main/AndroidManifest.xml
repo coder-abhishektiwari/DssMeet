@@ -16,6 +16,13 @@
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     <uses-permission android:name="android.permission.USE_FINGERPRINT" />
     <uses-permission android:name="android.permission.MANAGE_DEVICE_ADMIN" />
+    <!-- The kiosk drives an EXTERNAL USB fingerprint scanner (SecuGen HU20-AP),
+         not the device's own biometric sensor — USB host mode is what matters
+         here. required=false because RFID-only and admin-password logins still
+         work on a tablet without OTG. -->
+    <uses-feature
+        android:name="android.hardware.usb.host"
+        android:required="false" />
     <!-- Installing an update APK: the app downloads the new build and hands
          it to the package installer (silently on device-owner kiosks). -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
@@ -38,6 +45,16 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- Plugging the scanner in offers to bring the kiosk to the front.
+                 The device list itself is also read at runtime by
+                 FingerprintHardwareManager, so this filter only affects the
+                 system prompt, not detection. -->
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
+                android:resource="@xml/device_filter" />
         </activity>
 
         <receiver
