@@ -29,7 +29,7 @@ publish:
   # Without this prefix the warden updater resolves the KIOSK release — whose
   # assets are .apk files — so it never finds an .exe or a latest.yml and the
   # console can never update itself. Warden releases live at `warden-vX.Y.Z`.
-  tagPrefix: warden-v
+  tagNamePrefix: warden-v
 
 # Windows 10/11 (Electron 45 does not support Windows 7/8 — ship the web URL
 # on those machines instead).
