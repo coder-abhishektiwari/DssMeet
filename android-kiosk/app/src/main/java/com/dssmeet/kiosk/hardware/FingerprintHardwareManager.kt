@@ -447,10 +447,12 @@ class FingerprintHardwareManager @Inject constructor(
             Logger.e("FingerprintHardwareManager: SecuGen driver died: ${t.message}", t)
             if (generation == driverGeneration) {
                 val message = t.message ?: "unknown"
-                val friendly = if (t is NoClassDefFoundError || message.contains("Failed resolution of")) {
-                    "Fingerprint scanner driver files are missing. Reinstall the kiosk app."
-                } else {
-                    "Fingerprint scanner error: $message"
+                val friendly = when {
+                    t is NoClassDefFoundError || message.contains("Failed resolution of") ->
+                        "Fingerprint scanner driver files are missing. Reinstall the kiosk app."
+                    message.contains("SgSetSensorResetInit") ->
+                        "Fingerprint scanner camera could not be opened. Reconnect the reader and try again."
+                    else -> "Fingerprint scanner error: $message"
                 }
                 onCaptureError(friendly)
             }
