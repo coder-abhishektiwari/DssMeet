@@ -118,10 +118,12 @@ jobs:
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          # electron-updater matches the release by version — the tag has to be
-          # v<version> (the same version as package.json).
-          tag_name: v${{ steps.version.outputs.version }}
+          # electron-updater matches the release by version AND by tag prefix
+          # (electron-builder.yml: tagPrefix: warden-v) — the kiosk APKs own
+          # the bare `vX.Y.Z` tags, so these must be `warden-vX.Y.Z`.
+          tag_name: warden-v${{ steps.version.outputs.version }}
           name: Warden Desktop v${{ steps.version.outputs.version }}
+
           body: |
             Warden desktop console build.
 
@@ -153,7 +155,7 @@ jobs:
             exit 0
           fi
           ASSET="DssMeet-Warden-Setup-${VERSION}.exe"
-          URL="https://github.com/${{ github.repository }}/releases/download/v${VERSION}/${ASSET}"
+          URL="https://github.com/${{ github.repository }}/releases/download/warden-v${VERSION}/${ASSET}"
           SHA=$(awk '/DssMeet-Warden-Setup/ {print $1; exit}' artifacts/SHA256SUMS.txt || true)
           LINUX_ASSET="DssMeet-Warden-${VERSION}.AppImage"
           LINUX_SHA=$(awk '/DssMeet-Warden-.*\.AppImage/ {print $1; exit}' artifacts/SHA256SUMS.txt || true)
@@ -187,7 +189,7 @@ jobs:
             \"platform\": \"linux\",
             \"version\": \"${VERSION}\",
             \"mandatory\": ${{ inputs.mandatory }},
-            \"downloadUrl\": \"https://github.com/${{ github.repository }}/releases/download/v${VERSION}/${LINUX_ASSET}\",
+            \"downloadUrl\": \"https://github.com/${{ github.repository }}/releases/download/warden-v${VERSION}/${LINUX_ASSET}\",
             \"sha256\": \"${LINUX_SHA}\",
             \"notes\": \"Warden desktop ${VERSION}\"
           }"

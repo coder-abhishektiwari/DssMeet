@@ -59,14 +59,12 @@ fun UnauthorizedDeviceScreen() {
 
             Spacer(modifier = Modifier.height(24.dp))
 
+            val integrityReason = com.dssmeet.kiosk.core.DeviceIntegrity.blockReason
             Text(
-                text = run {
-                    val reason = com.dssmeet.kiosk.core.DeviceIntegrity.blockReason
-                    if (reason != null) {
-                        "DEVICE SECURITY CHECK FAILED\n\nThis device appears to be rooted or\ncompromised and cannot run the\nDssMeet kiosk."
-                    } else {
-                        "This kiosk is not registered or authorized\nto access the DssMeet system."
-                    }
+                text = if (integrityReason != null) {
+                    "DEVICE SECURITY CHECK FAILED\n\nThis device appears to be rooted or\ncompromised and cannot run the\nDssMeet kiosk.\n\nReason: $integrityReason"
+                } else {
+                    "This kiosk is not registered or authorized\nto access the DssMeet system."
                 },
                 color = White,
                 fontSize = 16.sp,

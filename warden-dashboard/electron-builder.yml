@@ -25,6 +25,11 @@ publish:
   releaseType: release
   # The updater looks for the release whose tag matches the app version.
   channel: latest
+  # The kiosk APK releases own the bare `vX.Y.Z` tags (v1.1.1 ... v1.5.0).
+  # Without this prefix the warden updater resolves the KIOSK release — whose
+  # assets are .apk files — so it never finds an .exe or a latest.yml and the
+  # console can never update itself. Warden releases live at `warden-vX.Y.Z`.
+  tagPrefix: warden-v
 
 # Windows 10/11 (Electron 45 does not support Windows 7/8 — ship the web URL
 # on those machines instead).
