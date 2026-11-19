@@ -110,16 +110,22 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Building release v$VERSION"
       - name: Checksums
+        id: checksums
         run: |
           cd artifacts
           find . -type f \( -name '*.exe' -o -name '*.AppImage' -o -name '*.deb' \) -print0 \
             | xargs -0 sha256sum > SHA256SUMS.txt
           cat SHA256SUMS.txt
+          {
+            echo 'sums<<SUMS_EOF'
+            cat SHA256SUMS.txt
+            echo 'SUMS_EOF'
+          } >> "$GITHUB_OUTPUT"
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           # electron-updater matches the release by version AND by tag prefix
-          # (electron-builder.yml: tagPrefix: warden-v) — the kiosk APKs own
+          # (electron-builder.yml: tagNamePrefix: warden-v) — the kiosk APKs own
           # the bare `vX.Y.Z` tags, so these must be `warden-vX.Y.Z`.
           tag_name: warden-v${{ steps.version.outputs.version }}
           name: Warden Desktop v${{ steps.version.outputs.version }}
@@ -129,7 +135,7 @@ jobs:
 
             sha256sums:
             ```
-            $(cat artifacts/SHA256SUMS.txt)
+            ${{ steps.checksums.outputs.sums }}
             ```
           files: |
             artifacts/**/*.exe
