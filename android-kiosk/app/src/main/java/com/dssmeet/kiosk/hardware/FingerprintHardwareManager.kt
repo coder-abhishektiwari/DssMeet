@@ -278,6 +278,35 @@ class FingerprintHardwareManager @Inject constructor(
         return device.vendorId == SECUGEN_VENDOR_ID
     }
 
+    private fun deviceNameFor(productId: Int): Long? = when (productId) {
+        0x1000 -> SGFDxDeviceName.SG_DEV_FDU03
+        0x2000 -> SGFDxDeviceName.SG_DEV_FDU04
+        0x2200, 0x23BA -> SGFDxDeviceName.SG_DEV_FDU05
+        0x2201, 0x2301 -> SGFDxDeviceName.SG_DEV_FDU06
+        0x2203 -> SGFDxDeviceName.SG_DEV_FDU07
+        0x2240 -> SGFDxDeviceName.SG_DEV_FDU08
+        0x2220 -> SGFDxDeviceName.SG_DEV_FDU08P
+        0x2360 -> SGFDxDeviceName.SG_DEV_FDU08A
+        0x2410 -> SGFDxDeviceName.SG_DEV_FDU09A
+        0x2500 -> SGFDxDeviceName.SG_DEV_FDU10A
+        else -> null
+    }
+
+    private fun initErrorMessage(err: Long, connectedPid: Int?): String = when (err) {
+        SGFDxErrorCode.SGFDX_ERROR_DEVICE_NOT_FOUND -> "Fingerprint scanner not detected. Connect the USB reader and try again."
+        SGFDxErrorCode.SGFDX_ERROR_UNSUPPORTED_DEV -> if (connectedPid == null) {
+            "Fingerprint scanner not detected. Connect the USB reader and try again."
+        } else {
+            "Connected fingerprint scanner model is not supported (PID 0x${connectedPid.toString(16).uppercase()})."
+        }
+        SGFDxErrorCode.SGFDX_ERROR_DRVLOAD_FAILED -> "Fingerprint scanner driver could not load. Reconnect the reader and try again."
+        SGFDxErrorCode.SGFDX_ERROR_DLLLOAD_FAILED,
+        SGFDxErrorCode.SGFDX_ERROR_DLLLOAD_FAILED_DRV,
+        SGFDxErrorCode.SGFDX_ERROR_DLLLOAD_FAILED_ALG,
+        SGFDxErrorCode.SGFDX_ERROR_DLLLOAD_FAILED_WSQ -> "Fingerprint scanner SDK files are missing. Reinstall the kiosk app."
+        else -> "Fingerprint scanner could not be initialised (error $err)."
+    }
+
     // ================================================================
     // SECUGEN DRIVER (FDx SDK Pro for Android) — Hamster Pro 20 / HU20-AP.
     //
@@ -347,10 +376,17 @@ class FingerprintHardwareManager @Inject constructor(
             sg = JSGFPLib(context, usbManager)
             Logger.i("FingerprintHardwareManager: jnisgfplib ${sg.Version()}")
 
-            var err = sg.Init(SGFDxDeviceName.SG_DEV_AUTO)
+            val connectedPid = _connectedScanner.value?.productId
+            val deviceName = connectedPid?.let(::deviceNameFor)
+            if (connectedPid != null && deviceName == null) {
+                onCaptureError("Connected fingerprint scanner model is not supported (PID 0x${connectedPid.toString(16).uppercase()}).")
+                return
+            }
+
+            var err = sg.Init(deviceName ?: SGFDxDeviceName.SG_DEV_AUTO)
             if (err != SGFDxErrorCode.SGFDX_ERROR_NONE.toLong()) {
                 if (generation == driverGeneration) {
-                    onCaptureError("Fingerprint scanner could not be initialised (error $err)")
+                    onCaptureError(initErrorMessage(err, connectedPid))
                 }
                 return
             }
@@ -410,7 +446,13 @@ class FingerprintHardwareManager @Inject constructor(
         } catch (t: Throwable) {
             Logger.e("FingerprintHardwareManager: SecuGen driver died: ${t.message}", t)
             if (generation == driverGeneration) {
-                onCaptureError("Fingerprint scanner error: ${t.message ?: "unknown"}")
+                val message = t.message ?: "unknown"
+                val friendly = if (t is NoClassDefFoundError || message.contains("Failed resolution of")) {
+                    "Fingerprint scanner driver files are missing. Reinstall the kiosk app."
+                } else {
+                    "Fingerprint scanner error: $message"
+                }
+                onCaptureError(friendly)
             }
         } finally {
             if (sg != null) {
