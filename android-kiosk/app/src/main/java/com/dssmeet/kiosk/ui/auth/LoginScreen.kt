@@ -5,7 +5,6 @@ import com.dssmeet.kiosk.ui.theme.PrimaryDarkNavy
 import com.dssmeet.kiosk.ui.theme.PrimaryBlue
 import com.dssmeet.kiosk.ui.theme.ControlBtnBg
 import com.dssmeet.kiosk.ui.theme.DangerRed
-import com.dssmeet.kiosk.ui.theme.SuccessGreen
 
 
 import com.dssmeet.kiosk.ui.theme.TextGray
@@ -434,32 +433,44 @@ fun FingerprintScanningLayout(
     ) {
         Spacer(modifier = Modifier.height(16.dp))
 
-        Icon(
-            imageVector = Icons.Default.Fingerprint,
-            contentDescription = null,
-            tint = if (captureState is FingerprintCaptureState.Captured) SuccessGreen else PrimaryNavy,
-            modifier = Modifier.size(88.dp)
-        )
+        FingerprintScanAnimation(modifier = Modifier.size(170.dp))
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
         Text(
-            text = "Fingerprint Identification",
+            text = "Fingerprint Login",
             fontSize = 26.sp,
             fontWeight = FontWeight.Bold,
             color = PrimaryDarkNavy
         )
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
-        Text(
-            text = "Place the finger on the USB fingerprint scanner",
-            fontSize = 17.sp,
-            color = TextGray,
-            textAlign = TextAlign.Center
-        )
+        Surface(
+            color = ControlBtnBg,
+            shape = RoundedCornerShape(14.dp)
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Fingerprint,
+                    contentDescription = null,
+                    tint = PrimaryNavy,
+                    modifier = Modifier.size(28.dp)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    text = "Place finger on scanner",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = PrimaryDarkNavy
+                )
+            }
+        }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
         // Instruction card — live scanner status.
         Surface(
@@ -480,7 +491,7 @@ fun FingerprintScanningLayout(
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
-                            text = "Fingerprint captured — verifying…",
+                            text = "Finger read. Please wait…",
                             fontWeight = FontWeight.Medium,
                             textAlign = TextAlign.Center,
                             color = PrimaryDarkNavy
@@ -498,7 +509,7 @@ fun FingerprintScanningLayout(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Lift your finger and try again, or use another login method.",
+                            text = "Lift finger. Try again.",
                             textAlign = TextAlign.Center,
                             color = TextGray,
                             fontSize = 13.sp
@@ -513,14 +524,14 @@ fun FingerprintScanningLayout(
                             )
                             Spacer(modifier = Modifier.height(12.dp))
                             Text(
-                                text = "Verifying fingerprint…",
+                                text = "Checking fingerprint…",
                                 fontWeight = FontWeight.Medium,
                                 textAlign = TextAlign.Center,
                                 color = PrimaryDarkNavy
                             )
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
-                                text = "Hold on — matching against enrolled prints.",
+                                text = "Please wait.",
                                 textAlign = TextAlign.Center,
                                 color = TextGray,
                                 fontSize = 13.sp
@@ -533,14 +544,14 @@ fun FingerprintScanningLayout(
                             )
                             Spacer(modifier = Modifier.height(12.dp))
                             Text(
-                                text = "Fingerprint reader not detected",
+                                text = "Scanner not ready",
                                 fontWeight = FontWeight.Medium,
                                 textAlign = TextAlign.Center,
                                 color = PrimaryDarkNavy
                             )
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
-                                text = "Fingerprint scanner hardware is not detected by kiosk please contact the admin.",
+                                text = "Please call the admin.",
                                 textAlign = TextAlign.Center,
                                 color = TextGray,
                                 fontSize = 13.sp
@@ -552,14 +563,14 @@ fun FingerprintScanningLayout(
                             Icon(Icons.Default.Usb, contentDescription = null, tint = PrimaryNavy)
                             Spacer(modifier = Modifier.height(12.dp))
                             Text(
-                                text = "Scanner detected\nVID: $vid | PID: $pid",
+                                text = "Scanner ready\nVID: $vid | PID: $pid",
                                 fontWeight = FontWeight.Bold,
                                 textAlign = TextAlign.Center,
                                 color = PrimaryDarkNavy
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                text = "Place the finger on the scanner now",
+                                text = "Place finger here",
                                 fontWeight = FontWeight.Medium,
                                 color = PrimaryNavy
                             )

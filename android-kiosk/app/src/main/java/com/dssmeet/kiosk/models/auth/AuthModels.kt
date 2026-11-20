@@ -51,6 +51,11 @@ data class FingerprintCandidatesRequest(
     @SerializedName("kioskId") val kioskId: String
 )
 
+data class FingerprintLoginRequest(
+    @SerializedName("inmateId") val inmateId: String,
+    @SerializedName("kioskId") val kioskId: String
+)
+
 /** One enrolled inmate the kiosk may attempt to match a captured finger against. */
 data class FingerprintCandidate(
     @SerializedName("inmateId") val inmateId: String,

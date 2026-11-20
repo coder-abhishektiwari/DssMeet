@@ -29,6 +29,9 @@ class RemoteAuthDataSource @Inject constructor(
     override suspend fun fingerprintCandidates(kioskId: String): ApiResponse<List<FingerprintCandidate>> =
         apiService.fingerprintCandidates(FingerprintCandidatesRequest(kioskId))
 
+    override suspend fun fingerprintLogin(request: FingerprintLoginRequest): ApiResponse<AuthToken> =
+        apiService.fingerprintLogin(request)
+
     override suspend fun identifyRfid(request: LoginRequest): ApiResponse<InmateProfile> =
         apiService.identifyRfid(request)
 

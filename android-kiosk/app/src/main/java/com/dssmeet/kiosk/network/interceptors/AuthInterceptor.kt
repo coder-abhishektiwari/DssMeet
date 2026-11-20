@@ -216,7 +216,7 @@ class AuthInterceptor @Inject constructor(
         val segments = request.url.pathSegments
         return segments.size >= 2 &&
             segments[segments.size - 2] == "auth" &&
-            segments.last() == "fingerprint-candidates"
+            segments.last() in setOf("fingerprint-candidates", "fingerprint-login")
     }
 
     private fun isTokenStillValid(token: String): Boolean {

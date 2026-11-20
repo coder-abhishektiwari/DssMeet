@@ -24,6 +24,7 @@ interface AuthRepository {
      * locally — the server has no SecuGen matcher, so it cannot compare.
      */
     fun identifyFingerprint(probeTemplate: String): Flow<NetworkResult<InmateProfile>>
+    fun fingerprintLogin(inmateId: String): Flow<NetworkResult<AuthToken>>
     fun identifyRfid(request: LoginRequest): Flow<NetworkResult<InmateProfile>>
     fun identifyPrisoner(id: String): Flow<NetworkResult<InmateProfile>>
     fun verifyPin(inmateId: String, pin: String): Flow<NetworkResult<AuthToken>>

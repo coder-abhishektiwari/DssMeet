@@ -71,6 +71,9 @@ interface TrustApiService {
         @Body request: LoginRequest
     ): ApiResponse<InmateProfile>
 
+    @POST("auth/fingerprint-login")
+    suspend fun fingerprintLogin(@Body request: FingerprintLoginRequest): ApiResponse<AuthToken>
+
     @POST("auth/verify-pin")
     suspend fun verifyPin(@Body request: PinVerifyRequest): ApiResponse<AuthToken>
 

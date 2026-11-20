@@ -6,6 +6,7 @@ import com.dssmeet.kiosk.models.auth.AdminProfile
 import com.dssmeet.kiosk.models.auth.AuthToken
 import com.dssmeet.kiosk.models.auth.BootstrapStatusResponse
 import com.dssmeet.kiosk.models.auth.FingerprintCandidate
+import com.dssmeet.kiosk.models.auth.FingerprintLoginRequest
 import com.dssmeet.kiosk.models.auth.KioskVerifyRequest
 import com.dssmeet.kiosk.models.auth.KioskVerifyResponse
 import com.dssmeet.kiosk.models.auth.LoginRequest
@@ -23,6 +24,7 @@ interface AuthDataSource {
      * it has no SecuGen matcher.
      */
     suspend fun fingerprintCandidates(kioskId: String): ApiResponse<List<FingerprintCandidate>>
+    suspend fun fingerprintLogin(request: FingerprintLoginRequest): ApiResponse<AuthToken>
     suspend fun identifyRfid(request: LoginRequest): ApiResponse<InmateProfile>
     suspend fun identifyPrisoner(kioskId: String, prisonerId: String): ApiResponse<InmateProfile>
     suspend fun verifyPin(request: PinVerifyRequest): ApiResponse<AuthToken>

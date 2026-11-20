@@ -182,6 +182,35 @@ class AuthRepositoryImpl @Inject constructor(
         }
     }
 
+    override fun fingerprintLogin(inmateId: String): Flow<NetworkResult<AuthToken>> = flow {
+        emit(NetworkResult.Loading)
+        try {
+            val kioskId = verifiedKiosk?.kioskId
+            if (kioskId.isNullOrBlank()) {
+                emit(NetworkResult.Failure(ApiError("DEVICE_NOT_REGISTERED", "Kiosk device is not verified. Please complete device registration.")))
+                return@flow
+            }
+            val response = dataSource.fingerprintLogin(FingerprintLoginRequest(inmateId, kioskId))
+            if (response.success && response.data != null) {
+                sessionManager.saveTokens(response.data)
+                authInterceptor.setToken(response.data.accessToken)
+                emit(NetworkResult.Success(response.data))
+            } else {
+                val error = response.error?.let {
+                    getFriendlyError("Fingerprint login failed. Please try again.", it.code)
+                } ?: ApiError("FINGERPRINT_LOGIN_FAILED", "Fingerprint login failed. Please try again.")
+                emit(NetworkResult.Failure(error))
+            }
+        } catch (e: Exception) {
+            val statusCode = if (e is HttpException) e.code() else null
+            val error = when {
+                statusCode == 401 || statusCode == 403 -> getFriendlyError("Fingerprint login failed. Please try again.", "UNAUTHORIZED")
+                else -> ApiError("EXCEPTION", "Fingerprint login failed. Please try again.")
+            }
+            emit(NetworkResult.Failure(error, statusCode = statusCode))
+        }
+    }
+
     override fun identifyRfid(request: LoginRequest): Flow<NetworkResult<InmateProfile>> = flow {
         emit(NetworkResult.Loading)
         try {

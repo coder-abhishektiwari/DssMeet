@@ -68,11 +68,7 @@ class SecuGenMatcher @Inject constructor(
     private fun runIdentify(probeBase64: String, candidates: List<String>): Int {
         if (candidates.isEmpty()) return NO_MATCH
         val lib = ensureAlgorithm() ?: return NO_MATCH
-        val probe = decode(probeBase64)
-        if (probe == null) {
-            Logger.w("SecuGenMatcher: probe template is not valid base64")
-            return NO_MATCH
-        }
+        val probe = decode(probeBase64, "probe") ?: return NO_MATCH
 
         val matched = BooleanArray(1)
         val score = IntArray(1)
@@ -80,8 +76,10 @@ class SecuGenMatcher @Inject constructor(
         var bestScore = Int.MIN_VALUE
 
         synchronized(lib) {
+            if (!isValidTemplate(lib, probe, "probe")) return NO_MATCH
             for ((index, candidateBase64) in candidates.withIndex()) {
-                val stored = decode(candidateBase64) ?: continue
+                val stored = decode(candidateBase64, "candidate[$index]") ?: continue
+                if (!isValidTemplate(lib, stored, "candidate[$index]")) continue
                 matched[0] = false
                 val err = lib.MatchTemplate(probe, stored, SGFDxSecurityLevel.SL_NORMAL, matched)
                 if (err != SGFDxErrorCode.SGFDX_ERROR_NONE.toLong() || !matched[0]) continue
@@ -135,14 +133,34 @@ class SecuGenMatcher @Inject constructor(
         }
     }
 
-    private fun decode(value: String): ByteArray? = try {
-        Base64.decode(value, Base64.DEFAULT)
+    private fun isValidTemplate(lib: JSGFPLib, template: ByteArray, label: String): Boolean {
+        val declared = IntArray(1)
+        val err = lib.GetTemplateSize(template, declared)
+        if (err != SGFDxErrorCode.SGFDX_ERROR_NONE.toLong() || declared[0] != TEMPLATE_SIZE) {
+            Logger.w(
+                "SecuGenMatcher: invalid $label template " +
+                    "(err=$err, declared=${declared[0]}, bytes=${template.size})"
+            )
+            return false
+        }
+        return true
+    }
+
+    private fun decode(value: String, label: String): ByteArray? = try {
+        val bytes = Base64.decode(value, Base64.DEFAULT)
+        if (bytes.size != TEMPLATE_SIZE) {
+            Logger.w("SecuGenMatcher: $label template has ${bytes.size} bytes (expected $TEMPLATE_SIZE)")
+            null
+        } else {
+            bytes
+        }
     } catch (t: IllegalArgumentException) {
-        Logger.w("SecuGenMatcher: template is not base64 — ${t.message}")
+        Logger.w("SecuGenMatcher: $label template is not base64 — ${t.message}")
         null
     }
 
     companion object {
         const val NO_MATCH = -1
+        private const val TEMPLATE_SIZE = 400
     }
 }

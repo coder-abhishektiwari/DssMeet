@@ -205,6 +205,18 @@ describe('POST /auth/fingerprint-candidates', () => {
     expect(ids).not.toContain('INM-STALE');
     expect(ids).not.toContain('INM-NO-FP');
   });
+
+  test('malformed templates are skipped before the kiosk matcher sees them', async () => {
+    store['inmates.json'].push(inmate({
+      inmateId: 'INM-MALFORMED',
+      biometricData: {
+        ...inmate().biometricData,
+        fingerprintTemplate: Buffer.alloc(20, 3).toString('base64'),
+      },
+    }));
+    const res = await candidates(KIOSK);
+    expect(data(res).map((c) => c.inmateId)).not.toContain('INM-MALFORMED');
+  });
 });
 
 describe('POST /auth/fingerprint-candidates requires the device credential', () => {
@@ -250,6 +262,41 @@ describe('POST /auth/fingerprint-candidates requires the device credential', () 
       .send({});
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe('INVALID_REQUEST');
+  });
+});
+
+describe('POST /auth/fingerprint-login', () => {
+  const login = (inmateId = 'INM-OK', kioskId = KIOSK, token = deviceToken(kioskId)) => {
+    const req = request(app)
+      .post('/auth/fingerprint-login').set(ip())
+      .send({ inmateId, kioskId });
+    return token ? req.set('Authorization', `Bearer ${token}`) : req;
+  };
+
+  test('device credential is required', async () => {
+    expect((await login('INM-OK', KIOSK, null)).status).toBe(401);
+    expect((await login('INM-OK', KIOSK, superToken())).status).toBe(401);
+  });
+
+  test('a kiosk cannot mint a session for another kiosk', async () => {
+    expect((await login('INM-OK', KIOSK, deviceToken(KIOSK_B))).status).toBe(403);
+  });
+
+  test('a matched enrolled inmate gets the same inmate session as PIN login', async () => {
+    const res = await login();
+    expect(res.status).toBe(200);
+    expect(data(res).inmateId).toBe('INM-OK');
+    expect(data(res).kioskId).toBe(KIOSK);
+    expect(data(res).accessToken).toEqual(expect.any(String));
+    expect(data(res).refreshToken).toEqual(expect.any(String));
+    const claims = jwt.verify(data(res).accessToken, SECRET);
+    expect(claims).toMatchObject({ role: 'inmate', inmateId: 'INM-OK', kioskId: KIOSK });
+  });
+
+  test('a stale template never becomes a session', async () => {
+    const res = await login('INM-STALE');
+    expect(res.status).toBe(404);
+    expect(data(res)).toBeUndefined();
   });
 });
 
@@ -299,6 +346,16 @@ describe('fingerprint templates are stored RAW, never bcrypt', () => {
       .send({ type: 'fingerprint', capture: '!'.repeat(5000) });
     expect(long.status).toBe(422);
 
+    const stored = store['inmates.json'].find((i) => i.inmateId === 'INM-OK');
+    expect(stored.biometricData.fingerprintTemplate).toBe(TEMPLATE);
+  });
+
+  test('valid base64 of the wrong length is rejected', async () => {
+    const res = await request(app)
+      .post(bioUrl('INM-OK')).set(ip()).set(token())
+      .send({ type: 'fingerprint', capture: Buffer.alloc(20, 3).toString('base64') });
+    expect(res.status).toBe(422);
+    expect(res.body.error.message).toMatch(/SG400/);
     const stored = store['inmates.json'].find((i) => i.inmateId === 'INM-OK');
     expect(stored.biometricData.fingerprintTemplate).toBe(TEMPLATE);
   });

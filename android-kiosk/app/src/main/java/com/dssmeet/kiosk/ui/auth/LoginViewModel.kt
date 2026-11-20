@@ -175,16 +175,29 @@ class LoginViewModel @Inject constructor(
 
         launch {
             setLoading()
-            authRepository.identifyFingerprint(template).collect { result ->
+            authRepository.identifyFingerprint(template).collect identifyCollect@{ result ->
                 when (result) {
                     is NetworkResult.Success -> {
                         _identifiedInmate.value = result.data
-                        _loginStage.value = LoginStage.PIN_ENTRY
-                        setSuccess()
                         cancelBiometricSessions()
+                        authRepository.fingerprintLogin(result.data.inmateId).collect loginCollect@{ loginResult ->
+                            when (loginResult) {
+                                is NetworkResult.Success -> {
+                                    setSuccess()
+                                    delay(200.milliseconds)
+                                    _navigationEvent.emit(LoginNavigation.NavigateToDashboard)
+                                }
+                                is NetworkResult.Failure -> {
+                                    if (redirectIfDeviceUnverified(loginResult)) return@loginCollect
+                                    _loginStage.value = LoginStage.PIN_ENTRY
+                                    setError("Fingerprint login unavailable. Enter PIN to continue.")
+                                }
+                                else -> {}
+                            }
+                        }
                     }
                     is NetworkResult.Failure -> {
-                        if (redirectIfDeviceUnverified(result)) return@collect
+                        if (redirectIfDeviceUnverified(result)) return@identifyCollect
                         val errorMessage = getFriendlyErrorMessage(
                             statusCode = result.statusCode,
                             defaultMessage = "Fingerprint not recognized. Please try again."

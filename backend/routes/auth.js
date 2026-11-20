@@ -10,6 +10,7 @@ const { inAdminScope } = require('../lib/scoping');
 const { sendMail } = require('../lib/mailer');
 const { createPgStore } = require('../lib/rateLimitStore');
 const { auditFromReq } = require('../lib/audit');
+const { isValidFingerprintTemplate } = require('../lib/biometrics');
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -655,10 +656,10 @@ router.post('/fingerprint-candidates', identifyLimiter, requireKioskDeviceCreden
     if (!inScope) continue;
     const template = i.biometricData?.fingerprintTemplate;
     if (!i.biometricData?.fingerprintRegistered || !template) continue;
-    // A legacy bcrypt digest can never match a live capture. Skip it instead of
-    // handing the kiosk a template that is guaranteed to fail, and shout so the
-    // inmate gets re-enrolled.
-    if (/^\$2[aby]\$/.test(String(template))) { stale += 1; continue; }
+    // A legacy bcrypt digest or malformed template can never match a live
+    // capture. Skip it instead of handing the kiosk bytes the native matcher
+    // cannot safely decode, and shout so the inmate gets re-enrolled.
+    if (!isValidFingerprintTemplate(template)) { stale += 1; continue; }
     candidates.push({
       inmateId: i.inmateId,
       name: i.name || i.fullName || [i.firstName, i.lastName].filter(Boolean).join(' ').trim() || 'Unknown',
@@ -670,7 +671,7 @@ router.post('/fingerprint-candidates', identifyLimiter, requireKioskDeviceCreden
     });
   }
   if (stale > 0) {
-    console.warn(`[auth] skipped ${stale} stale bcrypt fingerprint template(s) for kiosk ${kioskId} — those inmates need re-enrolling`);
+    console.warn(`[auth] skipped ${stale} stale or malformed fingerprint template(s) for kiosk ${kioskId} — those inmates need re-enrolling`);
   }
   return sendSuccess(res, candidates);
 }));
@@ -741,6 +742,38 @@ router.post('/prisoner/identify', identifyLimiter, asyncRoute(async (req, res) =
     name: inmate.name || inmate.fullName || [inmate.firstName, inmate.lastName].filter(Boolean).join(' ').trim() || 'Unknown',
     prisonId: inmate.prisonId, facility: inmate.facility,
     status: inmate.status, photoUrl: inmate.photoUrl, confidence: 1.0
+  });
+}));
+
+router.post('/fingerprint-login', authLimiter, requireKioskDeviceCredential, asyncRoute(async (req, res) => {
+  const { inmateId, kioskId } = req.body;
+  if (!inmateId || !kioskId) return sendError(res, 'INVALID_REQUEST', 'inmateId and kioskId are required', 400);
+
+  const [inmates, kiosks] = await Promise.all([readDb('inmates.json'), readDb('kiosks.json')]);
+  const inmate = inmates.find((i) => i.inmateId === inmateId);
+  if (!inmate) return sendError(res, 'NOT_FOUND', 'Record not found', 404);
+  if (inmate.status && inmate.status !== 'active') return sendError(res, 'NOT_FOUND', 'Record not found', 404);
+
+  const kiosk = kiosks.find((k) => k.kioskId === kioskId);
+  if (!kiosk) return sendError(res, 'NOT_FOUND', 'Record not found', 404);
+  if (kiosk.prisonId && inmate.prisonId && kiosk.prisonId !== inmate.prisonId) {
+    return sendError(res, 'NOT_FOUND', 'Record not found', 404);
+  }
+  if (inmate.assignedKioskId && inmate.assignedKioskId !== kioskId) {
+    return sendError(res, 'NOT_FOUND', 'Record not found', 404);
+  }
+  if (!inmate.biometricData?.fingerprintRegistered || !isValidFingerprintTemplate(inmate.biometricData?.fingerprintTemplate)) {
+    return sendError(res, 'NOT_FOUND', 'Record not found', 404);
+  }
+
+  const claims = { sub: inmate.inmateId, role: 'inmate', inmateId: inmate.inmateId, kioskId };
+  const session = await createSession(claims, req);
+  return sendSuccess(res, {
+    accessToken: signAccessToken(claims),
+    refreshToken: session.refreshToken,
+    expiresIn: 3600,
+    inmateId: inmate.inmateId,
+    kioskId
   });
 }));
 

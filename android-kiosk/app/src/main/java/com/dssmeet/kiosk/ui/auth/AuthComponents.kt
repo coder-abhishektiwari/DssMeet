@@ -287,6 +287,29 @@ fun RfidTapAnimation(modifier: Modifier = Modifier) {
     )
 }
 
+@Composable
+fun FingerprintScanAnimation(modifier: Modifier = Modifier) {
+    val composition by rememberLottieComposition(
+        LottieCompositionSpec.Asset("animations/fingerprint_scan_animation.json")
+    )
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        if (composition != null) {
+            LottieAnimation(
+                composition = composition,
+                modifier = Modifier.matchParentSize(),
+                iterations = LottieConstants.IterateForever
+            )
+        } else {
+            Icon(
+                imageVector = Icons.Default.Fingerprint,
+                contentDescription = null,
+                tint = PrimaryNavy,
+                modifier = Modifier.size(72.dp)
+            )
+        }
+    }
+}
+
 /**
  * Invisible RFID card-number capture field for USB HID readers (HID mode).
  *
