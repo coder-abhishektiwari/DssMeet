@@ -66,6 +66,14 @@ class LoginViewModel @Inject constructor(
     private val _navigationEvent = MutableSharedFlow<LoginNavigation>()
     val navigationEvent = _navigationEvent.asSharedFlow()
 
+    private val _fingerprintMismatch = MutableStateFlow(false)
+    val fingerprintMismatch = _fingerprintMismatch.asStateFlow()
+
+    val fingerDetected = fingerprintHardwareManager.fingerDetected
+
+    private val _rfidManualMode = MutableStateFlow(false)
+    val rfidManualMode = _rfidManualMode.asStateFlow()
+
     val connectedScanner = fingerprintHardwareManager.connectedScanner
     val usbPermissionGranted = fingerprintHardwareManager.hasPermission
 
@@ -145,6 +153,7 @@ class LoginViewModel @Inject constructor(
     }
 
     fun startFingerprintAuth() {
+        _fingerprintMismatch.value = false
         _loginStage.value = LoginStage.FINGERPRINT_SCANNING
         fingerprintHardwareManager.startCapture(HARDWARE_OWNER)
         startFingerprintSession()
@@ -174,6 +183,7 @@ class LoginViewModel @Inject constructor(
         if (uiState.value is UiState.Loading) return
 
         launch {
+            _fingerprintMismatch.value = false
             setLoading()
             authRepository.identifyFingerprint(template).collect identifyCollect@{ result ->
                 when (result) {
@@ -184,7 +194,6 @@ class LoginViewModel @Inject constructor(
                             when (loginResult) {
                                 is NetworkResult.Success -> {
                                     setSuccess()
-                                    delay(200.milliseconds)
                                     _navigationEvent.emit(LoginNavigation.NavigateToDashboard)
                                 }
                                 is NetworkResult.Failure -> {
@@ -202,8 +211,10 @@ class LoginViewModel @Inject constructor(
                             statusCode = result.statusCode,
                             defaultMessage = "Fingerprint not recognized. Please try again."
                         )
+                        _fingerprintMismatch.value = true
                         setError(errorMessage)
                         delay(2000.milliseconds)
+                        _fingerprintMismatch.value = false
                         setIdle()
                         // Resume scanning so the user can simply try again.
                         fingerprintHardwareManager.startCapture(HARDWARE_OWNER)
@@ -443,9 +454,23 @@ class LoginViewModel @Inject constructor(
     }
 
     fun startRfidAuth() {
+        _rfidManualMode.value = false
         _loginStage.value = LoginStage.RFID_SCANNING
         rfidReaderManager.startSession(HARDWARE_OWNER)
         startRfidSession()
+    }
+
+    fun setRfidManualMode(active: Boolean) {
+        if (_rfidManualMode.value == active) return
+        _rfidManualMode.value = active
+        if (active) {
+            rfidSessionJob?.cancel()
+            rfidSessionJob = null
+            rfidReaderManager.stopSession(HARDWARE_OWNER)
+        } else if (_loginStage.value == LoginStage.RFID_SCANNING && uiState.value !is UiState.Loading) {
+            rfidReaderManager.startSession(HARDWARE_OWNER)
+            startRfidSession()
+        }
     }
 
     /**
@@ -505,6 +530,10 @@ class LoginViewModel @Inject constructor(
                         setError(errorMessage)
                         delay(2000.milliseconds)
                         setIdle()
+                        if (!_rfidManualMode.value) {
+                            rfidReaderManager.startSession(HARDWARE_OWNER)
+                            startRfidSession()
+                        }
                     }
                     else -> {}
                 }
@@ -557,6 +586,8 @@ class LoginViewModel @Inject constructor(
 
     /** Stop both hardware sessions and their collectors (leaving the biometric stages). */
     private fun cancelBiometricSessions() {
+        _fingerprintMismatch.value = false
+        _rfidManualMode.value = false
         fingerprintSessionJob?.cancel()
         fingerprintSessionJob = null
         rfidSessionJob?.cancel()

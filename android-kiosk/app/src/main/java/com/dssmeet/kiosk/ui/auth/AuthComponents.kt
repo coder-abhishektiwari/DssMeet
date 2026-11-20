@@ -13,7 +13,9 @@ import com.dssmeet.kiosk.ui.theme.TextGray
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
+import android.provider.Settings
 import android.view.WindowManager
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -44,6 +46,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
@@ -65,7 +68,8 @@ fun PremiumAuthCard(
     icon: ImageVector,
     description: String,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    compact: Boolean = false
 ) {
     var isPressed by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(if (isPressed) 0.95f else 1f, label = "Scale")
@@ -73,7 +77,7 @@ fun PremiumAuthCard(
     Surface(
         modifier = modifier
             .scale(scale)
-            .clip(RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(if (compact) 16.dp else 20.dp))
             .clickable { onClick() },
         color = Color.White,
         shadowElevation = 8.dp
@@ -81,12 +85,13 @@ fun PremiumAuthCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+                .padding(horizontal = 12.dp, vertical = if (compact) 10.dp else 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
         ) {
             Box(
                 modifier = Modifier
-                    .size(52.dp)
+                    .size(if (compact) 42.dp else 52.dp)
                     .clip(CircleShape)
                     .background(
                         Brush.linearGradient(
@@ -99,23 +104,23 @@ fun PremiumAuthCard(
                     imageVector = icon,
                     contentDescription = null,
                     tint = Color.White,
-                    modifier = Modifier.size(28.dp)
+                    modifier = Modifier.size(if (compact) 22.dp else 28.dp)
                 )
             }
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(if (compact) 8.dp else 12.dp))
             Text(
                 text = title,
-                fontSize = 16.sp,
+                fontSize = if (compact) 15.sp else 16.sp,
                 fontWeight = FontWeight.Bold,
                 color = PrimaryDarkNavy
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = description,
-                fontSize = 12.sp,
+                fontSize = if (compact) 11.sp else 12.sp,
                 color = TextGray,
                 textAlign = TextAlign.Center,
-                lineHeight = 16.sp
+                lineHeight = if (compact) 14.sp else 16.sp
             )
         }
     }
@@ -310,6 +315,99 @@ fun FingerprintScanAnimation(modifier: Modifier = Modifier) {
     }
 }
 
+@Composable
+fun FingerprintFeedbackIcon(
+    isScanning: Boolean,
+    isMismatch: Boolean,
+    isDeviceError: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val reduceMotion = remember(context) {
+        Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
+    }
+
+    val iconTint by animateColorAsState(
+        targetValue = when {
+            isMismatch || isDeviceError -> DangerRed
+            isScanning -> Color(0xFF2E7D32)
+            else -> PrimaryNavy
+        },
+        animationSpec = tween(220),
+        label = "FingerprintIconTint"
+    )
+
+    val shake = remember { Animatable(0f) }
+    LaunchedEffect(isMismatch, reduceMotion) {
+        if (isMismatch && !reduceMotion) {
+            repeat(4) {
+                shake.animateTo(-12f, tween(70, easing = LinearEasing))
+                shake.animateTo(12f, tween(110, easing = LinearEasing))
+                shake.animateTo(-8f, tween(110, easing = LinearEasing))
+            }
+            shake.animateTo(0f, tween(90))
+        } else {
+            shake.snapTo(0f)
+        }
+    }
+
+    val infiniteTransition = rememberInfiniteTransition(label = "FingerprintScan")
+    val scanProgress by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1600, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "FingerprintScanProgress"
+    )
+    val scanY = (-58 + scanProgress * 116).dp
+
+    Box(
+        modifier = modifier
+            .offset(x = shake.value.dp)
+            .clip(CircleShape)
+            .background(iconTint.copy(alpha = 0.10f))
+            .border(1.dp, iconTint.copy(alpha = 0.28f), CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        if (isScanning && !reduceMotion) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .clip(CircleShape)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .offset(y = scanY)
+                        .size(width = 150.dp, height = 24.dp)
+                        .background(
+                            Brush.horizontalGradient(
+                                listOf(
+                                    Color.Transparent,
+                                    Color(0xFF86EFAC).copy(alpha = 0.75f),
+                                    Color.Transparent
+                                )
+                            )
+                        )
+                )
+            }
+        }
+        Icon(
+            imageVector = Icons.Default.Fingerprint,
+            contentDescription = when {
+                isMismatch -> "Fingerprint not recognized"
+                isDeviceError -> "Fingerprint scanner error"
+                isScanning -> "Reading fingerprint"
+                else -> "Place finger on scanner"
+            },
+            tint = iconTint,
+            modifier = Modifier.size(84.dp)
+        )
+    }
+}
+
 /**
  * Invisible RFID card-number capture field for USB HID readers (HID mode).
  *
@@ -337,10 +435,24 @@ fun HiddenRfidTapInput(
     // kiosk screens have no other text input, so nothing competes for it.
     var refocusTick by remember { mutableStateOf(0) }
 
-    fun submit(buffered: String? = null) {
-        val card = (buffered ?: digits).filter { it.isDigit() }
+    fun submit() {
+        val card = digits.filter { it.isDigit() }
         digits = ""
         if (card.isNotEmpty()) onCardDetected(card)
+    }
+
+    fun digitFor(key: Key): Char? = when (key) {
+        Key.Zero, Key.NumPad0 -> '0'
+        Key.One, Key.NumPad1 -> '1'
+        Key.Two, Key.NumPad2 -> '2'
+        Key.Three, Key.NumPad3 -> '3'
+        Key.Four, Key.NumPad4 -> '4'
+        Key.Five, Key.NumPad5 -> '5'
+        Key.Six, Key.NumPad6 -> '6'
+        Key.Seven, Key.NumPad7 -> '7'
+        Key.Eight, Key.NumPad8 -> '8'
+        Key.Nine, Key.NumPad9 -> '9'
+        else -> null
     }
 
     // Auto-focus the field the instant the screen mounts (or re-enable).
@@ -371,18 +483,9 @@ fun HiddenRfidTapInput(
     }
 
     TextField(
-        value = digits,
-        onValueChange = { raw ->
-            if (!enabled) return@TextField
-            // Intercept the trailing Carriage Return (\n) sent by the physical
-            // RFID reader — trigger the callback and reset for the next scan.
-            if (raw.endsWith('\n')) {
-                submit(raw)
-                return@TextField
-            }
-            digits = raw.filter { it.isDigit() }.take(cardLength)
-            if (digits.length == cardLength) submit()
-        },
+        value = "",
+        onValueChange = {},
+        readOnly = true,
         enabled = enabled,
         singleLine = true,
         modifier = Modifier
@@ -396,14 +499,23 @@ fun HiddenRfidTapInput(
                 }
             }
             .onKeyEvent { event ->
-                if (enabled &&
-                    event.type == KeyEventType.KeyDown &&
-                    (event.key == Key.Enter || event.key == Key.NumPadEnter)
-                ) {
-                    submit()
-                    true
-                } else {
-                    false
+                if (!enabled || event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                val digit = digitFor(event.key)
+                if (digit != null) {
+                    digits = (digits + digit).take(cardLength)
+                    if (digits.length == cardLength) submit()
+                    return@onKeyEvent true
+                }
+                when (event.key) {
+                    Key.Enter, Key.NumPadEnter -> {
+                        submit()
+                        true
+                    }
+                    Key.Backspace -> {
+                        digits = digits.dropLast(1)
+                        true
+                    }
+                    else -> false
                 }
             },
         textStyle = TextStyle(color = Color.Transparent),

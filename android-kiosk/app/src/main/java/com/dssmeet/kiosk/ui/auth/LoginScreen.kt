@@ -23,7 +23,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.material3.windowsizeclass.WindowHeightSizeClass
 import androidx.compose.material3.windowsizeclass.WindowSizeClass
+import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,7 +52,7 @@ import kotlin.time.Duration.Companion.milliseconds
 
 @Composable
 fun LoginScreen(
-    @Suppress("UNUSED_PARAMETER") windowSizeClass: WindowSizeClass,
+    windowSizeClass: WindowSizeClass,
     sessionMessage: String? = null,
     onLoginSuccess: () -> Unit,
     onAdminLoginSuccess: () -> Unit,
@@ -64,7 +66,10 @@ fun LoginScreen(
     val uiState by viewModel.uiState.collectAsState()
     val isNetworkAvailable by viewModel.isNetworkAvailable.collectAsState()
     val fingerprintCaptureState by viewModel.fingerprintCaptureState.collectAsState()
+    val fingerprintMismatch by viewModel.fingerprintMismatch.collectAsState()
+    val fingerDetected by viewModel.fingerDetected.collectAsState()
     val rfidState by viewModel.rfidState.collectAsState()
+    val rfidManualMode by viewModel.rfidManualMode.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     var lastErrorShown by remember { mutableStateOf<String?>(null) }
 
@@ -118,6 +123,7 @@ fun LoginScreen(
             ) { targetStage ->
                 when (targetStage) {
                     LoginStage.METHOD_SELECTION -> WelcomeSelectionLayout(
+                        windowSizeClass = windowSizeClass,
                         onFingerprintClick = { viewModel.startFingerprintAuth() },
                         onRfidClick = { viewModel.startRfidAuth() },
                         onPrisonerIdClick = { viewModel.startPrisonerIdEntry() },
@@ -128,11 +134,15 @@ fun LoginScreen(
                     LoginStage.FINGERPRINT_SCANNING -> FingerprintScanningLayout(
                         viewModel = viewModel,
                         captureState = fingerprintCaptureState,
+                        fingerprintMismatch = fingerprintMismatch,
+                        fingerDetected = fingerDetected,
                         onCancel = { viewModel.resetToSelection() }
                     )
                     LoginStage.RFID_SCANNING -> RfidScanningLayout(
                         state = rfidState,
+                        manualMode = rfidManualMode,
                         onCardTap = { viewModel.onRfidCardTapped(it) },
+                        onManualModeChange = { viewModel.setRfidManualMode(it) },
                         onManualSubmit = { viewModel.onRfidScanned(it) },
                         onCancel = { viewModel.resetToSelection() }
                     )
@@ -186,134 +196,109 @@ fun LoginScreen(
 @Composable
 fun RfidScanningLayout(
     state: RfidReaderState,
+    manualMode: Boolean,
     onCardTap: (String) -> Unit,
+    onManualModeChange: (Boolean) -> Unit,
     onManualSubmit: (String) -> Unit,
     onCancel: () -> Unit
 ) {
     var showManualDialog by remember { mutableStateOf(false) }
     var manualDigits by remember { mutableStateOf("") }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+    BoxWithConstraints(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
     ) {
-        // Invisible keyboard-wedge input: the USB reader types the card
-        // number + Enter straight into this auto-focused, hidden field.
-        // Declared first and pushed back in z-order so it never shows.
-        HiddenRfidTapInput(
-            enabled = !showManualDialog,
-            onCardDetected = onCardTap
-        )
+        val compactHeight = maxHeight < 560.dp
+        val contentWidth = minOf(maxWidth - 48.dp, 520.dp).coerceAtLeast(240.dp)
+        val animationSize = (maxHeight * 0.26f).coerceIn(110.dp, 180.dp)
+        val titleSize = if (maxWidth < 420.dp) 22.sp else 26.sp
 
-        Spacer(modifier = Modifier.height(8.dp))
-
-        RfidTapAnimation(modifier = Modifier.size(170.dp))
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Text(
-            text = "RFID Card Authentication",
-            fontSize = 26.sp,
-            fontWeight = FontWeight.Bold,
-            color = PrimaryDarkNavy
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Text(
-            text = "Tap your RFID card on the reader",
-            fontSize = 17.sp,
-            color = TextGray,
-            textAlign = TextAlign.Center
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // Instruction card — live reader status.
-        Surface(
-            color = Color.White,
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth().border(1.dp, Color.LightGray, RoundedCornerShape(16.dp))
+        Column(
+            modifier = Modifier
+                .width(contentWidth)
+                .verticalScroll(rememberScrollState())
+                .padding(vertical = if (compactHeight) 12.dp else 20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Column(
-                modifier = Modifier.padding(20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                when (state) {
-                    is RfidReaderState.CardRead -> {
+            HiddenRfidTapInput(
+                enabled = !showManualDialog && !manualMode,
+                onCardDetected = onCardTap
+            )
+
+            RfidTapAnimation(modifier = Modifier.size(animationSize))
+
+            Spacer(modifier = Modifier.height(if (compactHeight) 6.dp else 12.dp))
+
+            Text(
+                text = "RFID Card Authentication",
+                fontSize = titleSize,
+                fontWeight = FontWeight.Bold,
+                color = PrimaryDarkNavy,
+                textAlign = TextAlign.Center
+            )
+
+            Spacer(modifier = Modifier.height(if (compactHeight) 4.dp else 8.dp))
+
+            Text(
+                text = "Tap your RFID card on the reader",
+                fontSize = if (compactHeight) 15.sp else 17.sp,
+                color = TextGray,
+                textAlign = TextAlign.Center
+            )
+
+            when (state) {
+                is RfidReaderState.CardRead -> {
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         CircularProgressIndicator(
-                            modifier = Modifier.size(24.dp),
+                            modifier = Modifier.size(20.dp),
                             strokeWidth = 2.dp,
                             color = PrimaryNavy
                         )
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = "Card detected — verifying…",
                             fontWeight = FontWeight.Medium,
-                            textAlign = TextAlign.Center,
                             color = PrimaryDarkNavy
-                        )
-                    }
-                    is RfidReaderState.Failed -> {
-                        Icon(Icons.Default.Warning, contentDescription = null, tint = DangerRed, modifier = Modifier.size(28.dp))
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = state.message,
-                            fontWeight = FontWeight.Medium,
-                            textAlign = TextAlign.Center,
-                            color = DangerRed,
-                            fontSize = 14.sp
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Tap 'Enter card number instead' below.",
-                            textAlign = TextAlign.Center,
-                            color = TextGray,
-                            fontSize = 13.sp
-                        )
-                    }
-                    else -> {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(24.dp),
-                            strokeWidth = 2.dp,
-                            color = PrimaryNavy
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = "Hold your RFID card on the reader",
-                            fontWeight = FontWeight.Medium,
-                            textAlign = TextAlign.Center,
-                            color = PrimaryDarkNavy
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = "The card number is entered automatically and login continues on its own.",
-                            textAlign = TextAlign.Center,
-                            color = TextGray,
-                            fontSize = 13.sp
                         )
                     }
                 }
+                is RfidReaderState.Failed -> {
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Text(
+                        text = state.message,
+                        fontWeight = FontWeight.Medium,
+                        textAlign = TextAlign.Center,
+                        color = DangerRed,
+                        fontSize = 14.sp
+                    )
+                }
+                else -> Unit
             }
-        }
 
-        Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(if (compactHeight) 14.dp else 24.dp))
 
-        TextButton(onClick = { manualDigits = ""; showManualDialog = true }) {
-            Text("Enter card number instead", color = PrimaryNavy, fontWeight = FontWeight.Medium)
-        }
+            TextButton(onClick = {
+                manualDigits = ""
+                showManualDialog = true
+                onManualModeChange(true)
+            }) {
+                Text("Enter card number instead", color = PrimaryNavy, fontWeight = FontWeight.Medium)
+            }
 
-        TextButton(onClick = onCancel) {
-            Text("<- Back to Login Methods", color = PrimaryBlue, fontWeight = FontWeight.Bold)
+            TextButton(onClick = onCancel) {
+                Text("<- Back to Login Methods", color = PrimaryBlue, fontWeight = FontWeight.Bold)
+            }
         }
     }
 
     if (showManualDialog) {
         AlertDialog(
-            onDismissRequest = { showManualDialog = false },
+            onDismissRequest = {
+                showManualDialog = false
+                onManualModeChange(false)
+            },
             title = { Text("Enter Card Number") },
             text = {
                 Column(
@@ -341,7 +326,10 @@ fun RfidScanningLayout(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showManualDialog = false }) { Text("Cancel") }
+                TextButton(onClick = {
+                    showManualDialog = false
+                    onManualModeChange(false)
+                }) { Text("Cancel") }
             },
             confirmButton = {}
         )
@@ -416,6 +404,8 @@ fun AdminUsernameEntryLayout(
 fun FingerprintScanningLayout(
     viewModel: LoginViewModel,
     captureState: FingerprintCaptureState,
+    fingerprintMismatch: Boolean,
+    fingerDetected: Boolean,
     onCancel: () -> Unit
 ) {
     val device by viewModel.connectedScanner.collectAsState()
@@ -424,84 +414,92 @@ fun FingerprintScanningLayout(
     // port is handed to SecuGenMatcher), so captureState alone reads as Idle.
     val uiState by viewModel.uiState.collectAsState()
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+    val isScanning = fingerDetected ||
+        captureState is FingerprintCaptureState.Captured ||
+        uiState is UiState.Loading
+    val isDeviceError = device == null ||
+        !hasPermission ||
+        captureState is FingerprintCaptureState.Failed
+
+    val statusText = when {
+        fingerprintMismatch -> "Fingerprint not recognized. Try again."
+        fingerDetected -> "Finger detected — reading…"
+        isScanning -> "Reading fingerprint…"
+        captureState is FingerprintCaptureState.Failed -> captureState.message
+        device == null -> "Scanner not ready. Please call the admin."
+        !hasPermission -> "USB access required."
+        else -> "Place finger on scanner and hold"
+    }
+    val statusColor = when {
+        fingerprintMismatch || isDeviceError -> DangerRed
+        isScanning -> Color(0xFF2E7D32)
+        else -> PrimaryDarkNavy
+    }
+
+    BoxWithConstraints(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
     ) {
-        Spacer(modifier = Modifier.height(16.dp))
+        val compactHeight = maxHeight < 560.dp
+        val contentWidth = minOf(maxWidth - 48.dp, 520.dp).coerceAtLeast(240.dp)
+        val iconSize = (maxHeight * 0.3f).coerceIn(120.dp, 190.dp)
+        val titleSize = if (maxWidth < 420.dp) 22.sp else 28.sp
 
-        FingerprintScanAnimation(modifier = Modifier.size(170.dp))
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Text(
-            text = "Fingerprint Login",
-            fontSize = 26.sp,
-            fontWeight = FontWeight.Bold,
-            color = PrimaryDarkNavy
-        )
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Surface(
-            color = ControlBtnBg,
-            shape = RoundedCornerShape(14.dp)
+        Column(
+            modifier = Modifier
+                .width(contentWidth)
+                .verticalScroll(rememberScrollState())
+                .padding(vertical = if (compactHeight) 12.dp else 20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Fingerprint,
-                    contentDescription = null,
-                    tint = PrimaryNavy,
-                    modifier = Modifier.size(28.dp)
-                )
-                Spacer(modifier = Modifier.width(10.dp))
-                Text(
-                    text = "Place finger on scanner",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = PrimaryDarkNavy
-                )
-            }
-        }
+            Text(
+                text = "Fingerprint Login",
+                fontSize = titleSize,
+                fontWeight = FontWeight.Bold,
+                color = PrimaryDarkNavy,
+                textAlign = TextAlign.Center
+            )
 
-        Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(if (compactHeight) 6.dp else 12.dp))
 
-        // Instruction card — live scanner status.
-        Surface(
-            color = Color.White,
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth().border(1.dp, Color.LightGray, RoundedCornerShape(16.dp))
-        ) {
-            Column(
-                modifier = Modifier.padding(20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                when (val capture = captureState) {
-                    is FingerprintCaptureState.Captured -> {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(24.dp),
-                            strokeWidth = 2.dp,
-                            color = PrimaryNavy
+            FingerprintFeedbackIcon(
+                modifier = Modifier.size(iconSize),
+                isScanning = isScanning,
+                isMismatch = fingerprintMismatch,
+                isDeviceError = isDeviceError
+            )
+
+            Spacer(modifier = Modifier.height(if (compactHeight) 10.dp else 16.dp))
+
+            Text(
+                text = statusText,
+                fontSize = if (compactHeight) 15.sp else 16.sp,
+                fontWeight = FontWeight.Medium,
+                textAlign = TextAlign.Center,
+                color = statusColor
+            )
+
+            if (isDeviceError) {
+                Spacer(modifier = Modifier.height(20.dp))
+
+                Surface(
+                    color = Color.White,
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth().border(1.dp, Color.LightGray, RoundedCornerShape(16.dp))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = null,
+                            tint = DangerRed,
+                            modifier = Modifier.size(28.dp)
                         )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = "Finger read. Please wait…",
-                            fontWeight = FontWeight.Medium,
-                            textAlign = TextAlign.Center,
-                            color = PrimaryDarkNavy
-                        )
-                    }
-                    is FingerprintCaptureState.Failed -> {
-                        Icon(Icons.Default.Warning, contentDescription = null, tint = DangerRed, modifier = Modifier.size(28.dp))
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = capture.message,
+                            text = statusText,
                             fontWeight = FontWeight.Medium,
                             textAlign = TextAlign.Center,
                             color = DangerRed,
@@ -509,103 +507,37 @@ fun FingerprintScanningLayout(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Lift finger. Try again.",
+                            text = "Please call the admin.",
                             textAlign = TextAlign.Center,
                             color = TextGray,
                             fontSize = 13.sp
                         )
-                    }
-                    else -> {
-                        if (uiState is UiState.Loading) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(24.dp),
-                                strokeWidth = 2.dp,
-                                color = PrimaryNavy
-                            )
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = "Checking fingerprint…",
-                                fontWeight = FontWeight.Medium,
-                                textAlign = TextAlign.Center,
-                                color = PrimaryDarkNavy
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                text = "Please wait.",
-                                textAlign = TextAlign.Center,
-                                color = TextGray,
-                                fontSize = 13.sp
-                            )
-                        } else if (device == null) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(24.dp),
-                                strokeWidth = 2.dp,
-                                color = PrimaryNavy
-                            )
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = "Scanner not ready",
-                                fontWeight = FontWeight.Medium,
-                                textAlign = TextAlign.Center,
-                                color = PrimaryDarkNavy
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                text = "Please call the admin.",
-                                textAlign = TextAlign.Center,
-                                color = TextGray,
-                                fontSize = 13.sp
-                            )
-                        } else {
-                            val vid = String.format("%04X", device?.vendorId)
-                            val pid = String.format("%04X", device?.productId)
 
-                            Icon(Icons.Default.Usb, contentDescription = null, tint = PrimaryNavy)
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = "Scanner ready\nVID: $vid | PID: $pid",
-                                fontWeight = FontWeight.Bold,
-                                textAlign = TextAlign.Center,
-                                color = PrimaryDarkNavy
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = "Place finger here",
-                                fontWeight = FontWeight.Medium,
-                                color = PrimaryNavy
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            LinearProgressIndicator(
-                                modifier = Modifier.fillMaxWidth(),
-                                color = PrimaryNavy,
-                                trackColor = Color.LightGray
-                            )
-
-                            if (!hasPermission) {
-                                Spacer(modifier = Modifier.height(16.dp))
-                                Button(
-                                    onClick = { viewModel.requestUsbPermission() },
-                                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryNavy, contentColor = Color.White)
-                                ) {
-                                    Text("Allow USB Access", color = Color.White)
-                                }
+                        if (!hasPermission) {
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Button(
+                                onClick = { viewModel.requestUsbPermission() },
+                                colors = ButtonDefaults.buttonColors(containerColor = PrimaryNavy, contentColor = Color.White)
+                            ) {
+                                Text("Allow USB Access", color = Color.White)
                             }
                         }
                     }
                 }
             }
-        }
 
-        Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
-        TextButton(onClick = onCancel) {
-            Text("<- Back to Login Methods", color = PrimaryBlue, fontWeight = FontWeight.Bold)
+            TextButton(onClick = onCancel) {
+                Text("<- Back to Login Methods", color = PrimaryBlue, fontWeight = FontWeight.Bold)
+            }
         }
     }
 }
 
 @Composable
 fun WelcomeSelectionLayout(
+    windowSizeClass: WindowSizeClass,
     onFingerprintClick: () -> Unit,
     onRfidClick: () -> Unit,
     onPrisonerIdClick: () -> Unit,
@@ -613,73 +545,126 @@ fun WelcomeSelectionLayout(
     needsBootstrap: Boolean = false,
     onCreateLoginClick: () -> Unit = {}
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 24.dp, vertical = 16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+    BoxWithConstraints(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
     ) {
-        Text(text = "Login Methods", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = PrimaryDarkNavy)
-        Text(text = "Choose a method to login", fontSize = 14.sp, color = TextGray, modifier = Modifier.padding(top = 6.dp))
+        val compactHeight = maxHeight < 560.dp ||
+            windowSizeClass.heightSizeClass == WindowHeightSizeClass.Compact
+        val wideScreen = maxWidth >= 600.dp ||
+            windowSizeClass.widthSizeClass != WindowWidthSizeClass.Compact
 
-        Spacer(modifier = Modifier.height(28.dp))
+        val contentWidth = when {
+            compactHeight && wideScreen -> minOf(maxWidth - 96.dp, 820.dp)
+            wideScreen -> minOf(maxWidth - 96.dp, 720.dp)
+            else -> minOf(maxWidth - 32.dp, 460.dp)
+        }.coerceAtLeast(240.dp)
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            PremiumAuthCard(
-                title = "Fingerprint",
-                icon = Icons.Default.Fingerprint,
-                description = "Finger Scanning",
-                onClick = onFingerprintClick,
-                modifier = Modifier.weight(1f)
-            )
-            PremiumAuthCard(
-                title = "RFID Card",
-                icon = Icons.Default.CreditCard,
-                description = "Tap Card",
-                onClick = onRfidClick,
-                modifier = Modifier.weight(1f)
-            )
-            // Prisoner ID login disabled - kiosk only allows fingerprint + RFID.
-            // PremiumAuthCard(
-            //     title = "Prisoner ID",
-            //     icon = Icons.Default.Badge,
-            //     description = "Enter ID",
-            //     onClick = onPrisonerIdClick,
-            //     modifier = Modifier.weight(1f)
-            // )
+        val cardHeight = when {
+            compactHeight && maxWidth < 480.dp -> 108.dp
+            compactHeight -> (maxHeight * 0.44f).coerceIn(118.dp, 150.dp)
+            else -> (maxHeight * 0.22f).coerceIn(140.dp, 180.dp)
         }
+        val compactCards = cardHeight < 124.dp
+        val cardSpacing = if (compactHeight) 20.dp else 16.dp
+        val titleSize = when {
+            maxWidth < 420.dp -> 24.sp
+            compactHeight && wideScreen -> 30.sp
+            wideScreen -> 32.sp
+            else -> 28.sp
+        }
+        val subtitleSize = if (compactHeight) 14.sp else 15.sp
+        val subtitleGap = (maxHeight * 0.02f).coerceIn(8.dp, 12.dp)
+        val methodsGap = (maxHeight * 0.06f).coerceIn(24.dp, 40.dp)
+        val adminGap = (maxHeight * 0.04f).coerceIn(16.dp, 32.dp)
 
-        Spacer(modifier = Modifier.height(28.dp))
-
-        // Jail has no kiosk admin yet → this button becomes the bootstrap entry
-        // ("Create Admin"); the moment one exists, it flips back to Admin Login.
-        if (needsBootstrap) {
+        Column(
+            modifier = Modifier
+                .width(contentWidth)
+                .verticalScroll(rememberScrollState())
+                .padding(vertical = if (compactHeight) 12.dp else 20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
             Text(
-                text = "No admin account exists for this jail yet",
-                fontSize = 13.sp,
+                text = "Login Methods",
+                fontSize = titleSize,
+                fontWeight = FontWeight.Bold,
+                color = PrimaryDarkNavy,
+                textAlign = TextAlign.Center
+            )
+            Text(
+                text = "Choose a method to login",
+                fontSize = subtitleSize,
                 color = TextGray,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.padding(bottom = 4.dp)
+                modifier = Modifier.padding(top = subtitleGap)
             )
-        }
 
-        TextButton(
-            onClick = if (needsBootstrap) onCreateLoginClick else onAdminClick,
-            colors = ButtonDefaults.textButtonColors(
-                contentColor = if (needsBootstrap) PrimaryNavy else TextGray
-            )
-        ) {
-            Icon(Icons.Default.AdminPanelSettings, contentDescription = null, modifier = Modifier.size(20.dp))
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = if (needsBootstrap) "Create Admin" else "Admin Login",
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium
-            )
+            Spacer(modifier = Modifier.height(methodsGap))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(cardSpacing)
+            ) {
+                PremiumAuthCard(
+                    title = "Fingerprint",
+                    icon = Icons.Default.Fingerprint,
+                    description = "Finger Scanning",
+                    onClick = onFingerprintClick,
+                    modifier = Modifier.weight(1f).height(cardHeight),
+                    compact = compactCards
+                )
+                PremiumAuthCard(
+                    title = "RFID Card",
+                    icon = Icons.Default.CreditCard,
+                    description = "Tap Card",
+                    onClick = onRfidClick,
+                    modifier = Modifier.weight(1f).height(cardHeight),
+                    compact = compactCards
+                )
+                // Prisoner ID login disabled - kiosk only allows fingerprint + RFID.
+                // PremiumAuthCard(
+                //     title = "Prisoner ID",
+                //     icon = Icons.Default.Badge,
+                //     description = "Enter ID",
+                //     onClick = onPrisonerIdClick,
+                //     modifier = Modifier.weight(1f)
+                // )
+            }
+
+            Spacer(modifier = Modifier.height(adminGap))
+
+            // Jail has no kiosk admin yet → this button becomes the bootstrap entry
+            // ("Create Admin"); the moment one exists, it flips back to Admin Login.
+            if (needsBootstrap) {
+                Text(
+                    text = "No admin account exists for this jail yet",
+                    fontSize = 13.sp,
+                    color = TextGray,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(bottom = 4.dp)
+                )
+            }
+
+            TextButton(
+                onClick = if (needsBootstrap) onCreateLoginClick else onAdminClick,
+                colors = ButtonDefaults.textButtonColors(
+                    contentColor = if (needsBootstrap) PrimaryNavy else TextGray
+                )
+            ) {
+                Icon(
+                    Icons.Default.AdminPanelSettings,
+                    contentDescription = null,
+                    modifier = Modifier.size(if (compactHeight) 18.dp else 20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = if (needsBootstrap) "Create Admin" else "Admin Login",
+                    fontSize = if (compactHeight) 14.sp else 15.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
         }
     }
 }

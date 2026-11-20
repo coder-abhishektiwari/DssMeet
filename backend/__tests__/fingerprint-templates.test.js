@@ -23,6 +23,7 @@
  */
 const request = require('supertest');
 const jwt = require('jsonwebtoken');
+const { createHash } = require('crypto');
 
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'fingerprint-suite-secret-0123456789';
 process.env.SMS_PROVIDER = 'log';
@@ -65,9 +66,21 @@ const KIOSK = 'KSK-1';
 const KIOSK_B = 'KSK-2';
 
 /** 400 raw bytes -> 536-char base64, exactly what a SecuGen SG400 export is. */
-const template = (seed) => Buffer.alloc(400, seed).toString('base64');
+const template = (seed) => {
+  const chunks = [];
+  let size = 0;
+  let counter = 0;
+  while (size < 400) {
+    const chunk = createHash('sha256').update(`${seed}:${counter}`).digest();
+    chunks.push(chunk);
+    size += chunk.length;
+    counter += 1;
+  }
+  return Buffer.concat(chunks).subarray(0, 400).toString('base64');
+};
 const TEMPLATE = template(7);
 const TEMPLATE_NEW = template(9);
+const REAL_WORLD_BAD_TEMPLATE = '3NPvPuAAzrdwgbMgdFQIFYQsdv4eTIIG8i4Zu9JJWBLqZwA7FjVkyFRz4zbv8EkxdVOfZ6m7huKoWQIfx6ry/YpagHu7tK6NQUz3k8Mhn653KAV55hw2IBonUpxcJYyvI3dnkSCdfNnUwR6jn+MB5rcGgfbAnmW3dadg8dAWXk+IPjAjb8ML9+LLjqlbC7ZoJdD/3t4b8vxnAMSQf123+sPs/c8CoyCun05NDPcKx6S74ZtowWcHXZL0PkH1qGCKmix9/RI+n4Uml9Cq0G5hKX9GO2uQQAIbTvAiwnWBEbnmspCBWzJjxAKkG1qzW2LwGy3J668NX2AqZP9H8Gz5fBstyeuvDV9gKmT/R/Bs+XwbLcnrrw1fYCpk/0fwbPl8Gy3J668NX2AqZP9H8Gz5fBstyeuvDV9gKmT/R/Bs+XwbLcnrrw1fYCpk/0fwbPl8Gy3J668NX2AqZP9H8Gz5fBstyeuvDV9gKmT/R/Bs+XwbLcnrrw1fYCpk/0fwbPl8Gy3J668NX2AqZP9H8Gz5fA==';
 const BCRYPT_FP = '$2b$10$stalefingerprintdigest0000000000000000000000000000000';
 const RFID_BCRYPT = '$2b$10$stalerfidtokenhash00000000000000000000000000000000';
 
@@ -216,6 +229,33 @@ describe('POST /auth/fingerprint-candidates', () => {
     }));
     const res = await candidates(KIOSK);
     expect(data(res).map((c) => c.inmateId)).not.toContain('INM-MALFORMED');
+  });
+
+  test('repetitive 400-byte templates are skipped before native matching', async () => {
+    const pattern = Buffer.from([7, 13, 21, 34, 55, 89, 144, 233, 7, 13, 21, 34, 55, 89, 144, 233]);
+    const corrupt = Buffer.alloc(400);
+    for (let i = 0; i < corrupt.length; i += 1) corrupt[i] = pattern[i % pattern.length];
+    store['inmates.json'].push(inmate({
+      inmateId: 'INM-REPEATED',
+      biometricData: {
+        ...inmate().biometricData,
+        fingerprintTemplate: corrupt.toString('base64'),
+      },
+    }));
+    const res = await candidates(KIOSK);
+    expect(data(res).map((c) => c.inmateId)).not.toContain('INM-REPEATED');
+  });
+
+  test('templates with repeated 64-char base64 blocks are skipped', async () => {
+    store['inmates.json'].push(inmate({
+      inmateId: 'INM-REPEATED-BASE64',
+      biometricData: {
+        ...inmate().biometricData,
+        fingerprintTemplate: REAL_WORLD_BAD_TEMPLATE,
+      },
+    }));
+    const res = await candidates(KIOSK);
+    expect(data(res).map((c) => c.inmateId)).not.toContain('INM-REPEATED-BASE64');
   });
 });
 

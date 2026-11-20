@@ -65,6 +65,9 @@ class FingerprintHardwareManager @Inject constructor(
     private val _captureState = MutableStateFlow<FingerprintCaptureState>(FingerprintCaptureState.Idle)
     val captureState = _captureState.asStateFlow()
 
+    private val _fingerDetected = MutableStateFlow(false)
+    val fingerDetected = _fingerDetected.asStateFlow()
+
     /**
      * Tag of the screen that currently owns the scanner ("Login",
      * "AddPrisoner", "InmateBiometrics"). A screen can only stop the
@@ -205,6 +208,7 @@ class FingerprintHardwareManager @Inject constructor(
         }
         sessionOwner = owner
         _captureState.value = FingerprintCaptureState.Searching
+        _fingerDetected.value = false
         Logger.i("FingerprintHardwareManager: capture session started (owner=$owner)")
         scanForDevices()
         startCaptureDriver()
@@ -225,6 +229,7 @@ class FingerprintHardwareManager @Inject constructor(
         stopCaptureDriver()
         sessionOwner = null
         _captureState.value = FingerprintCaptureState.Idle
+        _fingerDetected.value = false
     }
 
     /**
@@ -242,12 +247,14 @@ class FingerprintHardwareManager @Inject constructor(
         val cleaned = template.trim()
         if (cleaned.isEmpty()) return
         Logger.i("FingerprintHardwareManager: template captured")
+        _fingerDetected.value = false
         _captureState.value = FingerprintCaptureState.Captured(cleaned)
     }
 
     /** Call from the driver on a capture fault — the UI offers a retry. */
     fun onCaptureError(message: String) {
         Logger.w("FingerprintHardwareManager: capture error: $message")
+        _fingerDetected.value = false
         _captureState.value = FingerprintCaptureState.Failed(message)
     }
 
@@ -415,8 +422,12 @@ class FingerprintHardwareManager @Inject constructor(
             val template = ByteArray(maxTemplateSize[0].takeIf { it > 0 } ?: SG400_TEMPLATE_BYTES)
             val fingerInfo = SGFingerInfo()
 
+            val fingerPresent = BooleanArray(1)
             while (generation == driverGeneration) {
                 if (_connectedScanner.value == null) break // unplugged
+
+                val presenceErr = sg.FingerPresent(fingerPresent)
+                _fingerDetected.value = presenceErr == SGFDxErrorCode.SGFDX_ERROR_NONE.toLong() && fingerPresent[0]
 
                 err = sg.GetImageEx(image, CAPTURE_TIMEOUT_MS, CAPTURE_QUALITY)
                 if (err != SGFDxErrorCode.SGFDX_ERROR_NONE.toLong()) {
@@ -470,6 +481,7 @@ class FingerprintHardwareManager @Inject constructor(
                 }
                 Logger.i("FingerprintHardwareManager: SecuGen port released (generation=$generation)")
             }
+            _fingerDetected.value = false
         }
     }
 }

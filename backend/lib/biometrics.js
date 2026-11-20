@@ -49,10 +49,38 @@ function biometricValidationError(biometricData) {
  *
  * Returns an error message, or null when the payload is acceptable.
  */
+function hasShortPeriod(bytes) {
+  for (let period = 4; period <= 32; period += 1) {
+    let matches = 0;
+    for (let i = period; i < bytes.length; i += 1) {
+      if (bytes[i] === bytes[i - period]) matches += 1;
+    }
+    const total = bytes.length - period;
+    if (matches * 100 >= total * 60) return true;
+  }
+  return false;
+}
+
+function hasRepeatedBase64Chunk(value, chunkSize = 64, minOccurrences = 3) {
+  const clean = String(value || '').trim();
+  if (clean.length < chunkSize * minOccurrences) return false;
+  const counts = new Map();
+  for (let i = 0; i <= clean.length - chunkSize; i += 1) {
+    const chunk = clean.slice(i, i + chunkSize);
+    const count = (counts.get(chunk) || 0) + 1;
+    if (count >= minOccurrences) return true;
+    counts.set(chunk, count);
+  }
+  return false;
+}
+
 function isValidFingerprintTemplate(capture) {
   if (capture == null || capture === '') return false;
   const value = String(capture).trim();
-  return SG400_BASE64_RE.test(value) && Buffer.from(value, 'base64').length === 400;
+  if (!SG400_BASE64_RE.test(value)) return false;
+  if (hasRepeatedBase64Chunk(value)) return false;
+  const bytes = Buffer.from(value, 'base64');
+  return bytes.length === 400 && !hasShortPeriod(bytes);
 }
 
 function fingerprintTemplateValidationError(capture) {
@@ -77,6 +105,8 @@ module.exports = {
   rfidCardNumberFor,
   biometricValidationError,
   isValidFingerprintTemplate,
+  hasShortPeriod,
+  hasRepeatedBase64Chunk,
   fingerprintTemplateValidationError,
   normalizeFingerprintTemplate,
   BCRYPT_RE
