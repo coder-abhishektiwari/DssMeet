@@ -81,6 +81,7 @@ const template = (seed) => {
 const TEMPLATE = template(7);
 const TEMPLATE_NEW = template(9);
 const REAL_WORLD_BAD_TEMPLATE = '3NPvPuAAzrdwgbMgdFQIFYQsdv4eTIIG8i4Zu9JJWBLqZwA7FjVkyFRz4zbv8EkxdVOfZ6m7huKoWQIfx6ry/YpagHu7tK6NQUz3k8Mhn653KAV55hw2IBonUpxcJYyvI3dnkSCdfNnUwR6jn+MB5rcGgfbAnmW3dadg8dAWXk+IPjAjb8ML9+LLjqlbC7ZoJdD/3t4b8vxnAMSQf123+sPs/c8CoyCun05NDPcKx6S74ZtowWcHXZL0PkH1qGCKmix9/RI+n4Uml9Cq0G5hKX9GO2uQQAIbTvAiwnWBEbnmspCBWzJjxAKkG1qzW2LwGy3J668NX2AqZP9H8Gz5fBstyeuvDV9gKmT/R/Bs+XwbLcnrrw1fYCpk/0fwbPl8Gy3J668NX2AqZP9H8Gz5fBstyeuvDV9gKmT/R/Bs+XwbLcnrrw1fYCpk/0fwbPl8Gy3J668NX2AqZP9H8Gz5fBstyeuvDV9gKmT/R/Bs+XwbLcnrrw1fYCpk/0fwbPl8Gy3J668NX2AqZP9H8Gz5fA==';
+const LOCAL_PERIOD_BAD_TEMPLATE = 'vF8DiQE1fRZWKW9uCczcAYjPZ0oY6TIB4SyL46rzT8A2INWYPykDwqWMAT+d9pKaAeG1Ure1WBFL4kfaWMDYyb9UbLVCkCr/4Oggo7f5wacX8Ywy9vxJGvLmaYYv42Qfs1D81cnD1PCs/HS4ZEo1WtKkekVS6xC1D1lqPp0YX6S8YFiwVub0UzbSqZWQFHhA8cAL8LmQEw2xaScQL73BtRP4yMxcORzc4YQdZ5UhxbDb3HSGtbewxNoRzJaZQrrtAXr1SSzOxRwNSQDAUtwm97Uljg8m7Uee/2bjCFEbtJescpaCwu1DyaB0RhkPDqTzqW8uXXsC46V77+PJj5EnTRstyeuvDV9gKmT/R/Bs+XwbLcnrrw1fYCpk/0fwbPl8Gy3J668NX2AqZP9H8Gz5fBstyeuvDV9gKmT/R/Bs+XwbLcnrrw1fYCpk/0fwbPl8Gy3J668NX2AqZP9H8Gz5fBstyeuvDV9gKmT/R/Bs+XwbLcnrrw1fYCpk/0fwbPl8Gy3J668NX2AqZP9H8Gz5fA==';
 const BCRYPT_FP = '$2b$10$stalefingerprintdigest0000000000000000000000000000000';
 const RFID_BCRYPT = '$2b$10$stalerfidtokenhash00000000000000000000000000000000';
 
@@ -256,6 +257,18 @@ describe('POST /auth/fingerprint-candidates', () => {
     }));
     const res = await candidates(KIOSK);
     expect(data(res).map((c) => c.inmateId)).not.toContain('INM-REPEATED-BASE64');
+  });
+
+  test('templates with a localized short-period region are skipped', async () => {
+    store['inmates.json'].push(inmate({
+      inmateId: 'INM-LOCAL-PERIOD',
+      biometricData: {
+        ...inmate().biometricData,
+        fingerprintTemplate: LOCAL_PERIOD_BAD_TEMPLATE,
+      },
+    }));
+    const res = await candidates(KIOSK);
+    expect(data(res).map((c) => c.inmateId)).not.toContain('INM-LOCAL-PERIOD');
   });
 });
 

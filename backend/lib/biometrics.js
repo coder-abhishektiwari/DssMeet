@@ -51,17 +51,20 @@ function biometricValidationError(biometricData) {
  */
 function hasShortPeriod(bytes) {
   for (let period = 4; period <= 32; period += 1) {
-    let matches = 0;
+    let run = 0;
     for (let i = period; i < bytes.length; i += 1) {
-      if (bytes[i] === bytes[i - period]) matches += 1;
+      if (bytes[i] === bytes[i - period]) {
+        run += 1;
+        if (run >= 64) return true;
+      } else {
+        run = 0;
+      }
     }
-    const total = bytes.length - period;
-    if (matches * 100 >= total * 60) return true;
   }
   return false;
 }
 
-function hasRepeatedBase64Chunk(value, chunkSize = 64, minOccurrences = 3) {
+function hasRepeatedBase64Chunk(value, chunkSize = 64, minOccurrences = 2) {
   const clean = String(value || '').trim();
   if (clean.length < chunkSize * minOccurrences) return false;
   const counts = new Map();
