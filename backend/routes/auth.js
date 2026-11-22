@@ -880,4 +880,82 @@ router.post('/admin/verify-pin', authLimiter, asyncRoute(async (req, res) => {
   });
 }));
 
+function adminInKioskScope(admin, kiosk) {
+  return admin.status === 'active' &&
+    admin.role !== 'super_admin' &&
+    (!kiosk.prisonId || !admin.prisonId || admin.prisonId === kiosk.prisonId) &&
+    (!admin.kioskId || admin.kioskId === kiosk.kioskId);
+}
+
+router.post('/admin/fingerprint-candidates', identifyLimiter, requireKioskDeviceCredential, asyncRoute(async (req, res) => {
+  const { kioskId } = req.body;
+  if (!kioskId) return sendError(res, 'INVALID_REQUEST', 'kioskId is required', 400);
+
+  const [admins, kiosks] = await Promise.all([readDb('admins.json'), readDb('kiosks.json')]);
+  const kiosk = kiosks.find((k) => k.kioskId === kioskId);
+  if (!kiosk || kiosk.authorizationStatus !== 'authorized') return sendError(res, 'UNAUTHORIZED', 'Kiosk not authorized', 403);
+
+  const candidates = [];
+  let stale = 0;
+  for (const admin of admins) {
+    if (!adminInKioskScope(admin, kiosk)) continue;
+    const templates = admin.biometricData?.fingerprintRegistered
+      ? fingerprintEntries(admin, admin.adminId)
+      : [];
+    for (const entry of templates) {
+      if (!isValidFingerprintTemplate(entry.template)) { stale += 1; continue; }
+      candidates.push({
+        adminId: admin.adminId,
+        employeeId: admin.employeeId || '',
+        name: admin.name || 'Admin',
+        email: admin.email || '',
+        role: admin.role || 'admin',
+        permissions: admin.permissions || [],
+        status: admin.status,
+        prisonId: admin.prisonId || kiosk.prisonId,
+        fingerprintTemplate: String(entry.template)
+      });
+    }
+  }
+  if (stale > 0) {
+    console.warn(`[auth] skipped ${stale} stale or malformed admin fingerprint template(s) for kiosk ${kioskId} — those admins need re-enrolling`);
+  }
+  return sendSuccess(res, candidates);
+}));
+
+router.post('/admin/fingerprint-login', authLimiter, requireKioskDeviceCredential, asyncRoute(async (req, res) => {
+  const { adminId, kioskId } = req.body;
+  if (!adminId || !kioskId) return sendError(res, 'INVALID_REQUEST', 'adminId and kioskId are required', 400);
+
+  const [admins, kiosks] = await Promise.all([readDb('admins.json'), readDb('kiosks.json')]);
+  const admin = admins.find((a) => a.adminId === adminId);
+  if (!admin) return sendError(res, 'NOT_FOUND', 'Admin not found', 404);
+
+  const kiosk = kiosks.find((k) => k.kioskId === kioskId);
+  if (!kiosk || kiosk.authorizationStatus !== 'authorized' || kiosk.status === 'unauthorized' || kiosk.status === 'disabled') {
+    return sendError(res, 'UNAUTHORIZED', 'Kiosk not authorized for admin access', 403);
+  }
+  if (!adminInKioskScope(admin, kiosk)) return sendError(res, 'NOT_FOUND', 'Admin not found for this kiosk', 404);
+  if (!fingerprintEntries(admin, admin.adminId).some((entry) => isValidFingerprintTemplate(entry.template))) {
+    return sendError(res, 'NOT_FOUND', 'Admin not found for this kiosk', 404);
+  }
+
+  const claims = { sub: admin.adminId, role: admin.role || 'admin', kioskId, prisonId: admin.prisonId || kiosk.prisonId };
+  const session = await createSession(claims, req);
+  const profile = {
+    adminId: admin.adminId,
+    employeeId: admin.employeeId || '',
+    name: admin.name || 'Admin',
+    email: admin.email || '',
+    role: admin.role || 'admin',
+    permissions: admin.permissions || [],
+    status: admin.status
+  };
+  return sendSuccess(res, {
+    accessToken: signAccessToken(claims), refreshToken: session.refreshToken, expiresIn: 3600,
+    adminId: admin.adminId, role: admin.role, permissions: admin.permissions || [],
+    kioskId, prisonId: claims.prisonId, profile
+  });
+}));
+
 module.exports = router;

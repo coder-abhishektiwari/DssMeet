@@ -128,11 +128,18 @@ data class CallStatusSnapshot(
     @SerializedName("callId") val callId: String? = null,
     @SerializedName("status") val status: String? = null,
     @SerializedName("linkOpenedAt") val linkOpenedAt: String? = null,
+    @SerializedName("linkSentAt") val linkSentAt: String? = null,
+    @SerializedName("sms") val sms: SmsStatus? = null,
     @SerializedName("ratePerMinute") val ratePerMinute: Double? = null,
     /** Warden-controlled max call length in minutes (from Settings). */
     @SerializedName("maxDurationMinutes") val maxDurationMinutes: Int? = null,
     @SerializedName("family") val family: FamilyProgress? = null
 ) {
+    data class SmsStatus(
+        @SerializedName("sent") val sent: Boolean? = null,
+        @SerializedName("transport") val transport: String? = null
+    )
+
     data class FamilyProgress(
         @SerializedName("deviceVerified") val deviceVerified: Boolean? = null,
         @SerializedName("otpVerified") val otpVerified: Boolean? = null,

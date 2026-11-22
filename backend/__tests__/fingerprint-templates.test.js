@@ -617,3 +617,82 @@ describe('multiple fingerprints and kiosk assignments', () => {
     expect(data(listed).some((c) => c.inmateId === 'INM-ALL')).toBe(true);
   });
 });
+
+describe('kiosk admin fingerprints', () => {
+  const adminToken = () => ({ Authorization: `Bearer ${superToken()}` });
+
+  beforeEach(() => {
+    store['admins.json'] = [{
+      adminId: 'ADM-1',
+      employeeId: 'empsa001',
+      name: 'Admin One',
+      email: 'admin@dssmeet.io',
+      role: 'kiosk_admin',
+      status: 'active',
+      prisonId: PRISON,
+      kioskId: KIOSK,
+      assignedKioskIds: [KIOSK],
+      password: '$2b$10$staleadminpasswordhashfakefakefakefakefakefakefa'
+    }];
+  });
+
+  test('add, list, match and remove an admin fingerprint', async () => {
+    const added = await request(app)
+      .post('/kiosk-admins/ADM-1/fingerprints').set(ip()).set(adminToken())
+      .send({ capture: TEMPLATE });
+    expect(added.status).toBe(201);
+    expect(data(added).fingerprintCount).toBe(1);
+    expect(added.text).not.toContain(TEMPLATE);
+    const biometricId = data(added).fingerprints[0].biometricId;
+
+    const listed = await request(app).get('/kiosk-admins').set(ip()).set(adminToken());
+    expect(listed.status).toBe(200);
+    const admin = data(listed).find((a) => a.adminId === 'ADM-1');
+    expect(admin.fingerprintCount).toBe(1);
+    expect(admin.fingerprints[0]).toMatchObject({ biometricId });
+    expect(admin.fingerprints[0]).not.toHaveProperty('template');
+    expect(listed.text).not.toContain(TEMPLATE);
+
+    const candidatesRes = await request(app)
+      .post('/auth/admin/fingerprint-candidates').set(ip())
+      .set('Authorization', `Bearer ${deviceToken(KIOSK)}`)
+      .send({ kioskId: KIOSK });
+    expect(candidatesRes.status).toBe(200);
+    const candidate = data(candidatesRes).find((c) => c.adminId === 'ADM-1');
+    expect(candidate.fingerprintTemplate).toBe(TEMPLATE);
+
+    const login = await request(app)
+      .post('/auth/admin/fingerprint-login').set(ip())
+      .set('Authorization', `Bearer ${deviceToken(KIOSK)}`)
+      .send({ adminId: 'ADM-1', kioskId: KIOSK });
+    expect(login.status).toBe(200);
+    expect(data(login).adminId).toBe('ADM-1');
+    expect(data(login).accessToken).toEqual(expect.any(String));
+
+    const removed = await request(app)
+      .delete(`/kiosk-admins/ADM-1/fingerprints/${biometricId}`).set(ip()).set(adminToken());
+    expect(removed.status).toBe(200);
+    expect(data(removed).fingerprintCount).toBe(0);
+
+    const after = await request(app)
+      .post('/auth/admin/fingerprint-candidates').set(ip())
+      .set('Authorization', `Bearer ${deviceToken(KIOSK)}`)
+      .send({ kioskId: KIOSK });
+    expect(data(after).some((c) => c.adminId === 'ADM-1')).toBe(false);
+  });
+
+  test('admin fingerprint enrolment stops at three', async () => {
+    for (const capture of [TEMPLATE, TEMPLATE_2, TEMPLATE_3]) {
+      const res = await request(app)
+        .post('/kiosk-admins/ADM-1/fingerprints').set(ip()).set(adminToken())
+        .send({ capture });
+      expect(res.status).toBe(201);
+    }
+
+    const fourth = await request(app)
+      .post('/kiosk-admins/ADM-1/fingerprints').set(ip()).set(adminToken())
+      .send({ capture: TEMPLATE_NEW });
+    expect(fourth.status).toBe(409);
+    expect(fourth.body.error.code).toBe('FINGERPRINT_LIMIT');
+  });
+});

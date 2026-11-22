@@ -1,6 +1,8 @@
 package com.dssmeet.kiosk.datasource.remote
 
 import com.dssmeet.kiosk.api.TrustApiService
+import com.dssmeet.kiosk.models.admin.AddAdminFingerprintRequest
+import com.dssmeet.kiosk.models.admin.AdminFingerprintResult
 import com.dssmeet.kiosk.core.ApiCache
 import com.dssmeet.kiosk.datasource.AuthDataSource
 import com.dssmeet.kiosk.models.auth.*
@@ -31,6 +33,15 @@ class RemoteAuthDataSource @Inject constructor(
 
     override suspend fun fingerprintLogin(request: FingerprintLoginRequest): ApiResponse<AuthToken> =
         apiService.fingerprintLogin(request)
+
+    override suspend fun adminFingerprintCandidates(kioskId: String): ApiResponse<List<AdminFingerprintCandidate>> =
+        apiService.adminFingerprintCandidates(FingerprintCandidatesRequest(kioskId))
+
+    override suspend fun adminFingerprintLogin(request: AdminFingerprintLoginRequest): ApiResponse<AdminFingerprintLoginResponse> =
+        apiService.adminFingerprintLogin(request)
+
+    override suspend fun addAdminFingerprint(adminId: String, capture: String): ApiResponse<AdminFingerprintResult> =
+        apiService.addKioskAdminFingerprint(adminId, AddAdminFingerprintRequest(capture))
 
     override suspend fun identifyRfid(request: LoginRequest): ApiResponse<InmateProfile> =
         apiService.identifyRfid(request)

@@ -737,19 +737,26 @@ function createCallsRouter(broadcastEvent, signaling) {
           callId: newCall.callId,
           templateVars: linkTemplateVars(familyMemberName, callLink)
         });
-        await updateDb('calls.json', (calls) => {
+        const smsSent = smsResult.ok === true;
+        if (!smsSent && String(smsResult.provider).startsWith('fast2sms')) {
+          console.warn(`[calls] family link SMS not accepted by gateway for ${newCall.callId}`);
+        }
+        const updatedCall = await updateDb('calls.json', (calls) => {
           const idx = calls.findIndex((c) => c.callId === newCall.callId);
           if (idx === -1) return { data: calls, result: null };
           calls[idx].sms = {
-            sent: true,
+            sent: smsSent,
             sentTo: maskedPhone(familyPhone),
             linkToken: newCall.linkToken,
             linkUrl: callLink,
             transport: smsResult.provider,
+            messageId: smsResult.messageId || null,
             loggedAt: smsResult.loggedAt
           };
+          if (smsSent) calls[idx].linkSentAt = smsResult.loggedAt;
           return { data: calls, result: calls[idx] };
         });
+        if (updatedCall) broadcastEvent('call-updated', publicCall(updatedCall));
       })().catch((err) => {
         console.error('[calls] family link SMS dispatch failed:', err.message);
       });

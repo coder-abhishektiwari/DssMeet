@@ -42,6 +42,7 @@ fun EditPrisonerScreen(
     prisonerId: String,
     windowSizeClass: WindowSizeClass,
     onBackClick: () -> Unit,
+    onLogoutClick: () -> Unit = {},
     viewModel: EditPrisonerViewModel = hiltViewModel()
 ) {
     val prisonerResult by viewModel.prisoner.collectAsState()
@@ -49,6 +50,7 @@ fun EditPrisonerScreen(
     val resetPinResult by viewModel.resetPinState.collectAsState()
     val kioskOptions by viewModel.kioskOptions.collectAsState()
     val currentKioskId by viewModel.currentKioskId.collectAsState()
+    var step by remember(prisonerId) { mutableStateOf(0) }
 
     LaunchedEffect(prisonerId) {
         viewModel.loadPrisoner(prisonerId)
@@ -58,8 +60,11 @@ fun EditPrisonerScreen(
         topBar = {
             KioskTopBar(
                 title = "Edit Inmate",
-                showBackButton = true,
-                onBackClick = onBackClick
+                showBackButton = false,
+                onBackClick = onBackClick,
+                trailingActions = {
+                    com.dssmeet.kiosk.ui.components.KioskLogoutButton(onClick = onLogoutClick)
+                }
             )
         },
         containerColor = LightBg
@@ -72,6 +77,9 @@ fun EditPrisonerScreen(
                 is NetworkResult.Success -> {
                     EditPrisonerForm(
                         prisoner = result.data,
+                        step = step,
+                        onStepChange = { step = it },
+                        onScreenBack = onBackClick,
                         kioskOptions = kioskOptions,
                         currentKioskId = currentKioskId,
                         onUpdate = { request -> viewModel.updatePrisoner(prisonerId, request) },
@@ -106,6 +114,9 @@ fun EditPrisonerScreen(
 @Composable
 fun EditPrisonerForm(
     prisoner: Prisoner,
+    step: Int,
+    onStepChange: (Int) -> Unit,
+    onScreenBack: () -> Unit,
     kioskOptions: List<KioskDevice> = emptyList(),
     currentKioskId: String = "",
     onUpdate: (EditPrisonerRequest) -> Unit,
@@ -114,7 +125,6 @@ fun EditPrisonerForm(
     resetPinResult: NetworkResult<String>
 ) {
     val formState = remember(prisoner.inmateId) { PrisonerFormState(prisoner) }
-    var step by remember(prisoner.inmateId) { mutableStateOf(0) }
     var status by remember(prisoner.inmateId) { mutableStateOf(prisoner.status) }
     var showSaveDialog by remember { mutableStateOf(false) }
     var saveError by remember { mutableStateOf("") }
@@ -272,14 +282,16 @@ fun EditPrisonerForm(
         )
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        PrisonerStepHeader(titles = EDIT_STEP_TITLES, currentStep = step)
+    com.dssmeet.kiosk.ui.components.KioskResponsiveBox(maxWidth = 960.dp) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            PrisonerStepHeader(titles = EDIT_STEP_TITLES, currentStep = step)
 
         Column(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp)
-                .verticalScroll(rememberScrollState()),
+                .weight(1f)
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             if (saveError.isNotEmpty()) {
@@ -288,7 +300,7 @@ fun EditPrisonerForm(
 
             when (step) {
                 0 -> PersonalDetailsCard(formState)
-                1 -> IdentityAdmissionCard(formState, kioskOptions)
+                1 -> IdentityAdmissionCard(formState, kioskOptions, currentKioskId)
                 2 -> AddressCard(formState)
                 else -> {
                     Card(
@@ -331,74 +343,40 @@ fun EditPrisonerForm(
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text("Reset PIN", fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
                 }
             }
+            }
+        }
+    }
+}
 
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                if (step > 0) {
-                    OutlinedButton(
-                        onClick = {
-                            step -= 1
-                            saveError = ""
-                        },
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(56.dp),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Back")
-                    }
-                }
-
-                Button(
-                    onClick = {
-                        if (step == EDIT_STEP_TITLES.lastIndex) {
-                            val allErrors = (0 until EDIT_STEP_TITLES.lastIndex)
-                                .map { formState.validateStep(it) }
-                                .firstOrNull { it.isNotEmpty() } ?: ""
-                            if (allErrors.isNotEmpty()) {
-                                saveError = allErrors
-                            } else {
-                                saveError = ""
-                                showSaveDialog = true
-                            }
-                        } else {
-                            val stepError = formState.validateStep(step)
-                            if (stepError.isNotEmpty()) {
-                                saveError = stepError
-                            } else {
-                                saveError = ""
-                                step += 1
-                            }
-                        }
-                    },
-                    modifier = Modifier
-                        .weight(if (step > 0) 1f else 2f)
-                        .height(56.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryNavy)
-                ) {
+            com.dssmeet.kiosk.ui.components.KioskFormActionBar(
+                step = step,
+                onScreenBack = onScreenBack,
+                onStepBack = { onStepChange(step - 1); saveError = "" },
+                onNext = {
                     if (step == EDIT_STEP_TITLES.lastIndex) {
-                        Icon(Icons.Default.Save, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Save", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        val allErrors = (0 until EDIT_STEP_TITLES.lastIndex)
+                            .map { formState.validateStep(it) }
+                            .firstOrNull { it.isNotEmpty() } ?: ""
+                        if (allErrors.isNotEmpty()) {
+                            saveError = allErrors
+                        } else {
+                            saveError = ""
+                            showSaveDialog = true
+                        }
                     } else {
-                        Text("Next", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Icon(Icons.Default.ArrowForward, contentDescription = null)
+                        val stepError = formState.validateStep(step)
+                        if (stepError.isNotEmpty()) {
+                            saveError = stepError
+                        } else {
+                            saveError = ""
+                            onStepChange(step + 1)
+                        }
                     }
-                }
-            }
+                },
+                nextLabel = if (step == EDIT_STEP_TITLES.lastIndex) "Save" else "Next"
+            )
         }
     }
 }

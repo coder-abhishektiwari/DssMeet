@@ -185,13 +185,14 @@ fun SetupPermissionsScreen(
             }
         }
 
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 28.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
+        com.dssmeet.kiosk.ui.components.KioskResponsiveBox(maxWidth = 760.dp) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 28.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
             Spacer(Modifier.height(56.dp))
             Icon(
                 imageVector = Icons.Filled.Videocam,
@@ -280,6 +281,7 @@ fun SetupPermissionsScreen(
             }
 
             Spacer(Modifier.height(40.dp))
+            }
         }
     }
 }

@@ -1,5 +1,6 @@
 package com.dssmeet.kiosk.ui.components
 
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -37,7 +38,8 @@ fun KioskPasswordField(
     errorText: String? = null,
     enabled: Boolean = true,
     imeAction: ImeAction = ImeAction.Done,
-    keyboardActions: KeyboardActions = KeyboardActions.Default
+    keyboardActions: KeyboardActions = KeyboardActions.Default,
+    submitIcon: (@Composable () -> Unit)? = null
 ) {
     var visible by remember { mutableStateOf(false) }
 
@@ -58,13 +60,16 @@ fun KioskPasswordField(
         visualTransformation = if (visible) VisualTransformation.None
         else PasswordVisualTransformation(),
         trailingIcon = {
-            IconButton(onClick = { visible = !visible }) {
-                Icon(
-                    imageVector = if (visible) Icons.Default.VisibilityOff
-                    else Icons.Default.Visibility,
-                    contentDescription = if (visible) "Hide password" else "Show password",
-                    tint = if (visible) PrimaryNavy else TextGray
-                )
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                submitIcon?.invoke()
+                IconButton(onClick = { visible = !visible }) {
+                    Icon(
+                        imageVector = if (visible) Icons.Default.VisibilityOff
+                        else Icons.Default.Visibility,
+                        contentDescription = if (visible) "Hide password" else "Show password",
+                        tint = if (visible) PrimaryNavy else TextGray
+                    )
+                }
             }
         }
     )

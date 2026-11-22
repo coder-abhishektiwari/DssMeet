@@ -15,8 +15,9 @@ import com.dssmeet.kiosk.ui.theme.TextGray
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -39,7 +40,6 @@ import com.dssmeet.kiosk.MainActivity
 import com.dssmeet.kiosk.core.UpdateManager
 import com.dssmeet.kiosk.models.appupdate.AppUpdateInfo
 import com.dssmeet.kiosk.models.auth.AdminProfile
-import com.dssmeet.kiosk.ui.components.ConfirmDeleteDialog
 import com.dssmeet.kiosk.ui.components.KioskTopBar
 import com.dssmeet.kiosk.ui.theme.PrisonKioskTheme
 import com.dssmeet.kiosk.ui.update.OptionalUpdateCard
@@ -97,29 +97,31 @@ fun AdminDashboardContent(
     onCallHistoryClick: () -> Unit,
     onLogoutClick: () -> Unit
 ) {
-    var showLogoutConfirm by remember { mutableStateOf(false) }
-
     Scaffold(
         topBar = {
             KioskTopBar(
                 title = "Admin Dashboard",
                 showBackButton = false,
-                onBackClick = onLogoutClick
+                trailingActions = {
+                    com.dssmeet.kiosk.ui.components.KioskLogoutButton(onClick = onLogoutClick)
+                }
             )
         },
         containerColor = LightBg
     ) { paddingValues ->
-        LazyColumn(
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(minSize = 480.dp),
             modifier = Modifier
                 .padding(paddingValues)
                 .fillMaxSize()
                 .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // Newer build published — the one place the admin is told about it.
             if (optionalUpdate != null) {
                 val updateInfo = optionalUpdate
-                item {
+                item(span = { GridItemSpan(maxLineSpan) }) {
                     OptionalUpdateCard(
                         info = updateInfo,
                         onInstall = { onInstallUpdate(updateInfo) },
@@ -129,7 +131,7 @@ fun AdminDashboardContent(
             }
 
             // Admin Info Card
-            item {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
@@ -207,7 +209,7 @@ fun AdminDashboardContent(
             }
 
             // Quick Actions
-            item {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 Text(
                     text = "QUICK ACTIONS",
                     style = MaterialTheme.typography.titleMedium,
@@ -283,36 +285,7 @@ fun AdminDashboardContent(
                 )
             }
 
-            // Logout Button
-            item {
-                Spacer(modifier = Modifier.height(16.dp))
-                OutlinedButton(
-                    onClick = { showLogoutConfirm = true },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = DangerRed)
-                ) {
-                    Icon(Icons.Default.ExitToApp, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Logout", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                }
-            }
         }
-    }
-
-    if (showLogoutConfirm) {
-        ConfirmDeleteDialog(
-            title = "Logout",
-            message = "Are you sure you want to logout?",
-            onConfirm = {
-                showLogoutConfirm = false
-                onLogoutClick()
-            },
-            onDismiss = { showLogoutConfirm = false },
-            confirmText = "Logout"
-        )
     }
 }
 

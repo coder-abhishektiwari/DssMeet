@@ -1,5 +1,6 @@
 package com.dssmeet.kiosk.repository
 
+import com.dssmeet.kiosk.models.admin.AdminFingerprintResult
 import com.dssmeet.kiosk.models.auth.AdminProfile
 import com.dssmeet.kiosk.models.auth.AdminVerifyPasswordRequest
 import com.dssmeet.kiosk.models.auth.AuthToken
@@ -46,6 +47,9 @@ interface AuthRepository {
     // Admin authentication
     fun adminLogin(request: LoginRequest): Flow<NetworkResult<AdminProfile>>
     fun adminVerifyPassword(request: AdminVerifyPasswordRequest): Flow<NetworkResult<AuthToken>>
+    fun identifyAdminFingerprint(probeTemplate: String): Flow<NetworkResult<AdminProfile>>
+    fun adminFingerprintLogin(adminId: String): Flow<NetworkResult<AuthToken>>
+    fun registerAdminFingerprint(adminId: String, capture: String): Flow<NetworkResult<AdminFingerprintResult>>
 
     // First-admin bootstrap (kiosk "Create Admin") — device credential only.
     // Status decides which button the welcome screen shows; create makes this

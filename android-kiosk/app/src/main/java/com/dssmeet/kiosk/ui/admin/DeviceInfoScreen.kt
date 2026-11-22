@@ -35,6 +35,7 @@ import com.dssmeet.kiosk.ui.theme.PrisonKioskTheme
 fun DeviceInfoScreen(
     windowSizeClass: WindowSizeClass,
     onBackClick: () -> Unit,
+    onLogoutClick: () -> Unit = {},
     viewModel: DeviceInfoViewModel = hiltViewModel()
 ) {
     val deviceInfo by viewModel.deviceInfo.collectAsState()
@@ -47,7 +48,8 @@ fun DeviceInfoScreen(
     DeviceInfoContent(
         deviceInfo = deviceInfo,
         localDeviceInfo = localDeviceInfo,
-        onBackClick = onBackClick
+        onBackClick = onBackClick,
+        onLogoutClick = onLogoutClick
     )
 }
 
@@ -55,32 +57,42 @@ fun DeviceInfoScreen(
 fun DeviceInfoContent(
     deviceInfo: KioskDevice?,
     localDeviceInfo: Map<String, String>,
-    onBackClick: () -> Unit
+    onBackClick: () -> Unit,
+    onLogoutClick: () -> Unit = {}
 ) {
     Scaffold(
         topBar = {
             KioskTopBar(
                 title = "Device Information",
                 showBackButton = true,
-                onBackClick = onBackClick
+                onBackClick = onBackClick,
+                trailingActions = {
+                    com.dssmeet.kiosk.ui.components.KioskLogoutButton(onClick = onLogoutClick)
+                }
             )
+        },
+        bottomBar = {
+            com.dssmeet.kiosk.ui.components.KioskBottomActionBar(onBackClick = onBackClick)
         },
         containerColor = LightBg
     ) { paddingValues ->
-        val items = listOf(
-            DeviceInfoItem("Device Serial", deviceInfo?.serialNumber ?: "—"),
-            DeviceInfoItem("Kiosk ID", deviceInfo?.kioskId ?: "—"),
-            DeviceInfoItem("Prison ID", deviceInfo?.prisonId ?: "—"),
-            DeviceInfoItem("Prison Name", deviceInfo?.prisonName ?: "—"),
-            DeviceInfoItem("IP Address", deviceInfo?.ipAddress ?: "—"),
-            DeviceInfoItem("App Version", deviceInfo?.appVersion ?: "—")
-        )
+        com.dssmeet.kiosk.ui.components.KioskResponsiveBox(
+            maxWidth = 900.dp,
+            modifier = Modifier.padding(paddingValues)
+        ) {
+            val items = listOf(
+                DeviceInfoItem("Device Serial", deviceInfo?.serialNumber ?: "—"),
+                DeviceInfoItem("Kiosk ID", deviceInfo?.kioskId ?: "—"),
+                DeviceInfoItem("Prison ID", deviceInfo?.prisonId ?: "—"),
+                DeviceInfoItem("Prison Name", deviceInfo?.prisonName ?: "—"),
+                DeviceInfoItem("IP Address", deviceInfo?.ipAddress ?: "—"),
+                DeviceInfoItem("App Version", deviceInfo?.appVersion ?: "—")
+            )
 
-        LazyColumn(
-            modifier = Modifier
-                .padding(paddingValues)
-                .fillMaxSize()
-                .padding(16.dp),
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item {
@@ -191,6 +203,7 @@ fun DeviceInfoContent(
                     }
                 }
             }
+        }
         }
     }
 }

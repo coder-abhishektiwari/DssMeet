@@ -55,7 +55,10 @@ class RemoteAdminDataSource @Inject constructor(
         cache.getOrFetch("admin:biometrics:$prisonerId") { apiService.getPrisonerBiometrics(prisonerId) }
 
     override suspend fun registerBiometric(prisonerId: String, request: RegisterBiometricRequest): ApiResponse<BiometricRegistration> =
-        apiService.registerBiometric(prisonerId, request).also { cache.invalidatePrefix("admin:biometrics:$prisonerId") }
+        apiService.registerBiometric(prisonerId, request).also {
+            cache.invalidatePrefix("admin:biometrics:$prisonerId")
+            if (it.error?.code == "FINGERPRINT_LIMIT") cache.invalidatePrefix("admin:prisoner:$prisonerId")
+        }
 
     override suspend fun deleteBiometric(biometricId: String, prisonerId: String): ApiResponse<Unit> =
         apiService.deleteBiometric(biometricId, prisonerId).also { cache.invalidatePrefix("admin:biometrics") }

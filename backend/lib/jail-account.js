@@ -72,6 +72,62 @@ function deriveSummary(transactions, wallet = {}) {
   };
 }
 
+function personLabel(row) {
+  if (!row) return null;
+  const full = row.displayName || row.name;
+  if (full) return full;
+  return [row.firstName, row.lastName].filter(Boolean).join(' ') || null;
+}
+
+function placeLabel(location) {
+  if (!location) return null;
+  return [location.area, location.city, location.state].filter(Boolean).join(', ') || null;
+}
+
+async function enrichTransactions(transactions) {
+  const [payments, contacts, calls] = await Promise.all([
+    readDb('wallet-payments.json'),
+    readDb('contacts.json'),
+    readDb('calls.json')
+  ]);
+  const contactsById = new Map(contacts.map((c) => [c.contactId, c]));
+  const paymentsByOrder = new Map(payments.filter((p) => p.orderId).map((p) => [p.orderId, p]));
+  const callsById = new Map(calls.map((c) => [c.callId, c]));
+
+  return transactions.map((t) => {
+    const type = String(t.type || '').toLowerCase();
+    let sourceName = null;
+    let callDetails = null;
+    let location = null;
+
+    if (type === 'charge' && t.callId) {
+      const call = callsById.get(t.callId);
+      sourceName = call?.contactName ? `Call with ${call.contactName}` : 'Call charge';
+      callDetails = {
+        callId: t.callId,
+        type: call?.type || null,
+        startTime: call?.startTime || t.timestamp || null,
+        contactName: call?.contactName || null
+      };
+      location = placeLabel(call?.family?.location);
+    } else if (type === 'recharge') {
+      const payment = paymentsByOrder.get(t.orderId) ||
+        payments.find((p) => p.transactionId === t.transactionId);
+      const contact = payment?.contactId ? contactsById.get(payment.contactId) : null;
+      const gateway = String(t.gateway || '').toLowerCase();
+      sourceName = contact
+        ? `Recharge by ${personLabel(contact) || 'family member'}`
+        : gateway === 'welcome'
+          ? 'Welcome credit'
+          : gateway === 'razorpay'
+            ? 'Razorpay'
+            : personLabel({ displayName: t.performedBy }) || 'Wallet recharge';
+    }
+
+    return { ...t, sourceName, callDetails, location };
+  });
+}
+
 /**
  * Fetch a wallet statement (balance + transactions) for an inmate.
  * Always returns `{ wallet, transactions }`, or null when the inmate/wallet is
@@ -86,10 +142,11 @@ async function getStatement(id) {
 
   const rawTransactions = await internalTransactions(wallet);
   // Normalize: ensure every transaction has status='completed' (standardize on single value)
-  const transactions = rawTransactions.map((t) => ({
+  const normalized = rawTransactions.map((t) => ({
     ...t,
     status: (t.status === 'success' || t.status === 'completed') ? 'completed' : (t.status || 'completed')
   }));
+  const transactions = await enrichTransactions(normalized);
   const summary = deriveSummary(transactions, wallet);
   return {
     wallet: {

@@ -1,6 +1,10 @@
 package com.dssmeet.kiosk.datasource
 
+import com.dssmeet.kiosk.models.admin.AdminFingerprintResult
 import com.dssmeet.kiosk.models.auth.AdminBootstrapCreateRequest
+import com.dssmeet.kiosk.models.auth.AdminFingerprintLoginRequest
+import com.dssmeet.kiosk.models.auth.AdminFingerprintLoginResponse
+import com.dssmeet.kiosk.models.auth.AdminFingerprintCandidate
 import com.dssmeet.kiosk.models.auth.AdminBootstrapResponse
 import com.dssmeet.kiosk.models.auth.AdminProfile
 import com.dssmeet.kiosk.models.auth.AuthToken
@@ -25,6 +29,9 @@ interface AuthDataSource {
      */
     suspend fun fingerprintCandidates(kioskId: String): ApiResponse<List<FingerprintCandidate>>
     suspend fun fingerprintLogin(request: FingerprintLoginRequest): ApiResponse<AuthToken>
+    suspend fun adminFingerprintCandidates(kioskId: String): ApiResponse<List<AdminFingerprintCandidate>>
+    suspend fun adminFingerprintLogin(request: AdminFingerprintLoginRequest): ApiResponse<AdminFingerprintLoginResponse>
+    suspend fun addAdminFingerprint(adminId: String, capture: String): ApiResponse<AdminFingerprintResult>
     suspend fun identifyRfid(request: LoginRequest): ApiResponse<InmateProfile>
     suspend fun identifyPrisoner(kioskId: String, prisonerId: String): ApiResponse<InmateProfile>
     suspend fun verifyPin(request: PinVerifyRequest): ApiResponse<AuthToken>

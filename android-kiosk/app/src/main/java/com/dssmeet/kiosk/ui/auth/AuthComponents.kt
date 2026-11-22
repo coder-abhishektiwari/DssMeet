@@ -69,7 +69,8 @@ fun PremiumAuthCard(
     description: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    compact: Boolean = false
+    compact: Boolean = false,
+    large: Boolean = false
 ) {
     var isPressed by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(if (isPressed) 0.95f else 1f, label = "Scale")
@@ -91,7 +92,7 @@ fun PremiumAuthCard(
         ) {
             Box(
                 modifier = Modifier
-                    .size(if (compact) 42.dp else 52.dp)
+                    .size(if (large) 72.dp else if (compact) 42.dp else 52.dp)
                     .clip(CircleShape)
                     .background(
                         Brush.linearGradient(
@@ -104,23 +105,23 @@ fun PremiumAuthCard(
                     imageVector = icon,
                     contentDescription = null,
                     tint = Color.White,
-                    modifier = Modifier.size(if (compact) 22.dp else 28.dp)
+                    modifier = Modifier.size(if (large) 40.dp else if (compact) 22.dp else 28.dp)
                 )
             }
             Spacer(modifier = Modifier.height(if (compact) 8.dp else 12.dp))
             Text(
                 text = title,
-                fontSize = if (compact) 15.sp else 16.sp,
+                fontSize = if (large) 22.sp else if (compact) 15.sp else 16.sp,
                 fontWeight = FontWeight.Bold,
                 color = PrimaryDarkNavy
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = description,
-                fontSize = if (compact) 11.sp else 12.sp,
+                fontSize = if (large) 15.sp else if (compact) 11.sp else 12.sp,
                 color = TextGray,
                 textAlign = TextAlign.Center,
-                lineHeight = if (compact) 14.sp else 16.sp
+                lineHeight = if (large) 20.sp else if (compact) 14.sp else 16.sp
             )
         }
     }

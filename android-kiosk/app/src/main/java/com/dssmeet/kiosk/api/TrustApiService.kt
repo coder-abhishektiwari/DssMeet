@@ -74,6 +74,12 @@ interface TrustApiService {
     @POST("auth/fingerprint-login")
     suspend fun fingerprintLogin(@Body request: FingerprintLoginRequest): ApiResponse<AuthToken>
 
+    @POST("auth/admin/fingerprint-candidates")
+    suspend fun adminFingerprintCandidates(@Body request: FingerprintCandidatesRequest): ApiResponse<List<AdminFingerprintCandidate>>
+
+    @POST("auth/admin/fingerprint-login")
+    suspend fun adminFingerprintLogin(@Body request: AdminFingerprintLoginRequest): ApiResponse<AdminFingerprintLoginResponse>
+
     @POST("auth/verify-pin")
     suspend fun verifyPin(@Body request: PinVerifyRequest): ApiResponse<AuthToken>
 
@@ -240,6 +246,18 @@ interface TrustApiService {
         @Path("adminId") adminId: String,
         @Body request: com.dssmeet.kiosk.models.admin.UpdateKioskAdminRequest
     ): ApiResponse<com.dssmeet.kiosk.models.admin.KioskAdmin>
+
+    @POST("kiosk-admins/{adminId}/fingerprints")
+    suspend fun addKioskAdminFingerprint(
+        @Path("adminId") adminId: String,
+        @Body request: com.dssmeet.kiosk.models.admin.AddAdminFingerprintRequest
+    ): ApiResponse<com.dssmeet.kiosk.models.admin.AdminFingerprintResult>
+
+    @DELETE("kiosk-admins/{adminId}/fingerprints/{biometricId}")
+    suspend fun deleteKioskAdminFingerprint(
+        @Path("adminId") adminId: String,
+        @Path("biometricId") biometricId: String
+    ): ApiResponse<com.dssmeet.kiosk.models.admin.AdminFingerprintResult>
 
     // ==================== REPORTS ====================
 

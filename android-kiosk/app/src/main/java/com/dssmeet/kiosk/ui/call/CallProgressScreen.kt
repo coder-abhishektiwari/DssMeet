@@ -6,14 +6,17 @@ import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CallEnd
@@ -40,7 +43,7 @@ import androidx.compose.ui.unit.sp
 
 /** One row of the progress checklist. */
 @Composable
-private fun StageRow(label: String, state: StageState) {
+private fun StageRow(label: String, state: StageState, isTablet: Boolean = false) {
     val (color, symbol) = when (state) {
         StageState.DONE -> Color(0xFF22C55E) to "✓"
         StageState.ACTIVE -> Color(0xFFF59E0B) to "•"
@@ -57,21 +60,21 @@ private fun StageRow(label: String, state: StageState) {
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 10.dp)
+            .padding(vertical = if (isTablet) 14.dp else 10.dp)
     ) {
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
-                .size(34.dp)
+                .size(if (isTablet) 44.dp else 34.dp)
                 .background(color, CircleShape)
         ) {
-            Text(symbol, color = Color.White, fontSize = 16.sp)
+            Text(symbol, color = Color.White, fontSize = if (isTablet) 20.sp else 16.sp)
         }
-        Spacer(Modifier.size(14.dp))
+        Spacer(Modifier.size(if (isTablet) 18.dp else 14.dp))
         Text(
             label,
             color = if (state == StageState.PENDING) Color(0xFF9CA3AF) else Color.White,
-            fontSize = 18.sp,
+            fontSize = if (isTablet) 20.sp else 18.sp,
             modifier = Modifier.semantics {
                 contentDescription = "$label, $stateDescription"
             }
@@ -97,6 +100,8 @@ fun CallProgressScreen(
     val deviceVerifyFailed by viewModel.deviceVerifyFailed.collectAsState()
     val otpVerifyFailed by viewModel.otpVerifyFailed.collectAsState()
     val familyLeft by viewModel.familyLeft.collectAsState()
+    val smsSent by viewModel.smsSent.collectAsState()
+    val smsFailed by viewModel.smsFailed.collectAsState()
 
     var showFailure by remember { mutableStateOf(false) }
     var everConnected by remember { mutableStateOf(false) }
@@ -141,16 +146,13 @@ fun CallProgressScreen(
     val stages: List<Pair<String, StageState>> = run {
         val s = stage
         listOf(
-            "Call link sent to $contactName" to when {
-                // Don't claim DONE until family actually opened it —
-                // a send failure or early abort must not look successful.
-                s.ordinal >= FamilyStage.LINK_OPENED.ordinal -> StageState.DONE
-                s.ordinal >= FamilyStage.LINK_SENT.ordinal -> StageState.ACTIVE
-                else -> StageState.PENDING
+            (if (smsSent) "Call link sent to $contactName" else "Sending call link to $contactName") to when {
+                smsSent -> StageState.DONE
+                smsFailed -> StageState.FAILED
+                else -> StageState.ACTIVE
             },
             "$contactName opened the link" to when {
                 s.ordinal >= FamilyStage.LINK_OPENED.ordinal -> StageState.DONE
-                s.ordinal >= FamilyStage.LINK_SENT.ordinal -> StageState.ACTIVE
                 else -> StageState.PENDING
             },
             "Device verification" to when {
@@ -178,46 +180,60 @@ fun CallProgressScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF111827))
-            .padding(24.dp)
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.align(Alignment.Center)
-        ) {
-            Text(
-                text = when {
-                    familyLeft -> "Family member left"
-                    showFailure -> "Call Failed"
-                    else -> "Calling $contactName"
-                },
-                color = when {
-                    familyLeft -> Color(0xFFF59E0B)
-                    showFailure -> DangerRed
-                    else -> Color.White
-                },
-                fontSize = 28.sp,
-                style = MaterialTheme.typography.titleLarge
-            )
-            Spacer(Modifier.height(28.dp))
-            stages.forEach { (label, state) -> StageRow(label, state) }
-            Spacer(Modifier.height(36.dp))
-            Button(
-                onClick = {
-                    viewModel.endCall()
-                    onCancel()
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = DangerRed),
-                modifier = Modifier.size(72.dp)
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            val isTablet = maxWidth >= 600.dp
+            val contentWidth = if (isTablet) {
+                minOf(maxWidth - 64.dp, 900.dp)
+            } else {
+                minOf(maxWidth - 32.dp, 560.dp)
+            }.coerceAtLeast(240.dp)
+
+            Column(
+                modifier = Modifier
+                    .width(contentWidth)
+                    .fillMaxHeight()
+                    .align(Alignment.Center)
+                    .padding(horizontal = if (isTablet) 24.dp else 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
             ) {
-                Icon(
-                    Icons.Filled.CallEnd,
-                    contentDescription = "End call",
-                    tint = Color.White,
-                    modifier = Modifier.size(32.dp)
+                Text(
+                    text = when {
+                        familyLeft -> "Family member left"
+                        showFailure -> "Call Failed"
+                        else -> "Calling $contactName"
+                    },
+                    color = when {
+                        familyLeft -> Color(0xFFF59E0B)
+                        showFailure -> DangerRed
+                        else -> Color.White
+                    },
+                    fontSize = if (isTablet) 36.sp else 28.sp,
+                    style = MaterialTheme.typography.titleLarge
                 )
+                Spacer(Modifier.height(if (isTablet) 36.dp else 28.dp))
+                stages.forEach { (label, state) -> StageRow(label, state, isTablet) }
+                Spacer(Modifier.height(if (isTablet) 44.dp else 36.dp))
+                Button(
+                    onClick = {
+                        viewModel.endCall()
+                        onCancel()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = DangerRed),
+                    modifier = Modifier.size(if (isTablet) 88.dp else 72.dp),
+                    shape = CircleShape
+                ) {
+                    Icon(
+                        Icons.Filled.CallEnd,
+                        contentDescription = "End call",
+                        tint = Color.White,
+                        modifier = Modifier.size(if (isTablet) 40.dp else 32.dp)
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
+                Text("Cancel", color = Color(0xFF9CA3AF), fontSize = if (isTablet) 16.sp else 14.sp)
             }
-            Spacer(Modifier.height(10.dp))
-            Text("Cancel", color = Color(0xFF9CA3AF), fontSize = 14.sp)
         }
     }
 }

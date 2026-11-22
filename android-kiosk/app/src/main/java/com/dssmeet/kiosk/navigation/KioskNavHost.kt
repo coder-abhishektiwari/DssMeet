@@ -1,5 +1,7 @@
 package com.dssmeet.kiosk.navigation
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.windowsizeclass.WindowSizeClass
 import androidx.compose.runtime.Composable
 import androidx.navigation.NavHostController
@@ -28,10 +30,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.delay
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.compose.currentBackStackEntryAsState
 import android.net.Uri
 import com.dssmeet.kiosk.MainActivity
+import com.dssmeet.kiosk.ui.components.ConfirmDeleteDialog
 
 object KioskRoutes {
     const val SPLASH = "splash"
@@ -71,6 +75,8 @@ fun KioskNavHost(
     // Reason shown on the login screen when the session ended (expiry,
     // inactivity timeout). Kept in state so a recomposition does not lose it.
     var sessionMessage by remember { mutableStateOf<String?>(null) }
+    var showAdminLogoutConfirm by remember { mutableStateOf(false) }
+    val requestAdminLogout: () -> Unit = { showAdminLogoutConfirm = true }
 
     // Tell MainActivity to skip auto-logout during lobby/call
     LaunchedEffect(currentRoute) {
@@ -126,6 +132,7 @@ fun KioskNavHost(
         }
     }
 
+    Box(modifier = Modifier.fillMaxSize()) {
     NavHost(navController = navController, startDestination = KioskRoutes.SPLASH) {
         composable(KioskRoutes.SPLASH) {
             SplashScreen(
@@ -241,17 +248,14 @@ fun KioskNavHost(
                 onKioskAdminsClick = {
                     navController.navigate(KioskRoutes.ADMIN_KIOSK_ADMINS)
                 },
-                onLogoutClick = {
-                    navController.navigate(KioskRoutes.LOGIN) {
-                        popUpTo(KioskRoutes.ADMIN_DASHBOARD) { inclusive = true }
-                    }
-                }
+                onLogoutClick = requestAdminLogout
             )
         }
         composable(KioskRoutes.ADMIN_ADD_PRISONER) {
             AddPrisonerScreen(
                 windowSizeClass = windowSizeClass,
                 onBackClick = { navController.popBackStack() },
+                onLogoutClick = requestAdminLogout,
                 onComplete = {
                     navController.navigate(KioskRoutes.ADMIN_DASHBOARD) {
                         popUpTo(KioskRoutes.ADMIN_DASHBOARD) { inclusive = true }
@@ -263,6 +267,7 @@ fun KioskNavHost(
             ManagePrisonersScreen(
                 windowSizeClass = windowSizeClass,
                 onBackClick = { navController.popBackStack() },
+                onLogoutClick = requestAdminLogout,
                 onPrisonerClick = { prisonerId ->
                     navController.navigate("admin_view_prisoner/$prisonerId")
                 },
@@ -274,7 +279,8 @@ fun KioskNavHost(
                 },
                 onBiometricsClick = { prisonerId, prisonerName ->
                     navController.navigate("admin_prisoner_biometrics/$prisonerId/$prisonerName")
-                }
+                },
+                onAddClick = { navController.navigate(KioskRoutes.ADMIN_ADD_PRISONER) }
             )
         }
         composable(KioskRoutes.ADMIN_VIEW_PRISONER) { backStackEntry ->
@@ -283,6 +289,7 @@ fun KioskNavHost(
                 prisonerId = prisonerId,
                 windowSizeClass = windowSizeClass,
                 onBackClick = { navController.popBackStack() },
+                onLogoutClick = requestAdminLogout,
                 onEditClick = { id ->
                     navController.navigate("admin_edit_prisoner/$id")
                 }
@@ -293,14 +300,16 @@ fun KioskNavHost(
             com.dssmeet.kiosk.ui.admin.EditPrisonerScreen(
                 prisonerId = prisonerId,
                 windowSizeClass = windowSizeClass,
-                onBackClick = { navController.popBackStack() }
+                onBackClick = { navController.popBackStack() },
+                onLogoutClick = requestAdminLogout
             )
         }
         composable(KioskRoutes.ADMIN_PRISONER_CONTACTS) { backStackEntry ->
             val prisonerId = backStackEntry.arguments?.getString("prisonerId") ?: ""
             com.dssmeet.kiosk.ui.admin.ManageContactsScreen(
                 prisonerId = prisonerId,
-                onBackClick = { navController.popBackStack() }
+                onBackClick = { navController.popBackStack() },
+                onLogoutClick = requestAdminLogout
             )
         }
         composable(KioskRoutes.ADMIN_PRISONER_BIOMETRICS) { backStackEntry ->
@@ -310,31 +319,36 @@ fun KioskNavHost(
                 windowSizeClass = windowSizeClass,
                 prisonerId = prisonerId,
                 prisonerName = prisonerName,
-                onBackClick = { navController.popBackStack() }
+                onBackClick = { navController.popBackStack() },
+                onLogoutClick = requestAdminLogout
             )
         }
         composable(KioskRoutes.ADMIN_DEVICE_INFO) {
             DeviceInfoScreen(
                 windowSizeClass = windowSizeClass,
-                onBackClick = { navController.popBackStack() }
+                onBackClick = { navController.popBackStack() },
+                onLogoutClick = requestAdminLogout
             )
         }
         composable(KioskRoutes.ADMIN_MIS_REPORT) {
             com.dssmeet.kiosk.ui.admin.MisReportScreen(
                 windowSizeClass = windowSizeClass,
-                onBackClick = { navController.popBackStack() }
+                onBackClick = { navController.popBackStack() },
+                onLogoutClick = requestAdminLogout
             )
         }
         composable(KioskRoutes.ADMIN_CALL_HISTORY) {
             com.dssmeet.kiosk.ui.admin.CallHistoryScreen(
                 windowSizeClass = windowSizeClass,
-                onBackClick = { navController.popBackStack() }
+                onBackClick = { navController.popBackStack() },
+                onLogoutClick = requestAdminLogout
             )
         }
         composable(KioskRoutes.ADMIN_KIOSK_ADMINS) {
             com.dssmeet.kiosk.ui.admin.KioskAdminsScreen(
                 windowSizeClass = windowSizeClass,
-                onBackClick = { navController.popBackStack() }
+                onBackClick = { navController.popBackStack() },
+                onLogoutClick = requestAdminLogout
             )
         }
         composable(KioskRoutes.SETUP_PERMISSIONS) {
@@ -438,6 +452,22 @@ fun KioskNavHost(
                 }
             )
         }
+    }
+
+    if (showAdminLogoutConfirm) {
+        ConfirmDeleteDialog(
+            title = "Logout",
+            message = "Are you sure you want to logout?",
+            confirmText = "Logout",
+            onDismiss = { showAdminLogoutConfirm = false },
+            onConfirm = {
+                showAdminLogoutConfirm = false
+                navController.navigate(KioskRoutes.LOGIN) {
+                    popUpTo(KioskRoutes.ADMIN_DASHBOARD) { inclusive = true }
+                }
+            }
+        )
+    }
     }
 }
 

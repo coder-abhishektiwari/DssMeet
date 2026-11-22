@@ -57,6 +57,7 @@ fun AddPrisonerScreen(
     windowSizeClass: WindowSizeClass,
     onBackClick: () -> Unit,
     onComplete: () -> Unit,
+    onLogoutClick: () -> Unit = {},
     viewModel: AddPrisonerViewModel = hiltViewModel()
 ) {
     val registrationState by viewModel.registrationState.collectAsState()
@@ -74,6 +75,7 @@ fun AddPrisonerScreen(
     AddPrisonerContent(
         windowWidthSizeClass = windowSizeClass.widthSizeClass,
         onBackClick = onBackClick,
+        onLogoutClick = onLogoutClick,
         onComplete = onComplete,
         onRegister = { values, pin, fingers, rfid, family ->
             viewModel.registerPrisoner(values, pin, fingers, rfid, family)
@@ -95,6 +97,7 @@ fun AddPrisonerScreen(
 fun AddPrisonerContent(
     windowWidthSizeClass: WindowWidthSizeClass,
     onBackClick: () -> Unit,
+    onLogoutClick: () -> Unit = {},
     onComplete: () -> Unit,
     onRegister: (PrisonerFormValues, String, List<String>?, String?, List<FamilyContactPayload>?) -> Unit,
     registrationState: AddPrisonerViewModel.RegistrationState = AddPrisonerViewModel.RegistrationState.Idle,
@@ -163,17 +166,20 @@ fun AddPrisonerContent(
         topBar = {
             KioskTopBar(
                 title = "Add New Inmate",
-                showBackButton = true,
-                onBackClick = onBackClick
+                showBackButton = false,
+                onBackClick = onBackClick,
+                trailingActions = {
+                    com.dssmeet.kiosk.ui.components.KioskLogoutButton(onClick = onLogoutClick)
+                }
             )
         },
         containerColor = LightBg
     ) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .padding(paddingValues)
-                .fillMaxSize()
+        com.dssmeet.kiosk.ui.components.KioskResponsiveBox(
+            maxWidth = 960.dp,
+            modifier = Modifier.padding(paddingValues)
         ) {
+            Column(modifier = Modifier.fillMaxSize()) {
             if (completed) {
                 CompleteStep(
                     familyAdded = (registrationState as? AddPrisonerViewModel.RegistrationState.Success)
@@ -201,14 +207,15 @@ fun AddPrisonerContent(
 
                 Column(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .padding(16.dp)
-                        .verticalScroll(rememberScrollState()),
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     when (step) {
     0 -> PersonalDetailsCard(formState)
-    1 -> IdentityAdmissionCard(formState, kioskOptions)
+    1 -> IdentityAdmissionCard(formState, kioskOptions, currentKioskId)
     2 -> AddressCard(formState)
     3 -> FamilyContactStep(
         members = familyMembers,
@@ -267,98 +274,50 @@ fun AddPrisonerContent(
                         ErrorCard(effectiveError)
                     }
 
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        if (step > 0) {
-                            OutlinedButton(
-                                onClick = {
-                                    if (!loading) {
-                                        step -= 1
-                                        formError = ""
-                                    }
-                                },
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(56.dp),
-                                shape = RoundedCornerShape(12.dp),
-                                enabled = !loading
-                            ) {
-                                Icon(Icons.Default.ArrowBack, contentDescription = null)
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Back")
-                            }
-                        }
-
-                        Button(
-                            onClick = {
-                                if (step == ADD_STEP_TITLES.lastIndex) {
-                                    val personalError = formState.validatePersonal()
-                                    val identityError = formState.validateIdentity()
-                                    val addressError = formState.validateAddress()
-                                    formError = when {
-                                        personalError.isNotEmpty() -> personalError
-                                        identityError.isNotEmpty() -> identityError
-                                        addressError.isNotEmpty() -> addressError
-                                        pin.length != 6 -> "PIN must be exactly 6 digits"
-                                        pin != confirmPin -> "PINs do not match"
-                                        fingerprintTemplates.isEmpty() && rfidTag.isBlank() ->
-                                            "Register at least one biometric — fingerprint or RFID"
-                                        else -> ""
-                                    }
-                                    if (formError.isEmpty()) {
-                                        onRegister(
-                                            formState.toValues(),
-                                            pin,
-                                            fingerprintTemplates.ifEmpty { null },
-                                            rfidTag.ifBlank { null },
-                                            familyMembers.ifEmpty { null }
-                                        )
-                                    }
-                                } else {
-                                    val stepError = formState.validateStep(step)
-                                    if (stepError.isNotEmpty()) {
-                                        formError = stepError
-                                    } else {
-                                        formError = ""
-                                        step += 1
-                                    }
-                                }
-                            },
-                            modifier = Modifier
-                                .weight(if (step > 0) 1f else 2f)
-                                .height(56.dp),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryNavy),
-                            enabled = !loading
-                        ) {
-                            if (loading) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(24.dp),
-                                    color = Color.White,
-                                    strokeWidth = 2.dp
-                                )
-                            } else if (step == ADD_STEP_TITLES.lastIndex) {
-                                Text(
-                                    text = "Register Inmate",
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            } else {
-                                Text(
-                                    text = "Next",
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Icon(Icons.Default.ArrowForward, contentDescription = null)
-                            }
-                        }
-                    }
                 }
+                com.dssmeet.kiosk.ui.components.KioskFormActionBar(
+                    step = step,
+                    onScreenBack = onBackClick,
+                    onStepBack = { step -= 1; formError = "" },
+                    onNext = {
+                        if (step == ADD_STEP_TITLES.lastIndex) {
+                            val personalError = formState.validatePersonal()
+                            val identityError = formState.validateIdentity()
+                            val addressError = formState.validateAddress()
+                            formError = when {
+                                personalError.isNotEmpty() -> personalError
+                                identityError.isNotEmpty() -> identityError
+                                addressError.isNotEmpty() -> addressError
+                                pin.length != 6 -> "PIN must be exactly 6 digits"
+                                pin != confirmPin -> "PINs do not match"
+                                fingerprintTemplates.isEmpty() && rfidTag.isBlank() ->
+                                    "Register at least one biometric — fingerprint or RFID"
+                                else -> ""
+                            }
+                            if (formError.isEmpty()) {
+                                onRegister(
+                                    formState.toValues(),
+                                    pin,
+                                    fingerprintTemplates.ifEmpty { null },
+                                    rfidTag.ifBlank { null },
+                                    familyMembers.ifEmpty { null }
+                                )
+                            }
+                        } else {
+                            val stepError = formState.validateStep(step)
+                            if (stepError.isNotEmpty()) {
+                                formError = stepError
+                            } else {
+                                formError = ""
+                                step += 1
+                            }
+                        }
+                    },
+                    nextLabel = if (step == ADD_STEP_TITLES.lastIndex) "Register Inmate" else "Next",
+                    nextEnabled = !loading,
+                    showProgress = loading
+                )
+            }
             }
         }
     }

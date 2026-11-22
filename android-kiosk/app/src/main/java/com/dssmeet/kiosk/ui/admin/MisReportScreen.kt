@@ -13,12 +13,15 @@ import com.dssmeet.kiosk.ui.theme.TextGray
 
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material3.*
 import androidx.compose.material3.windowsizeclass.WindowSizeClass
@@ -50,6 +53,7 @@ private val DISPLAY_DAY: DateTimeFormatter = DateTimeFormatter.ofPattern("dd MMM
 fun MisReportScreen(
     windowSizeClass: WindowSizeClass,
     onBackClick: () -> Unit,
+    onLogoutClick: () -> Unit = {},
     viewModel: MisReportViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsState()
@@ -58,6 +62,7 @@ fun MisReportScreen(
     MisReportContent(
         state = state,
         onBackClick = onBackClick,
+        onLogoutClick = onLogoutClick,
         onPresetClick = viewModel::applyPreset,
         onFromSelected = viewModel::setFrom,
         onToSelected = viewModel::setTo,
@@ -70,6 +75,7 @@ fun MisReportScreen(
 fun MisReportContent(
     state: MisReportViewModel.UiState,
     onBackClick: () -> Unit,
+    onLogoutClick: () -> Unit = {},
     onPresetClick: (MisReportViewModel.Preset) -> Unit,
     onFromSelected: (Long) -> Unit,
     onToSelected: (Long) -> Unit,
@@ -101,202 +107,612 @@ fun MisReportContent(
             onDismissed = { showToPicker = false }
         )
     }
-
     Scaffold(
         topBar = {
             KioskTopBar(
                 title = "MIS Calls Report",
                 showBackButton = true,
-                onBackClick = onBackClick
+                onBackClick = onBackClick,
+                trailingActions = {
+                    com.dssmeet.kiosk.ui.components.KioskLogoutButton(onClick = onLogoutClick)
+                }
             )
+        },
+        bottomBar = {
+            com.dssmeet.kiosk.ui.components.KioskBottomActionBar(onBackClick = onBackClick)
         },
         containerColor = LightBg
     ) { paddingValues ->
-        LazyColumn(
+        BoxWithConstraints(
             modifier = Modifier
                 .padding(paddingValues)
                 .fillMaxSize()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color.White),
-                    elevation = CardDefaults.cardElevation(2.dp)
+            val wide = maxWidth >= 900.dp
+            if (wide) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    Column(
-                        modifier = Modifier.padding(20.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
+                    MisReportFilterColumn(
+                        state = state,
+                        modifier = Modifier
+                            .weight(0.4f)
+                            .fillMaxHeight(),
+                        modernFilters = true,
+                        onPresetClick = onPresetClick,
+                        onFromClick = { showFromPicker = true },
+                        onToClick = { showToPicker = true },
+                        onGenerate = onGenerate,
+                        onPrint = onPrint
+                    )
+                    MisReportPreviewPanel(
+                        reportText = state.reportText,
+                        isLoading = state.isLoading,
+                        modifier = Modifier
+                            .weight(0.6f)
+                            .fillMaxHeight()
+                    )
+                }
+            } else {
+                com.dssmeet.kiosk.ui.components.KioskResponsiveBox(
+                    maxWidth = 900.dp,
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    MisReportFilterColumn(
+                        state = state,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(16.dp),
+                        modernFilters = false,
+                        onPresetClick = onPresetClick,
+                        onFromClick = { showFromPicker = true },
+                        onToClick = { showToPicker = true },
+                        onGenerate = onGenerate,
+                        onPrint = onPrint
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MisReportFilterColumn(
+    state: MisReportViewModel.UiState,
+    modifier: Modifier = Modifier,
+    modernFilters: Boolean,
+    onPresetClick: (MisReportViewModel.Preset) -> Unit,
+    onFromClick: () -> Unit,
+    onToClick: () -> Unit,
+    onGenerate: () -> Unit,
+    onPrint: (String) -> Unit
+) {
+    LazyColumn(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        if (modernFilters) {
+            item { MisReportModernFiltersCard(state, onPresetClick, onFromClick, onToClick) }
+            item { MisReportActions(state, onGenerate, onPrint) }
+            if (state.error != null && !state.isLoading) {
+                item { MisReportErrorCard(state.error) }
+            }
+        } else {
+            item { MisReportFiltersCard(state, onPresetClick, onFromClick, onToClick) }
+            item { MisReportGenerateButton(state, onGenerate) }
+            if (state.error != null && !state.isLoading) {
+                item { MisReportErrorCard(state.error) }
+            }
+            if (state.reportText != null) {
+                item { MisReportPreviewCard(state.reportText) }
+                item { MisReportPrintButton(state.reportText, onPrint) }
+            }
+        }
+        item { Spacer(modifier = Modifier.height(8.dp)) }
+    }
+}
+
+@Composable
+private fun MisReportPreviewPanel(
+    reportText: String?,
+    isLoading: Boolean,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier,
+        contentAlignment = Alignment.TopStart
+    ) {
+        Card(
+            modifier = Modifier
+                .wrapContentWidth()
+                .widthIn(min = 320.dp, max = 680.dp)
+                .fillMaxHeight(),
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            elevation = CardDefaults.cardElevation(3.dp)
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp, vertical = 18.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(
-                            text = "REPORT PERIOD",
+                            text = "REPORT PREVIEW",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = PrimaryDarkNavy
                         )
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            PresetChip("Today", MisReportViewModel.Preset.TODAY, state.preset, onPresetClick)
-                            PresetChip("Yesterday", MisReportViewModel.Preset.YESTERDAY, state.preset, onPresetClick)
-                            PresetChip("This week", MisReportViewModel.Preset.THIS_WEEK, state.preset, onPresetClick)
-                            PresetChip("This month", MisReportViewModel.Preset.THIS_MONTH, state.preset, onPresetClick)
-                            PresetChip("Custom", MisReportViewModel.Preset.CUSTOM, state.preset, onPresetClick)
-                        }
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            DateField(
-                                label = "From",
-                                value = state.from.format(DISPLAY_DAY),
-                                onClick = { showFromPicker = true },
-                                modifier = Modifier.weight(1f)
-                            )
-                            DateField(
-                                label = "To",
-                                value = state.to.format(DISPLAY_DAY),
-                                onClick = { showToPicker = true },
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
+                        Text(text = "80 mm receipt", fontSize = 12.sp, color = TextGray)
                     }
-                }
-            }
-
-            item {
-                Button(
-                    onClick = onGenerate,
-                    enabled = !state.isLoading,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(52.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryNavy)
-                ) {
-                    if (state.isLoading) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp),
-                            color = Color.White,
-                            strokeWidth = 2.dp
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text("Generating...", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                    } else {
-                        Icon(Icons.Default.DateRange, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Generate Report", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-
-            if (state.error != null && !state.isLoading) {
-                item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = MoneyRedBg)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(20.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    if (reportText != null) {
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFFE6F7EE)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Error,
-                                contentDescription = null,
-                                tint = DangerRed
-                            )
                             Text(
-                                text = state.error,
-                                fontSize = 14.sp,
-                                color = Color(0xFFB71C1C),
-                                modifier = Modifier.weight(1f)
+                                text = "READY",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF17875B),
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                             )
                         }
                     }
                 }
-            }
+                HorizontalDivider(color = BorderColor, thickness = 1.dp)
 
-            if (state.reportText != null) {
-                item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color.White),
-                        elevation = CardDefaults.cardElevation(2.dp)
+                if (reportText != null) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .verticalScroll(rememberScrollState())
+                            .horizontalScroll(rememberScrollState())
+                            .padding(20.dp),
+                        contentAlignment = Alignment.TopStart
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color(0xFFF8FAFC),
+                            modifier = Modifier.wrapContentWidth()
+                        ) {
+                            Text(
+                                text = reportText,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 16.sp,
+                                lineHeight = 24.sp,
+                                color = PrimaryDarkNavy,
+                                softWrap = false,
+                                modifier = Modifier.padding(16.dp)
+                            )
+                        }
+                    }
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                        contentAlignment = Alignment.Center
                     ) {
                         Column(
-                            modifier = Modifier.padding(20.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.padding(32.dp)
                         ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "REPORT PREVIEW",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = PrimaryDarkNavy
-                                )
-                                Text(
-                                    text = "80 mm receipt",
-                                    fontSize = 12.sp,
-                                    color = TextGray
-                                )
-                            }
-                            HorizontalDivider(color = BorderColor, thickness = 1.dp)
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState())
-                            ) {
-                                Text(
-                                    text = state.reportText,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 12.sp,
-                                    lineHeight = 16.sp,
-                                    color = PrimaryDarkNavy,
-                                    softWrap = false,
-                                    maxLines = 500
-                                )
-                            }
+                            Icon(
+                                imageVector = Icons.Default.DateRange,
+                                contentDescription = null,
+                                tint = TextGray,
+                                modifier = Modifier.size(56.dp)
+                            )
+                            Text(
+                                text = if (isLoading) "Generating report…" else "Report preview",
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = PrimaryDarkNavy
+                            )
+                            Text(
+                                text = if (isLoading) {
+                                    "Please wait while the report is prepared."
+                                } else {
+                                    "Select a period and generate the report to see it here."
+                                },
+                                fontSize = 13.sp,
+                                color = TextGray,
+                                textAlign = TextAlign.Center
+                            )
                         }
                     }
                 }
+            }
+        }
+    }
+}
 
-                item {
-                    Button(
-                        onClick = { onPrint(state.reportText) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(52.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = SuccessGreen)
-                    ) {
-                        Icon(Icons.Default.Print, contentDescription = null, tint = Color.White)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Print Report",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun MisReportModernFiltersCard(
+    state: MisReportViewModel.UiState,
+    onPresetClick: (MisReportViewModel.Preset) -> Unit,
+    onFromClick: () -> Unit,
+    onToClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(3.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = PrimaryNavy.copy(alpha = 0.1f),
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.Default.DateRange,
+                            contentDescription = null,
+                            tint = PrimaryNavy,
+                            modifier = Modifier.size(24.dp)
                         )
                     }
                 }
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        text = "Report setup",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = PrimaryDarkNavy
+                    )
+                    Text(
+                        text = "Choose a period, then generate or print.",
+                        fontSize = 13.sp,
+                        color = TextGray
+                    )
+                }
             }
 
-            item { Spacer(modifier = Modifier.height(8.dp)) }
+            HorizontalDivider(color = BorderColor, thickness = 1.dp)
+
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = "QUICK SELECT",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextGray
+                )
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    PresetChip("Today", MisReportViewModel.Preset.TODAY, state.preset, onPresetClick)
+                    PresetChip("Yesterday", MisReportViewModel.Preset.YESTERDAY, state.preset, onPresetClick)
+                    PresetChip("This week", MisReportViewModel.Preset.THIS_WEEK, state.preset, onPresetClick)
+                    PresetChip("This month", MisReportViewModel.Preset.THIS_MONTH, state.preset, onPresetClick)
+                    PresetChip("Custom", MisReportViewModel.Preset.CUSTOM, state.preset, onPresetClick)
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                MisModernDateField(
+                    label = "FROM DATE",
+                    value = state.from.format(DISPLAY_DAY),
+                    onClick = onFromClick,
+                    modifier = Modifier.weight(1f)
+                )
+                MisModernDateField(
+                    label = "TO DATE",
+                    value = state.to.format(DISPLAY_DAY),
+                    onClick = onToClick,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFF4F7FB))
+            ) {
+                Row(
+                    modifier = Modifier.padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Icon(Icons.Default.Info, contentDescription = null, tint = PrimaryNavy, modifier = Modifier.size(18.dp))
+                    Text(
+                        text = "Report uses calls recorded between these two dates.",
+                        fontSize = 12.sp,
+                        color = TextGray
+                    )
+                }
+            }
         }
+    }
+}
+
+@Composable
+private fun MisModernDateField(
+    label: String,
+    value: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    OutlinedButton(
+        onClick = onClick,
+        modifier = modifier.height(64.dp),
+        shape = RoundedCornerShape(12.dp),
+        contentPadding = PaddingValues(horizontal = 14.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Icon(Icons.Default.DateRange, contentDescription = null, tint = PrimaryNavy, modifier = Modifier.size(20.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(text = label, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = TextGray)
+                Text(
+                    text = value,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = PrimaryDarkNavy,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MisReportFiltersCard(
+    state: MisReportViewModel.UiState,
+    onPresetClick: (MisReportViewModel.Preset) -> Unit,
+    onFromClick: () -> Unit,
+    onToClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(2.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = "REPORT PERIOD",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = PrimaryDarkNavy
+            )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                PresetChip("Today", MisReportViewModel.Preset.TODAY, state.preset, onPresetClick)
+                PresetChip("Yesterday", MisReportViewModel.Preset.YESTERDAY, state.preset, onPresetClick)
+                PresetChip("This week", MisReportViewModel.Preset.THIS_WEEK, state.preset, onPresetClick)
+                PresetChip("This month", MisReportViewModel.Preset.THIS_MONTH, state.preset, onPresetClick)
+                PresetChip("Custom", MisReportViewModel.Preset.CUSTOM, state.preset, onPresetClick)
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                DateField(
+                    label = "From",
+                    value = state.from.format(DISPLAY_DAY),
+                    onClick = onFromClick,
+                    modifier = Modifier.weight(1f)
+                )
+                DateField(
+                    label = "To",
+                    value = state.to.format(DISPLAY_DAY),
+                    onClick = onToClick,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MisReportGenerateButton(
+    state: MisReportViewModel.UiState,
+    onGenerate: () -> Unit
+) {
+    Button(
+        onClick = onGenerate,
+        enabled = !state.isLoading,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(52.dp),
+        shape = RoundedCornerShape(12.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = PrimaryNavy)
+    ) {
+        if (state.isLoading) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(20.dp),
+                color = Color.White,
+                strokeWidth = 2.dp
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Text("Generating...", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        } else {
+            Icon(Icons.Default.DateRange, contentDescription = null)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Generate Report", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+private fun MisReportActions(
+    state: MisReportViewModel.UiState,
+    onGenerate: () -> Unit,
+    onPrint: (String) -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Button(
+            onClick = onGenerate,
+            enabled = !state.isLoading,
+            modifier = Modifier
+                .weight(1f)
+                .height(52.dp),
+            shape = RoundedCornerShape(12.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = PrimaryNavy)
+        ) {
+            if (state.isLoading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    color = Color.White,
+                    strokeWidth = 2.dp
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Text("Generating...", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            } else {
+                Icon(Icons.Default.DateRange, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Generate Report", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+        Button(
+            onClick = { state.reportText?.let(onPrint) },
+            enabled = state.reportText != null,
+            modifier = Modifier
+                .weight(1f)
+                .height(52.dp),
+            shape = RoundedCornerShape(12.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = SuccessGreen,
+                disabledContainerColor = Color(0xFFB7D9C6)
+            )
+        ) {
+            Icon(Icons.Default.Print, contentDescription = null, tint = Color.White)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Print Report", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
+        }
+    }
+}
+
+@Composable
+private fun MisReportErrorCard(error: String?) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MoneyRedBg)
+    ) {
+        Row(
+            modifier = Modifier.padding(20.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Icon(imageVector = Icons.Default.Error, contentDescription = null, tint = DangerRed)
+            Text(
+                text = error ?: "",
+                fontSize = 14.sp,
+                color = Color(0xFFB71C1C),
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun MisReportPreviewCard(reportText: String?) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(2.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "REPORT PREVIEW",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = PrimaryDarkNavy
+                )
+                Text(text = "80 mm receipt", fontSize = 12.sp, color = TextGray)
+            }
+            HorizontalDivider(color = BorderColor, thickness = 1.dp)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+            ) {
+                Text(
+                    text = reportText ?: "",
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp,
+                    color = PrimaryDarkNavy,
+                    softWrap = false,
+                    maxLines = 500
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MisReportPrintButton(
+    reportText: String?,
+    onPrint: (String) -> Unit
+) {
+    Button(
+        onClick = { if (reportText != null) onPrint(reportText) },
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(52.dp),
+        shape = RoundedCornerShape(12.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = SuccessGreen)
+    ) {
+        Icon(Icons.Default.Print, contentDescription = null, tint = Color.White)
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = "Print Report",
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color.White
+        )
     }
 }
 
@@ -358,17 +774,28 @@ private fun ReportDatePicker(
     DatePickerDialog(
         onDismissRequest = onDismissed,
         confirmButton = {
-            TextButton(onClick = { onConfirmed(pickerState.selectedDateMillis) }) {
-                Text("OK")
+            Button(
+                onClick = { onConfirmed(pickerState.selectedDateMillis) },
+                shape = RoundedCornerShape(10.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = PrimaryNavy),
+                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp)
+            ) {
+                Text("OK", fontWeight = FontWeight.Bold, color = Color.White)
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismissed) {
-                Text("Cancel")
+            OutlinedButton(
+                onClick = onDismissed,
+                shape = RoundedCornerShape(10.dp),
+                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp)
+            ) {
+                Text("Cancel", fontWeight = FontWeight.SemiBold, color = PrimaryDarkNavy)
             }
         }
     ) {
-        Column {
+        Column(
+            modifier = Modifier.verticalScroll(rememberScrollState())
+        ) {
             Text(
                 text = "Select $title",
                 fontSize = 16.sp,

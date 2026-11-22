@@ -367,6 +367,11 @@ fun VideoCallContent(
             }
     ) {
         val isTablet = maxWidth >= 600.dp
+        val overlayWidth = if (isTablet) {
+            minOf(maxWidth - 80.dp, 900.dp)
+        } else {
+            minOf(maxWidth - 48.dp, 520.dp)
+        }.coerceAtLeast(240.dp)
 
         // 1. REMOTE FULLSCREEN VIDEO FEED
         Box(
@@ -599,9 +604,8 @@ fun VideoCallContent(
         if (!isNetworkAvailable) {
             Surface(
                 modifier = Modifier
-                    .fillMaxWidth()
+                    .width(overlayWidth)
                     .align(Alignment.Center)
-                    .padding(horizontal = 24.dp)
                     .zIndex(4f),
                 color = WarningOrange,
                 shape = RoundedCornerShape(12.dp)
@@ -627,9 +631,9 @@ fun VideoCallContent(
         if (connectionQuality == "poor") {
             Surface(
                 modifier = Modifier
-                    .fillMaxWidth()
+                    .width(overlayWidth)
                     .align(Alignment.BottomCenter)
-                    .padding(horizontal = 24.dp, vertical = 120.dp)
+                    .padding(vertical = 120.dp)
                     .zIndex(4f),
                 color = DangerRed,
                 shape = RoundedCornerShape(12.dp)

@@ -101,7 +101,12 @@ class PrisonerFormState(initial: Prisoner?) {
     }
 
     fun toggleKiosk(kioskId: String) {
-        if (allKiosks) return
+        if (allKiosks) {
+            allKiosks = false
+            assignedKioskIds = setOf(kioskId)
+            assignedKioskId = kioskId
+            return
+        }
         assignedKioskIds = if (kioskId in assignedKioskIds) assignedKioskIds - kioskId else assignedKioskIds + kioskId
         assignedKioskId = assignedKioskIds.firstOrNull().orEmpty()
     }
@@ -291,7 +296,8 @@ fun PersonalDetailsCard(state: PrisonerFormState) {
 @Composable
 fun IdentityAdmissionCard(
     state: PrisonerFormState,
-    kioskOptions: List<KioskDevice> = emptyList()
+    kioskOptions: List<KioskDevice> = emptyList(),
+    currentKioskId: String = ""
 ) {
     FormCard("Identity & Admission") {
         KioskSelectField(
@@ -332,22 +338,6 @@ fun IdentityAdmissionCard(
             imeAction = androidx.compose.ui.text.input.ImeAction.Next
         )
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Checkbox(
-                checked = state.allKiosks,
-                onCheckedChange = { state.updateAllKiosks(it) }
-            )
-            Text(
-                text = "All kiosks",
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
-                color = PrimaryDarkNavy
-            )
-        }
-
         Text(
             text = if (state.allKiosks)
                 "This inmate will be visible at every kiosk in the prison."
@@ -356,31 +346,49 @@ fun IdentityAdmissionCard(
             color = TextGray
         )
 
-        if (!state.allKiosks) {
-            val kioskIds = (kioskOptions.map { it.kioskId } + state.assignedKioskIds)
-                .filter { it.isNotBlank() }
-                .distinct()
+        val kioskIds = (kioskOptions.map { it.kioskId } + state.assignedKioskIds)
+            .filter { it.isNotBlank() }
+            .distinct()
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Checkbox(
+                    checked = state.allKiosks,
+                    onCheckedChange = { state.updateAllKiosks(it) }
+                )
+                Text(
+                    text = "All kiosks",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = PrimaryDarkNavy
+                )
+            }
             if (kioskIds.isEmpty()) {
                 Text("No kiosks available", fontSize = 13.sp, color = DangerRed)
             } else {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    kioskIds.forEach { id ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Checkbox(
-                                checked = id in state.assignedKioskIds,
-                                onCheckedChange = { state.toggleKiosk(id) }
-                            )
-                            Text(
-                                text = kioskOptions.find { it.kioskId == id }
-                                    ?.location?.takeIf { it.isNotBlank() }
-                                    ?.let { "$id · $it" } ?: id,
-                                fontSize = 13.sp,
-                                color = PrimaryDarkNavy
-                            )
-                        }
+                kioskIds.forEach { id ->
+                    val location = kioskOptions.find { it.kioskId == id }
+                        ?.location?.takeIf { it.isNotBlank() }
+                    val label = if (id == currentKioskId) {
+                        if (location.isNullOrBlank()) "This Kiosk" else "This Kiosk · $location"
+                    } else {
+                        if (location.isNullOrBlank()) id else "$id · $location"
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = !state.allKiosks && id in state.assignedKioskIds,
+                            onCheckedChange = { state.toggleKiosk(id) }
+                        )
+                        Text(
+                            text = label,
+                            fontSize = 13.sp,
+                            color = PrimaryDarkNavy
+                        )
                     }
                 }
             }

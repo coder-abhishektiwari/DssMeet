@@ -7,7 +7,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material3.*
@@ -31,7 +30,6 @@ import com.dssmeet.kiosk.ui.components.KioskTopBar
 import com.dssmeet.kiosk.ui.theme.LightBg
 import com.dssmeet.kiosk.ui.theme.PrimaryNavy
 import com.dssmeet.kiosk.ui.theme.PrisonKioskTheme
-import com.dssmeet.kiosk.ui.theme.SuccessGreen
 import com.dssmeet.kiosk.ui.theme.TextDark
 import com.dssmeet.kiosk.ui.theme.TextGray
 import java.time.LocalDate
@@ -104,22 +102,11 @@ fun CallSummaryContent(
                     .padding(horizontal = hPadding, vertical = 20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Spacer(modifier = Modifier.height(if (isTablet) 24.dp else 12.dp))
+                Spacer(modifier = Modifier.height(if (isTablet) 16.dp else 8.dp))
 
-                // SUCCESS ICON
-                Icon(
-                    imageVector = Icons.Default.CheckCircle,
-                    contentDescription = null,
-                    tint = SuccessGreen,
-                    modifier = Modifier.size(if (isTablet) 80.dp else 64.dp)
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // HEADINGS
                 Text(
                     text = stringResource(R.string.call_ended_successfully),
-                    fontSize = if (isTablet) 24.sp else 18.sp,
+                    fontSize = if (isTablet) 22.sp else 17.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextDark,
                     textAlign = TextAlign.Center
@@ -132,9 +119,9 @@ fun CallSummaryContent(
                     textAlign = TextAlign.Center
                 )
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(20.dp))
 
-                // RECEIPT CARD
+                val amountText = if (totalCharged.trim().startsWith("₹")) totalCharged else "₹$totalCharged"
                 Card(
                     modifier = Modifier.fillMaxWidth(cardWidthFraction),
                     colors = CardDefaults.cardColors(containerColor = Color.White),
@@ -142,23 +129,50 @@ fun CallSummaryContent(
                     shape = RoundedCornerShape(20.dp)
                 ) {
                     Column(
-                        modifier = Modifier.padding(if (isTablet) 28.dp else 18.dp)
+                        modifier = Modifier.padding(if (isTablet) 28.dp else 18.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
-                            text = stringResource(R.string.receipt).uppercase(),
+                            text = "PRISON VIDEO KIOSK",
                             modifier = Modifier.fillMaxWidth(),
                             textAlign = TextAlign.Center,
-                            fontSize = if (isTablet) 16.sp else 14.sp,
+                            fontSize = if (isTablet) 18.sp else 15.sp,
                             fontWeight = FontWeight.Black,
                             letterSpacing = 1.sp,
                             color = TextDark
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "Prison Video Kiosk • Call Receipt",
+                            text = stringResource(R.string.receipt).uppercase(),
                             modifier = Modifier.fillMaxWidth(),
                             textAlign = TextAlign.Center,
-                            fontSize = if (isTablet) 12.sp else 12.sp,
+                            fontSize = if (isTablet) 14.sp else 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 2.sp,
+                            color = TextGray
+                        )
+
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp), color = BorderColor)
+
+                        Text(
+                            text = "AMOUNT USED",
+                            fontSize = if (isTablet) 14.sp else 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.sp,
+                            color = TextGray
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = amountText,
+                            fontSize = if (isTablet) 48.sp else 36.sp,
+                            fontWeight = FontWeight.Black,
+                            color = PrimaryNavy,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "$callType call",
+                            fontSize = if (isTablet) 13.sp else 12.sp,
                             color = TextGray
                         )
 
@@ -172,12 +186,6 @@ fun CallSummaryContent(
 
                         HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp), color = BorderColor)
 
-                        ReceiptRow(
-                            label = stringResource(R.string.total_charged),
-                            value = "₹$totalCharged",
-                            isTotal = true,
-                            isTablet = isTablet
-                        )
                         ReceiptRow(
                             label = stringResource(R.string.remaining_balance),
                             value = "₹${String.format("%.2f", remainingBalance / 100.0)}",

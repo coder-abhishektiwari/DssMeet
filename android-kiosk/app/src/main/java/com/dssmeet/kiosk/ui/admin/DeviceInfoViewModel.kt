@@ -120,14 +120,16 @@ class DeviceInfoViewModel @Inject constructor(
             model = Build.MODEL,
             manufacturer = Build.MANUFACTURER,
             deviceFingerprint = deviceInfoProvider.getDeviceFingerprint(),
-            hardware = KioskHardware(
-                model = Build.MODEL,
-                manufacturer = Build.MANUFACTURER,
-                serialNumber = serial,
-                processor = deviceInfoProvider.getCpuDescription(),
-                ram = deviceInfoProvider.getRamDescription(),
-                storage = deviceInfoProvider.getStorageDescription(),
-                screenSize = deviceInfoProvider.getScreenResolution()
+            hardware = deviceInfoProvider.normalizeHardware(
+                KioskHardware(
+                    model = Build.MODEL,
+                    manufacturer = Build.MANUFACTURER,
+                    serialNumber = serial,
+                    processor = deviceInfoProvider.getCpuDescription(),
+                    ram = deviceInfoProvider.getRamDescription(),
+                    storage = deviceInfoProvider.getStorageDescription(),
+                    screenSize = deviceInfoProvider.getScreenResolution()
+                )
             ),
             camera = HardwareStatus(
                 status = if (deviceInfoProvider.hasCamera()) "Available" else "Not available"
@@ -144,8 +146,9 @@ class DeviceInfoViewModel @Inject constructor(
     /** Remote wins only where it actually knows more than the device does. */
     private fun mergeRemote(local: KioskDevice, remote: KioskDevice): KioskDevice =
         local.copy(
-            hardware = remote.hardware?.takeIf { !it.ram.isNullOrBlank() || !it.processor.isNullOrBlank() }
-                ?: local.hardware,
+            hardware = deviceInfoProvider.normalizeHardware(
+                remote.hardware?.takeIf { !it.ram.isNullOrBlank() || !it.processor.isNullOrBlank() }
+            ) ?: local.hardware,
             camera = remote.camera?.takeIf { !it.status.isNullOrBlank() } ?: local.camera,
             microphone = remote.microphone?.takeIf { !it.status.isNullOrBlank() } ?: local.microphone,
             network = remote.network?.takeIf { !it.status.isNullOrBlank() } ?: local.network

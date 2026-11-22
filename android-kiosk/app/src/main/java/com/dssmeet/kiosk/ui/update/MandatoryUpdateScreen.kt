@@ -54,11 +54,14 @@ fun MandatoryUpdateScreen(
             .background(Color(0xFF000000)),
         contentAlignment = Alignment.Center
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-            modifier = Modifier.padding(28.dp)
-        ) {
+        com.dssmeet.kiosk.ui.components.KioskResponsiveBox(maxWidth = 520.dp) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(28.dp)
+            ) {
             Icon(
                 imageVector = Icons.Default.SystemUpdate,
                 contentDescription = null,
@@ -134,6 +137,7 @@ fun MandatoryUpdateScreen(
             if (!errorText.isNullOrBlank()) {
                 Spacer8()
                 Text(errorText, color = Color(0xFFFF5252), fontSize = 12.sp, textAlign = TextAlign.Center)
+            }
             }
         }
     }

@@ -298,6 +298,7 @@ async function sendSms({ phone, message, kind = 'generic', callId = null, templa
     provider: entry.transport,
     loggedAt: new Date().toISOString(),
     messageId: entry.messageId || null,
+    ok: entry.gatewayOk === true,
   };
 }
 

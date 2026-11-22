@@ -49,6 +49,7 @@ fun InmateDetailsScreen(
     windowSizeClass: WindowSizeClass,
     onBackClick: () -> Unit,
     onEditClick: (String) -> Unit,
+    onLogoutClick: () -> Unit = {},
     viewModel: InmateDetailsViewModel = hiltViewModel()
 ) {
     val prisonerResult by viewModel.prisoner.collectAsState()
@@ -62,16 +63,22 @@ fun InmateDetailsScreen(
             KioskTopBar(
                 title = "Inmate Details",
                 showBackButton = true,
-                onBackClick = onBackClick
+                onBackClick = onBackClick,
+                trailingActions = {
+                    com.dssmeet.kiosk.ui.components.KioskLogoutButton(onClick = onLogoutClick)
+                }
             )
+        },
+        bottomBar = {
+            com.dssmeet.kiosk.ui.components.KioskBottomActionBar(onBackClick = onBackClick)
         },
         containerColor = LightBg
     ) { paddingValues ->
-        Box(
-            modifier = Modifier
-                .padding(paddingValues)
-                .fillMaxSize()
+        com.dssmeet.kiosk.ui.components.KioskResponsiveBox(
+            maxWidth = 960.dp,
+            modifier = Modifier.padding(paddingValues)
         ) {
+            Box(modifier = Modifier.fillMaxSize()) {
             when (val result = prisonerResult) {
                 is NetworkResult.Loading -> {
                     KioskLoadingState(modifier = Modifier.align(Alignment.Center))
@@ -90,6 +97,7 @@ fun InmateDetailsScreen(
                     )
                 }
                 else -> {}
+            }
             }
         }
     }

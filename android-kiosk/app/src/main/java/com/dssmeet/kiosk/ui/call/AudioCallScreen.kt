@@ -217,15 +217,21 @@ fun AudioCallContent(
         BoxWithConstraints(
             modifier = Modifier
                 .padding(padding)
-                .fillMaxSize()
+                .fillMaxSize(),
+            contentAlignment = Alignment.TopCenter
         ) {
             val isTablet = maxWidth >= 600.dp
+            val contentWidth = if (isTablet) {
+                minOf(maxWidth - 80.dp, 900.dp)
+            } else {
+                minOf(maxWidth - 40.dp, 520.dp)
+            }.coerceAtLeast(240.dp)
 
             // Top Status Bar (Recording & Signal)
             Row(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(24.dp),
+                    .width(contentWidth)
+                    .padding(vertical = 24.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -239,9 +245,9 @@ fun AudioCallContent(
 
             Column(
                 modifier = Modifier
-                    .fillMaxSize()
+                    .width(contentWidth)
                     .verticalScroll(rememberScrollState())
-                    .padding(if (isTablet) 40.dp else 20.dp),
+                    .padding(vertical = if (isTablet) 40.dp else 20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.SpaceBetween
             ) {

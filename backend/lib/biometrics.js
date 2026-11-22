@@ -78,7 +78,7 @@ function normalizeFingerprintTemplate(capture) {
 function fingerprintEntries(inmateOrBio, fallbackInmateId) {
   const source = inmateOrBio && inmateOrBio.biometricData ? inmateOrBio.biometricData : inmateOrBio;
   if (!source) return [];
-  const inmateId = fallbackInmateId || (inmateOrBio && (inmateOrBio.inmateId || inmateOrBio.id)) || '';
+  const inmateId = fallbackInmateId || (inmateOrBio && (inmateOrBio.inmateId || inmateOrBio.id || inmateOrBio.adminId)) || '';
   if (Array.isArray(source.fingerprintTemplates) && source.fingerprintTemplates.length) {
     return source.fingerprintTemplates.map((entry, index) => {
       if (typeof entry === 'string') {
@@ -148,7 +148,7 @@ function normalizeFingerprintStorage(biometricData, inmateId) {
 }
 
 function addFingerprintTemplate(inmate, capture) {
-  const inmateId = inmate.inmateId || inmate.id;
+  const inmateId = inmate.inmateId || inmate.id || inmate.adminId;
   const biometricData = normalizeFingerprintStorage(inmate.biometricData, inmateId);
   const index = biometricData.fingerprintTemplates.length + 1;
   const registeredAt = new Date().toISOString();
@@ -176,7 +176,7 @@ function addFingerprintTemplate(inmate, capture) {
 }
 
 function removeFingerprintTemplate(inmate, biometricId) {
-  const inmateId = inmate.inmateId || inmate.id;
+  const inmateId = inmate.inmateId || inmate.id || inmate.adminId;
   const biometricData = normalizeFingerprintStorage(inmate.biometricData, inmateId);
   const rawId = String(biometricId || '');
   const target = /-FGP$/i.test(rawId) ? `${rawId}-1` : rawId;

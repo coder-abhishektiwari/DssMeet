@@ -14,7 +14,11 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
+import androidx.compose.foundation.lazy.items as listItems
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -52,7 +56,6 @@ import com.dssmeet.kiosk.models.call.CallHistory
 import com.dssmeet.kiosk.models.contacts.Contact
 import com.dssmeet.kiosk.models.inmate.InmateBalance
 import com.dssmeet.kiosk.models.inmate.InmateProfile
-import com.dssmeet.kiosk.ui.components.ConfirmDeleteDialog
 import com.dssmeet.kiosk.ui.components.KioskErrorState
 import com.dssmeet.kiosk.ui.components.KioskLoadingState
 import com.dssmeet.kiosk.ui.theme.ActionButtonBg
@@ -89,8 +92,6 @@ fun DashboardScreen(
     var lobbyContactId by remember { mutableStateOf("") }
     var lobbyContactName by remember { mutableStateOf("") }
     var lobbyCallType by remember { mutableStateOf("Video") }
-    var showLogoutConfirm by remember { mutableStateOf(false) }
-
     // The lobby is a Compose Dialog (its own window) — its touches never reach
     // the activity's touch handler, so the inactivity timer has to be told
     // explicitly that the inmate is busy starting a call.
@@ -110,8 +111,35 @@ fun DashboardScreen(
                     }
                 },
                 trailingActions = {
-                    IconButton(onClick = { showLogoutConfirm = true }) {
-                        Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = "Logout", tint = Color.White)
+                    Surface(
+                        shape = RoundedCornerShape(18.dp),
+                        color = MoneyRed,
+                        modifier = Modifier
+                            .height(40.dp)
+                            .clip(RoundedCornerShape(18.dp))
+                            .clickable {
+                                viewModel.logout()
+                                onLogoutClick()
+                            }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.ExitToApp,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text(
+                                "Logout",
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
             )
@@ -165,50 +193,62 @@ fun DashboardScreen(
         )
     }
 
-    if (showLogoutConfirm) {
-        ConfirmDeleteDialog(
-            title = "Logout",
-            message = "Are you sure you want to logout?",
-            onConfirm = {
-                showLogoutConfirm = false
-                viewModel.logout()
-                onLogoutClick()
-            },
-            onDismiss = { showLogoutConfirm = false },
-            confirmText = "Logout"
-        )
-    }
 }
 
 @Composable
 fun HistoryTabContent(
     callHistory: List<CallHistory>
 ) {
-    Column(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp)
     ) {
-        Text(
-            text = "CALL HISTORY",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = PrimaryDarkNavy
-        )
+        val contentWidth = if (maxWidth >= 600.dp) minOf(maxWidth, 900.dp) else maxWidth
+        Column(
+            modifier = Modifier
+                .width(contentWidth)
+                .align(Alignment.TopCenter)
+                .fillMaxHeight()
+        ) {
+            Text(
+                text = "CALL HISTORY",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = PrimaryDarkNavy
+            )
 
-        Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
-        if (callHistory.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("No call history yet", color = TextGray)
-            }
-        } else {
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp)
-            ) {
-                items(callHistory) { call ->
-                    CallHistoryCard(call = call)
+            if (callHistory.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("No call history yet", color = TextGray)
+                }
+            } else {
+                val groupedCalls = callHistory
+                    .groupBy { callDayKey(it.startTime) }
+                    .toList()
+                    .sortedByDescending { it.first }
+
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(top = 4.dp, bottom = 24.dp)
+                ) {
+                    groupedCalls.forEach { (_, calls) ->
+                        item {
+                            Text(
+                                text = callDayLabel(calls.first().startTime),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextGray,
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)
+                            )
+                        }
+                        listItems(calls) { call ->
+                            CallHistoryCard(call = call)
+                        }
+                    }
                 }
             }
         }
@@ -219,39 +259,51 @@ fun HistoryTabContent(
 fun CallHistoryCard(call: CallHistory) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Row(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Surface(
                 color = PrimaryNavy.copy(alpha = 0.1f),
                 shape = CircleShape,
-                modifier = Modifier.size(48.dp)
+                modifier = Modifier.size(40.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         imageVector = if (call.type == CallType.VIDEO) Icons.Default.Videocam else Icons.Default.Call,
                         contentDescription = null,
-                        tint = PrimaryNavy
+                        tint = PrimaryNavy,
+                        modifier = Modifier.size(20.dp)
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.width(16.dp))
+            Spacer(modifier = Modifier.width(12.dp))
+
+            val duration = formatCallDuration(call)
+            val subtitle = listOfNotNull(
+                formatCallTime(call.startTime),
+                duration.takeIf { it.isNotBlank() }
+            ).joinToString(" • ")
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = call.contactName.orEmpty(),
+                    fontSize = 15.sp,
                     fontWeight = FontWeight.Bold,
-                    color = PrimaryDarkNavy
+                    color = PrimaryDarkNavy,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = formatCallDate(call.startTime) + " • " + formatCallDuration(call),
-                    fontSize = 12.sp,
+                    text = subtitle,
+                    fontSize = 11.sp,
                     color = TextGray
                 )
             }
@@ -273,30 +325,48 @@ fun CallHistoryCard(call: CallHistory) {
                         "cancelled", "rejected", "missed" -> WarningOrange
                         else -> TextGray
                     },
-                    fontSize = 12.sp,
+                    fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                 )
             }
         }
     }
 }
 
-private fun formatCallDate(startTime: String?): String {
-    if (startTime.isNullOrBlank()) return "—"
+private fun parseCallDate(startTime: String?): Date? {
+    if (startTime.isNullOrBlank()) return null
     return try {
-        val parsed = try {
-            java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssX", Locale.getDefault()).parse(startTime)
-                ?: java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSX", Locale.getDefault()).parse(startTime)
+        try {
+            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssX", Locale.getDefault()).parse(startTime)
+                ?: SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSX", Locale.getDefault()).parse(startTime)
         } catch (e: Exception) {
-            java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSX", Locale.getDefault()).parse(startTime)
+            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSX", Locale.getDefault()).parse(startTime)
         }
-        if (parsed != null) {
-            java.text.SimpleDateFormat("d MMM yyyy • h:mm a", Locale.getDefault()).format(parsed)
-        } else "—"
     } catch (e: Exception) {
-        startTime
+        null
     }
+}
+
+private fun callDayKey(startTime: String?): String {
+    val parsed = parseCallDate(startTime) ?: return "0000-00-00"
+    return SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(parsed)
+}
+
+private fun callDayLabel(startTime: String?): String {
+    val parsed = parseCallDate(startTime) ?: return "—"
+    val dayFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+    val yesterday = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -1) }
+    return when (dayFormat.format(parsed)) {
+        dayFormat.format(Date()) -> "Today"
+        dayFormat.format(yesterday.time) -> "Yesterday"
+        else -> SimpleDateFormat("d MMM yyyy", Locale.getDefault()).format(parsed)
+    }
+}
+
+private fun formatCallTime(startTime: String?): String {
+    val parsed = parseCallDate(startTime) ?: return "—"
+    return SimpleDateFormat("h:mm a", Locale.getDefault()).format(parsed)
 }
 
 private fun formatCallDuration(call: CallHistory): String {
@@ -312,20 +382,23 @@ fun DashboardContent(
     onWalletClick: () -> Unit,
     onProfileClick: () -> Unit
 ) {
-    LazyColumn(
+    val wide = windowWidthSizeClass != WindowWidthSizeClass.Compact
+    LazyVerticalGrid(
+        columns = if (wide) GridCells.Fixed(2) else GridCells.Fixed(1),
         modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
         contentPadding = PaddingValues(top = 16.dp, bottom = 24.dp)
     ) {
         // 1. Profile Card (tap to open full inmate details)
-        item {
+        item(span = { GridItemSpan(maxLineSpan) }) {
             InmateProfileCard(inmateProfile = data.profile, onClick = onProfileClick)
         }
 
         // 2. Wallet Card (tap to open wallet screen)
-        item {
+        item(span = { GridItemSpan(maxLineSpan) }) {
             WalletDetailCard(
                 balance = data.balance,
                 onClick = onWalletClick
@@ -333,7 +406,7 @@ fun DashboardContent(
         }
 
         // 3. Section Header
-        item {
+        item(span = { GridItemSpan(maxLineSpan) }) {
             Text(
                 text = "APPROVED CONTACTS",
                 style = MaterialTheme.typography.titleMedium,
@@ -345,7 +418,7 @@ fun DashboardContent(
 
         // 4. Contacts List
         if (data.contacts.isEmpty()) {
-            item {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
@@ -360,7 +433,7 @@ fun DashboardContent(
                 }
             }
         } else {
-            items(data.contacts) { contact ->
+            gridItems(data.contacts) { contact ->
                 ContactCardItem(
                     contact = contact,
                     onCallClick = { onContactClick(contact.id, contact.displayName, "Audio") },

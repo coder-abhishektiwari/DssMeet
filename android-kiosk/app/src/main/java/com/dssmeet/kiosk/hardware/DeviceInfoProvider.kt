@@ -5,6 +5,7 @@ import android.content.Context
 import android.os.Build
 import android.provider.Settings
 import com.dssmeet.kiosk.core.Logger
+import com.dssmeet.kiosk.models.admin.KioskHardware
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -17,6 +18,32 @@ import javax.inject.Singleton
 class DeviceInfoProvider @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
+    companion object {
+        private val RAM_CAPACITIES_GB = listOf(2.0, 3.0, 4.0, 6.0, 8.0, 12.0, 16.0, 24.0, 32.0, 64.0)
+        private val STORAGE_CAPACITIES_GB = listOf(16.0, 32.0, 64.0, 128.0, 256.0, 512.0)
+        private val CAPACITY_PATTERN = Regex("([0-9]+(?:\\.[0-9]+)?)")
+    }
+
+    fun normalizeHardware(hardware: KioskHardware?): KioskHardware? = hardware?.copy(
+        ram = normalizeCapacityLabel(hardware.ram, RAM_CAPACITIES_GB),
+        storage = normalizeCapacityLabel(hardware.storage, STORAGE_CAPACITIES_GB)
+    )
+
+    private fun normalizeCapacityLabel(raw: String?, capacities: List<Double>): String? {
+        if (raw.isNullOrBlank()) return raw
+        val value = CAPACITY_PATTERN.find(raw)?.value?.toDoubleOrNull() ?: return raw
+        if (value <= 0.0) return raw
+        return roundCapacity(value, capacities)
+    }
+
+    private fun roundCapacity(valueGb: Double, capacities: List<Double>): String {
+        val closest = capacities.minByOrNull { kotlin.math.abs(it - valueGb) }
+        return if (closest != null) {
+            "${closest.toInt()} GB"
+        } else {
+            String.format(java.util.Locale.US, "%.0f GB", valueGb)
+        }
+    }
 
     /**
      * Returns the physical hardware serial number.
@@ -143,7 +170,7 @@ class DeviceInfoProvider @Inject constructor(
         val am = context.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
         val info = android.app.ActivityManager.MemoryInfo()
         am.getMemoryInfo(info)
-        String.format(java.util.Locale.US, "%.1f GB", info.totalMem / (1024.0 * 1024 * 1024))
+        roundCapacity(info.totalMem / (1024.0 * 1024 * 1024), RAM_CAPACITIES_GB)
     } catch (e: Exception) {
         "Unknown"
     }
@@ -151,7 +178,7 @@ class DeviceInfoProvider @Inject constructor(
     fun getStorageDescription(): String = try {
         val stat = android.os.StatFs(context.filesDir.absolutePath)
         val totalGb = stat.blockCountLong * stat.blockSizeLong / (1024.0 * 1024 * 1024)
-        String.format(java.util.Locale.US, "%.0f GB", totalGb)
+        roundCapacity(totalGb, STORAGE_CAPACITIES_GB)
     } catch (e: Exception) {
         "Unknown"
     }

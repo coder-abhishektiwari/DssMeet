@@ -6,8 +6,9 @@ import com.dssmeet.kiosk.ui.theme.TextGray
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -42,6 +43,7 @@ import androidx.compose.ui.text.input.ImeAction
 fun ManageContactsScreen(
     prisonerId: String,
     onBackClick: () -> Unit,
+    onLogoutClick: () -> Unit = {},
     viewModel: ManageContactsViewModel = hiltViewModel()
 ) {
     val contactsResult by viewModel.contacts.collectAsState()
@@ -101,7 +103,10 @@ fun ManageContactsScreen(
             KioskTopBar(
                 title = "Verified Contacts",
                 showBackButton = true,
-                onBackClick = onBackClick
+                onBackClick = onBackClick,
+                trailingActions = {
+                    com.dssmeet.kiosk.ui.components.KioskLogoutButton(onClick = onLogoutClick)
+                }
             )
         },
         floatingActionButton = {
@@ -119,6 +124,9 @@ fun ManageContactsScreen(
                     Text(msg)
                 }
             }
+        },
+        bottomBar = {
+            com.dssmeet.kiosk.ui.components.KioskBottomActionBar(onBackClick = onBackClick)
         },
         containerColor = LightBg
     ) { paddingValues ->
@@ -209,12 +217,14 @@ fun ContactsList(
     onEdit: (VerifiedContact) -> Unit,
     onDelete: (VerifiedContact) -> Unit
 ) {
-    LazyColumn(
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(minSize = 480.dp),
         modifier = Modifier.fillMaxSize().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = PaddingValues(bottom = 88.dp)
     ) {
-        items(contacts, key = { it.contactId }) { contact ->
+        gridItems(contacts, key = { it.contactId }) { contact ->
             ContactItem(contact, onToggleStatus, onEdit, onDelete)
         }
     }

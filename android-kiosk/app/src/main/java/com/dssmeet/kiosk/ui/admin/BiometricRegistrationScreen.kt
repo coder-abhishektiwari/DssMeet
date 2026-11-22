@@ -66,11 +66,13 @@ fun BiometricRegistrationScreen(
     prisonerId: String,
     prisonerName: String,
     onBackClick: () -> Unit,
+    onLogoutClick: () -> Unit = {},
     viewModel: BiometricRegistrationViewModel = hiltViewModel()
 ) {
     val biometricsResult by viewModel.biometrics.collectAsState()
     val registerResult by viewModel.registerState.collectAsState()
     val deleteResult by viewModel.deleteState.collectAsState()
+    val fingerprintLimitReached by viewModel.fingerprintLimitReached.collectAsState()
     val fingerprintState by viewModel.fingerprintState.collectAsState()
     val fingerDetected by viewModel.fingerDetected.collectAsState()
     val rfidState by viewModel.rfidState.collectAsState()
@@ -83,12 +85,19 @@ fun BiometricRegistrationScreen(
         ?.filter { it.type == "fingerprint" && it.status == "registered" }
         .orEmpty()
     val fingerprintCount = fingerprintRecords.size
+    val fingerprintLimitBlocked = fingerprintLimitReached || fingerprintCount >= MAX_FINGERPRINT_TEMPLATES
 
     // Hardware read → auto-register (dialog must be open for that type).
-    LaunchedEffect(fingerprintState, showFingerprintDialog) {
+    LaunchedEffect(fingerprintState, showFingerprintDialog, fingerprintLimitBlocked) {
         val state = fingerprintState
         if (showFingerprintDialog && state is FingerprintCaptureState.Captured) {
             viewModel.acknowledgeCapture("fingerprint")
+            if (fingerprintLimitBlocked) {
+                showFingerprintDialog = false
+                viewModel.stopCapture()
+                snackbarMessage = "Maximum $MAX_FINGERPRINT_TEMPLATES fingerprints are allowed"
+                return@LaunchedEffect
+            }
             viewModel.registerFingerprint(prisonerId, state.template)
         }
     }
@@ -126,7 +135,16 @@ fun BiometricRegistrationScreen(
                 viewModel.resetRegisterState()
             }
             is NetworkResult.Failure -> {
-                snackbarMessage = "Failed to register: ${registerError ?: "Unknown error"}"
+                val failure = registerResult as NetworkResult.Failure
+                snackbarMessage = if (failure.error.code == "FINGERPRINT_LIMIT") {
+                    "Fingerprint limit reached ($MAX_FINGERPRINT_TEMPLATES). Remove one to add another."
+                } else {
+                    "Failed to register: ${failure.error.message.ifBlank { "Unknown error" }}"
+                }
+                showFingerprintDialog = false
+                showRfidDialog = false
+                viewModel.stopCapture()
+                viewModel.resetRegisterState()
             }
             else -> {}
         }
@@ -145,9 +163,19 @@ fun BiometricRegistrationScreen(
 
     Scaffold(
         topBar = {
-            KioskTopBar(title = "Biometrics", showBackButton = true, onBackClick = onBackClick)
+            KioskTopBar(
+                title = "Biometrics",
+                showBackButton = true,
+                onBackClick = onBackClick,
+                trailingActions = {
+                    com.dssmeet.kiosk.ui.components.KioskLogoutButton(onClick = onLogoutClick)
+                }
+            )
         },
         snackbarHost = { snackbarMessage?.let { Snackbar { Text(it) } } },
+        bottomBar = {
+            com.dssmeet.kiosk.ui.components.KioskBottomActionBar(onBackClick = onBackClick)
+        },
         containerColor = LightBg
     ) { paddingValues ->
         BoxWithConstraints(
@@ -249,13 +277,13 @@ fun BiometricRegistrationScreen(
                             showFingerprintDialog = true
                             viewModel.startCapture("fingerprint")
                         },
-                        enabled = fingerprintCount < MAX_FINGERPRINT_TEMPLATES,
+                        enabled = !fingerprintLimitBlocked,
                         modifier = Modifier.height(if (compactCards) 38.dp else 48.dp)
                     ) {
                         Text(
                             when {
-                                fingerprintCount == 0 -> "Register"
-                                fingerprintCount >= MAX_FINGERPRINT_TEMPLATES -> "Limit reached"
+                                fingerprintCount == 0 && !fingerprintLimitBlocked -> "Register"
+                                fingerprintLimitBlocked -> "Limit reached"
                                 else -> "Add another"
                             },
                             fontSize = if (compactCards) 12.sp else 13.sp

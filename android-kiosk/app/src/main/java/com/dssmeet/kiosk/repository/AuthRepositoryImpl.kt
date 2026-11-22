@@ -4,6 +4,7 @@ import com.dssmeet.kiosk.core.Logger
 import com.dssmeet.kiosk.core.SessionManager
 import com.dssmeet.kiosk.datasource.AuthDataSource
 import com.dssmeet.kiosk.hardware.SecuGenMatcher
+import com.dssmeet.kiosk.models.admin.AdminFingerprintResult
 import com.dssmeet.kiosk.models.auth.*
 import com.dssmeet.kiosk.models.common.ApiError
 import com.dssmeet.kiosk.models.common.ApiResponse
@@ -462,6 +463,105 @@ class AuthRepositoryImpl @Inject constructor(
                 else -> ApiError("EXCEPTION", "Password verification failed. Please try again.")
             }
             emit(NetworkResult.Failure(error, statusCode = statusCode))
+        }
+    }
+
+    override fun identifyAdminFingerprint(probeTemplate: String): Flow<NetworkResult<AdminProfile>> = flow {
+        emit(NetworkResult.Loading)
+        try {
+            val kioskId = verifiedKiosk?.kioskId
+            if (kioskId.isNullOrBlank()) {
+                emit(NetworkResult.Failure(ApiError("DEVICE_NOT_REGISTERED", "Kiosk device is not verified. Please complete device registration.")))
+                return@flow
+            }
+            val response = dataSource.adminFingerprintCandidates(kioskId)
+            if (!response.success) {
+                val error = response.error?.let {
+                    getFriendlyError("Fingerprint not recognized. Please try again.", it.code)
+                } ?: ApiError("IDENTIFY_FAILED", "Fingerprint not recognized. Please try again.")
+                emit(NetworkResult.Failure(error))
+                return@flow
+            }
+            val candidates = response.data.orEmpty()
+            if (candidates.isEmpty()) {
+                emit(NetworkResult.Failure(ApiError("NOT_FOUND", "Fingerprint not recognized. Please try again.")))
+                return@flow
+            }
+            val best = secuGenMatcher.identify(probeTemplate, candidates.map { it.fingerprintTemplate })
+            if (best == SecuGenMatcher.NO_MATCH || best !in candidates.indices) {
+                emit(NetworkResult.Failure(ApiError("NOT_FOUND", "Fingerprint not recognized. Please try again.")))
+                return@flow
+            }
+            val profile = candidates[best].toAdminProfile()
+            currentAdmin = profile
+            sessionManager.saveAdminProfile(profile)
+            emit(NetworkResult.Success(profile))
+        } catch (e: Exception) {
+            val statusCode = if (e is HttpException) e.code() else null
+            val error = when {
+                statusCode == 401 || statusCode == 403 -> ApiError("UNAUTHORIZED", "Unauthorized access. Please contact administrator.")
+                statusCode == 404 -> ApiError("NOT_FOUND", "Fingerprint not recognized. Please try again.")
+                else -> ApiError("EXCEPTION", "Fingerprint recognition failed. Please try again.")
+            }
+            emit(NetworkResult.Failure(error, statusCode = statusCode))
+        }
+    }
+
+    override fun adminFingerprintLogin(adminId: String): Flow<NetworkResult<AuthToken>> = flow {
+        emit(NetworkResult.Loading)
+        try {
+            val kioskId = verifiedKiosk?.kioskId
+            if (kioskId.isNullOrBlank()) {
+                emit(NetworkResult.Failure(ApiError("DEVICE_NOT_REGISTERED", "Kiosk device is not verified. Please complete device registration.")))
+                return@flow
+            }
+            val response = dataSource.adminFingerprintLogin(AdminFingerprintLoginRequest(adminId, kioskId))
+            if (response.success && response.data != null) {
+                val data = response.data
+                val token = AuthToken(data.accessToken, data.refreshToken, data.expiresIn)
+                sessionManager.saveTokens(token)
+                authInterceptor.setToken(data.accessToken)
+                val profile = data.profile ?: AdminProfile(
+                    adminId = data.adminId,
+                    employeeId = currentAdmin?.employeeId.orEmpty(),
+                    name = currentAdmin?.name.orEmpty(),
+                    email = currentAdmin?.email.orEmpty(),
+                    role = data.role,
+                    permissions = data.permissions,
+                    status = "active"
+                )
+                currentAdmin = profile
+                sessionManager.saveAdminProfile(profile)
+                emit(NetworkResult.Success(token))
+            } else {
+                val error = response.error?.let {
+                    getFriendlyError("Fingerprint login failed. Please try again.", it.code)
+                } ?: ApiError("FINGERPRINT_LOGIN_FAILED", "Fingerprint login failed. Please try again.")
+                emit(NetworkResult.Failure(error))
+            }
+        } catch (e: Exception) {
+            val statusCode = if (e is HttpException) e.code() else null
+            val error = when {
+                statusCode == 401 || statusCode == 403 -> ApiError("UNAUTHORIZED", "Unauthorized access. Please contact administrator.")
+                else -> ApiError("EXCEPTION", "Fingerprint login failed. Please try again.")
+            }
+            emit(NetworkResult.Failure(error, statusCode = statusCode))
+        }
+    }
+
+    override fun registerAdminFingerprint(adminId: String, capture: String): Flow<NetworkResult<AdminFingerprintResult>> = flow {
+        emit(NetworkResult.Loading)
+        try {
+            val response = dataSource.addAdminFingerprint(adminId, capture)
+            if (response.success && response.data != null) {
+                emit(NetworkResult.Success(response.data))
+            } else {
+                val error = response.error ?: ApiError("FINGERPRINT_SAVE_FAILED", "Could not save fingerprint")
+                emit(NetworkResult.Failure(error))
+            }
+        } catch (e: Exception) {
+            val statusCode = if (e is HttpException) e.code() else null
+            emit(NetworkResult.Failure(ApiError("EXCEPTION", "Could not save fingerprint"), statusCode = statusCode))
         }
     }
 

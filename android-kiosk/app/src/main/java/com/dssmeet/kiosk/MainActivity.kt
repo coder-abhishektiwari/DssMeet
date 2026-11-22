@@ -30,6 +30,7 @@ import com.dssmeet.kiosk.core.Logger
 import com.dssmeet.kiosk.core.SessionManager
 import com.dssmeet.kiosk.navigation.KioskNavHost
 import com.dssmeet.kiosk.ui.auth.NoInternetScreen
+import com.dssmeet.kiosk.ui.components.dismissKeyboardOnOutsideTap
 import com.dssmeet.kiosk.ui.setup.SetupPermissionsScreen
 import com.dssmeet.kiosk.ui.theme.PrisonKioskTheme
 import dagger.hilt.android.AndroidEntryPoint
@@ -219,7 +220,11 @@ class MainActivity : FragmentActivity() {
                 }
 
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    Box(modifier = Modifier.fillMaxSize()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .dismissKeyboardOnOutsideTap()
+                    ) {
                         // One-time setup gate: nothing runs until every runtime
                         // permission the kiosk needs has been collected.
                         var setupComplete by remember {

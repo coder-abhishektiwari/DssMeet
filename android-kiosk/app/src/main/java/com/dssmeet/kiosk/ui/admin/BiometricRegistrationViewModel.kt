@@ -34,6 +34,9 @@ class BiometricRegistrationViewModel @Inject constructor(
     private val _deleteState = MutableStateFlow<NetworkResult<Unit>>(NetworkResult.Idle)
     val deleteState: StateFlow<NetworkResult<Unit>> = _deleteState.asStateFlow()
 
+    private val _fingerprintLimitReached = MutableStateFlow(false)
+    val fingerprintLimitReached: StateFlow<Boolean> = _fingerprintLimitReached.asStateFlow()
+
     /** Live hardware sessions consumed by the capture dialogs. */
     val rfidState = rfidReaderManager.state
     val fingerprintState = fingerprintHardwareManager.captureState
@@ -64,21 +67,26 @@ class BiometricRegistrationViewModel @Inject constructor(
             adminRepository.getPrisonerBiometrics(prisonerId).collect { result ->
                 if (result is NetworkResult.Loading && _biometrics.value is NetworkResult.Success) return@collect
                 _biometrics.value = result
+                if (result is NetworkResult.Success) {
+                    val count = result.data.count { it.type == "fingerprint" && it.status == "registered" }
+                    _fingerprintLimitReached.value = count >= MAX_FINGERPRINT_TEMPLATES
+                }
             }
         }
     }
 
     fun registerFingerprint(prisonerId: String, template: String) {
         if (_registerState.value is NetworkResult.Loading) return
+        if (_fingerprintLimitReached.value) {
+            _registerState.value = fingerprintLimitError()
+            return
+        }
         val fingerprintCount = (_biometrics.value as? NetworkResult.Success)?.data
             ?.count { it.type == "fingerprint" && it.status == "registered" } ?: 0
         if (fingerprintCount >= MAX_FINGERPRINT_TEMPLATES) {
-            _registerState.value = NetworkResult.Failure(
-                ApiError(
-                    code = "FINGERPRINT_LIMIT",
-                    message = "Maximum $MAX_FINGERPRINT_TEMPLATES fingerprints are allowed"
-                )
-            )
+            _fingerprintLimitReached.value = true
+            _registerState.value = fingerprintLimitError()
+            stopCapture()
             return
         }
         val templateError = FingerprintTemplateValidator.validationError(template)
@@ -98,7 +106,13 @@ class BiometricRegistrationViewModel @Inject constructor(
                 RegisterBiometricRequest(type = "fingerprint", capture = template)
             )
             _registerState.value = result
-            if (result is NetworkResult.Success) loadBiometrics(prisonerId)
+            if (result is NetworkResult.Success) {
+                loadBiometrics(prisonerId)
+            } else if (result is NetworkResult.Failure && result.error.code == "FINGERPRINT_LIMIT") {
+                _fingerprintLimitReached.value = true
+                loadBiometrics(prisonerId)
+                stopCapture()
+            }
         }
     }
 
@@ -137,6 +151,13 @@ class BiometricRegistrationViewModel @Inject constructor(
 
     fun resetRegisterState() { _registerState.value = NetworkResult.Idle }
     fun resetDeleteState() { _deleteState.value = NetworkResult.Idle }
+
+    private fun fingerprintLimitError(): NetworkResult.Failure = NetworkResult.Failure(
+        ApiError(
+            code = "FINGERPRINT_LIMIT",
+            message = "Maximum $MAX_FINGERPRINT_TEMPLATES fingerprints are allowed"
+        )
+    )
 
     companion object {
         /** Owns the shared R307/RFID sessions while the Inmate Card biometrics screen is up. */

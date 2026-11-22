@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -96,6 +97,9 @@ fun InmateProfileDetailsScreen(
                 onBackClick = onBackClick
             )
         },
+        bottomBar = {
+            com.dssmeet.kiosk.ui.components.KioskBottomActionBar(onBackClick = onBackClick)
+        },
         containerColor = LightBg
     ) { paddingValues ->
         Box(
@@ -121,91 +125,165 @@ private fun InmateDetailsContent(profile: InmateProfile) {
     val rfidValue = profile.rfidCardNumber
         ?: if (profile.rfidRegistered) "Registered" else "Not registered"
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                AsyncImage(
-                    model = profile.photoUrl,
-                    contentDescription = null,
-                    modifier = Modifier
-                        .size(88.dp)
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(ControlBtnBg),
-                    contentScale = ContentScale.Crop,
-                    placeholder = rememberVectorPainter(Icons.Default.Person),
-                    error = rememberVectorPainter(Icons.Default.Person)
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-                Text(
-                    text = profile.displayName,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = PrimaryDarkNavy
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Inmate No: ${profile.displayNumber}",
-                    fontSize = 13.sp,
-                    color = TextGray
-                )
-            }
-        }
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val wideScreen = maxWidth >= 600.dp
+        val contentWidth = if (wideScreen) {
+            minOf(maxWidth - 96.dp, 900.dp)
+        } else {
+            minOf(maxWidth - 32.dp, 560.dp)
+        }.coerceAtLeast(240.dp)
+        val photoSize = if (wideScreen) 140.dp else 88.dp
+        val nameSize = if (wideScreen) 28.sp else 20.sp
+        val numberSize = if (wideScreen) 16.sp else 13.sp
+        val labelSize = if (wideScreen) 14.sp else 12.sp
+        val valueSize = if (wideScreen) 18.sp else 14.sp
+        val cardPadding = if (wideScreen) 24.dp else 20.dp
 
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        Column(
+            modifier = Modifier
+                .width(contentWidth)
+                .align(Alignment.TopCenter)
+                .verticalScroll(rememberScrollState())
+                .padding(vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
             ) {
-                DetailRow("Facility", profile.facility)
-                DetailRow("Gender", titleCase(profile.gender))
-                DetailRow("Age", profile.age)
-                DetailRow("District", titleCase(profile.district))
-                DetailRow("State", titleCase(profile.state))
-                DetailRow("Religion", titleCase(profile.religion))
-                DetailRow("Nationality", titleCase(profile.nationality))
-                DetailRow("RFID Card", rfidValue)
-                DetailRow("Date of Admission", formatAdmissionDate(profile.dateOfAdmission))
+                val profilePhoto = @Composable {
+                    AsyncImage(
+                        model = profile.photoUrl,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .size(photoSize)
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(ControlBtnBg),
+                        contentScale = ContentScale.Crop,
+                        placeholder = rememberVectorPainter(Icons.Default.Person),
+                        error = rememberVectorPainter(Icons.Default.Person)
+                    )
+                }
+                val profileText = @Composable {
+                    Text(
+                        text = profile.displayName,
+                        fontSize = nameSize,
+                        fontWeight = FontWeight.Bold,
+                        color = PrimaryDarkNavy,
+                        textAlign = if (wideScreen) TextAlign.Start else TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Inmate No: ${profile.displayNumber}",
+                        fontSize = numberSize,
+                        color = TextGray,
+                        textAlign = if (wideScreen) TextAlign.Start else TextAlign.Center
+                    )
+                }
+
+                if (wideScreen) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(cardPadding),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(24.dp)
+                    ) {
+                        profilePhoto()
+                        Column(modifier = Modifier.weight(1f)) {
+                            profileText()
+                        }
+                    }
+                } else {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(cardPadding),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        profilePhoto()
+                        Spacer(modifier = Modifier.height(10.dp))
+                        profileText()
+                    }
+                }
+            }
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                val details = listOf(
+                    "Facility" to profile.facility,
+                    "Gender" to titleCase(profile.gender),
+                    "Age" to profile.age,
+                    "District" to titleCase(profile.district),
+                    "State" to titleCase(profile.state),
+                    "Religion" to titleCase(profile.religion),
+                    "Nationality" to titleCase(profile.nationality),
+                    "RFID Card" to rfidValue,
+                    "Date of Admission" to formatAdmissionDate(profile.dateOfAdmission)
+                )
+                val detailRow: @Composable (Pair<String, String?>) -> Unit = { item ->
+                    DetailRow(item.first, item.second, labelSize, valueSize)
+                }
+
+                if (wideScreen) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(cardPadding),
+                        horizontalArrangement = Arrangement.spacedBy(28.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(if (wideScreen) 20.dp else 14.dp)
+                        ) {
+                            details.take(5).forEach { detailRow(it) }
+                        }
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(if (wideScreen) 20.dp else 14.dp)
+                        ) {
+                            details.drop(5).forEach { detailRow(it) }
+                        }
+                    }
+                } else {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        details.forEach { detailRow(it) }
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun DetailRow(label: String, value: String?) {
+private fun DetailRow(
+    label: String,
+    value: String?,
+    labelSize: androidx.compose.ui.unit.TextUnit,
+    valueSize: androidx.compose.ui.unit.TextUnit
+) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
             text = label,
-            fontSize = 12.sp,
+            fontSize = labelSize,
             fontWeight = FontWeight.Medium,
             color = TextGray
         )
         Spacer(modifier = Modifier.height(3.dp))
         Text(
             text = value?.takeIf { it.isNotBlank() } ?: "—",
-            fontSize = 14.sp,
+            fontSize = valueSize,
             fontWeight = FontWeight.SemiBold,
             color = TextDark
         )

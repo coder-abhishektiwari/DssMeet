@@ -21,11 +21,16 @@ import com.dssmeet.kiosk.ui.theme.TextGray
 import android.media.MediaPlayer
 import android.net.Uri
 import android.widget.VideoView
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.items as listItems
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -67,6 +72,7 @@ private val DISPLAY_TIME: DateTimeFormatter =
 fun CallHistoryScreen(
     windowSizeClass: WindowSizeClass,
     onBackClick: () -> Unit,
+    onLogoutClick: () -> Unit = {},
     viewModel: CallHistoryViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsState()
@@ -96,6 +102,7 @@ fun CallHistoryScreen(
         state = state,
         snackbarHostState = snackbarHostState,
         onBackClick = onBackClick,
+        onLogoutClick = onLogoutClick,
         wide = windowSizeClass.widthSizeClass == WindowWidthSizeClass.Expanded,
         onSearchChange = viewModel::onSearchChange,
         onTypeFilter = viewModel::setTypeFilter,
@@ -114,6 +121,7 @@ fun CallHistoryContent(
     state: CallHistoryViewModel.UiState,
     snackbarHostState: SnackbarHostState,
     onBackClick: () -> Unit,
+    onLogoutClick: () -> Unit = {},
     wide: Boolean = false,
     onSearchChange: (String) -> Unit,
     onTypeFilter: (CallHistoryViewModel.TypeFilter) -> Unit,
@@ -139,24 +147,109 @@ fun CallHistoryContent(
             KioskTopBar(
                 title = "Call History",
                 showBackButton = true,
-                onBackClick = onBackClick
+                onBackClick = onBackClick,
+                trailingActions = {
+                    com.dssmeet.kiosk.ui.components.KioskLogoutButton(onClick = onLogoutClick)
+                }
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
+        bottomBar = {
+            com.dssmeet.kiosk.ui.components.KioskBottomActionBar(onBackClick = onBackClick)
+        },
         containerColor = LightBg
     ) { paddingValues ->
-        LazyColumn(
+        if (wide) {
+            Row(
+                modifier = Modifier
+                    .padding(paddingValues)
+                    .fillMaxSize()
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                LazyColumn(
+                    modifier = Modifier
+                        .weight(0.3f)
+                        .fillMaxHeight(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    item {
+                        CallHistoryFilterCard(
+                            state = state,
+                            stacked = true,
+                            onSearchChange = onSearchChange,
+                            onTypeFilter = onTypeFilter,
+                            onStatusFilter = onStatusFilter,
+                            onDatePreset = onDatePreset,
+                            onCustomRange = onCustomRange,
+                            onClearFilters = onClearFilters
+                        )
+                    }
+                    item { CallHistorySummaryText(state, recordedCount) }
+                    if (state.error != null && !state.isLoading) {
+                        item { CallHistoryErrorCard(state.error, onRetry) }
+                    }
+                }
+
+                Card(
+                    modifier = Modifier
+                        .weight(0.7f)
+                        .fillMaxHeight(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    elevation = CardDefaults.cardElevation(2.dp)
+                ) {
+                    Column {
+                        CallHistoryTableHeader()
+                        HorizontalDivider(color = BorderColor)
+                        LazyColumn(modifier = Modifier.fillMaxSize()) {
+                            if (state.isLoading) {
+                                item {
+                                    CallHistoryTableMessage(
+                                        text = "Loading calls…",
+                                        modifier = Modifier.padding(32.dp)
+                                    )
+                                }
+                            }
+                            if (!state.isLoading && state.error == null && visibleCalls.isEmpty()) {
+                                item {
+                                    CallHistoryTableMessage(
+                                        text = "No calls match these filters",
+                                        modifier = Modifier.padding(32.dp)
+                                    )
+                                }
+                            }
+                            listItems(visibleCalls, key = { it.callId }) { call ->
+                                CallHistoryTableRow(
+                                    call = call,
+                                    hasRecording = hasLocal(call),
+                                    isPreparing = state.preparingCallId == call.callId,
+                                    prepareProgress = state.playbackProgress,
+                                    onPlay = { onPlay(call) },
+                                    onLocationClick = { mapLocation = it }
+                                )
+                                HorizontalDivider(color = Color(0xFFE8ECF1))
+                            }
+                            item { Spacer(Modifier.height(8.dp)) }
+                        }
+                    }
+                }
+            }
+        } else {
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(minSize = 480.dp),
             modifier = Modifier
                 .padding(paddingValues)
                 .fillMaxSize()
                 .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             // ---- Filters ----
             // One compact row of dropdowns instead of tall chip rows: the card
             // stays short, and FlowRow wraps the dropdowns onto a second line
             // on a narrow phone while keeping them on ONE line on a tablet.
-            item {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
@@ -345,7 +438,7 @@ fun CallHistoryContent(
             }
 
             // ---- Summary ----
-            item {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 Text(
                     text = if (state.total > 0) {
                         "${state.total} call${if (state.total == 1) "" else "s"}  ·  $recordedCount with recordings on this kiosk"
@@ -360,7 +453,7 @@ fun CallHistoryContent(
 
             // ---- Error ----
             if (state.error != null && !state.isLoading) {
-                item {
+                item(span = { GridItemSpan(maxLineSpan) }) {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(16.dp),
@@ -390,7 +483,7 @@ fun CallHistoryContent(
 
             // ---- Loading ----
             if (state.isLoading) {
-                item {
+                item(span = { GridItemSpan(maxLineSpan) }) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -407,7 +500,7 @@ fun CallHistoryContent(
 
             // ---- Empty ----
             if (!state.isLoading && state.error == null && visibleCalls.isEmpty()) {
-                item {
+                item(span = { GridItemSpan(maxLineSpan) }) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -432,7 +525,7 @@ fun CallHistoryContent(
             }
 
             // ---- Call list ----
-            items(visibleCalls, key = { it.callId }) { call ->
+            gridItems(visibleCalls, key = { it.callId }) { call ->
                 CallHistoryCard(
                     call = call,
                     hasRecording = hasLocal(call),
@@ -443,7 +536,8 @@ fun CallHistoryContent(
                 )
             }
 
-            item { Spacer(Modifier.height(8.dp)) }
+            item(span = { GridItemSpan(maxLineSpan) }) { Spacer(Modifier.height(8.dp)) }
+        }
         }
     }
 
@@ -457,6 +551,399 @@ fun CallHistoryContent(
                 label = loc.displayLabel,
                 onDismiss = { mapLocation = null }
             )
+        }
+    }
+}
+
+@Composable
+private fun CallHistoryFilterCard(
+    state: CallHistoryViewModel.UiState,
+    stacked: Boolean,
+    onSearchChange: (String) -> Unit,
+    onTypeFilter: (CallHistoryViewModel.TypeFilter) -> Unit,
+    onStatusFilter: (CallHistoryViewModel.StatusFilter) -> Unit,
+    onDatePreset: (CallHistoryViewModel.DatePreset) -> Unit,
+    onCustomRange: (String, String) -> Unit,
+    onClearFilters: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(2.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedTextField(
+                    value = state.search,
+                    onValueChange = onSearchChange,
+                    placeholder = { Text("Search inmate, family or call ID", fontSize = 13.sp) },
+                    leadingIcon = {
+                        Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp))
+                    },
+                    trailingIcon = {
+                        if (state.search.isNotEmpty()) {
+                            IconButton(
+                                onClick = { onSearchChange("") },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Close,
+                                    contentDescription = "Clear search",
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = PrimaryNavy,
+                        unfocusedBorderColor = BorderColor,
+                        focusedTextColor = PrimaryDarkNavy,
+                        unfocusedTextColor = PrimaryDarkNavy
+                    ),
+                    modifier = Modifier.weight(1f)
+                )
+                if (state.hasActiveFilters) {
+                    IconButton(onClick = onClearFilters) {
+                        Icon(
+                            Icons.Default.FilterAltOff,
+                            contentDescription = "Clear all filters",
+                            tint = DangerRed
+                        )
+                    }
+                }
+            }
+
+            if (stacked) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    CallTypeFilterField(state, onTypeFilter, Modifier.fillMaxWidth())
+                    CallStatusFilterField(state, onStatusFilter, Modifier.fillMaxWidth())
+                    CallDatePresetField(state, onDatePreset, Modifier.fillMaxWidth())
+                }
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    CallTypeFilterField(state, onTypeFilter, Modifier.weight(1f))
+                    CallStatusFilterField(state, onStatusFilter, Modifier.weight(1f))
+                    CallDatePresetField(state, onDatePreset, Modifier.weight(1f))
+                }
+            }
+
+            if (state.datePreset == CallHistoryViewModel.DatePreset.CUSTOM) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    KioskDateField(
+                        value = state.customFrom,
+                        onValueChange = { onCustomRange(it, state.customTo) },
+                        label = "From",
+                        modifier = Modifier.weight(1f)
+                    )
+                    KioskDateField(
+                        value = state.customTo,
+                        onValueChange = { onCustomRange(state.customFrom, it) },
+                        label = "To",
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CallTypeFilterField(
+    state: CallHistoryViewModel.UiState,
+    onTypeFilter: (CallHistoryViewModel.TypeFilter) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    KioskCompactSelectField(
+        value = state.typeFilter.name,
+        onValueChange = { name ->
+            onTypeFilter(CallHistoryViewModel.TypeFilter.entries.first { it.name == name })
+        },
+        label = "Type",
+        options = CallHistoryViewModel.TypeFilter.entries.map { it.name },
+        display = { name -> CallHistoryViewModel.TypeFilter.entries.first { it.name == name }.label },
+        modifier = modifier
+    )
+}
+
+@Composable
+private fun CallStatusFilterField(
+    state: CallHistoryViewModel.UiState,
+    onStatusFilter: (CallHistoryViewModel.StatusFilter) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    KioskCompactSelectField(
+        value = state.statusFilter.name,
+        onValueChange = { name ->
+            onStatusFilter(CallHistoryViewModel.StatusFilter.entries.first { it.name == name })
+        },
+        label = "Status",
+        options = CallHistoryViewModel.StatusFilter.entries.map { it.name },
+        display = { name -> CallHistoryViewModel.StatusFilter.entries.first { it.name == name }.label },
+        modifier = modifier
+    )
+}
+
+@Composable
+private fun CallDatePresetField(
+    state: CallHistoryViewModel.UiState,
+    onDatePreset: (CallHistoryViewModel.DatePreset) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    KioskCompactSelectField(
+        value = state.datePreset.name,
+        onValueChange = { name ->
+            onDatePreset(CallHistoryViewModel.DatePreset.entries.first { it.name == name })
+        },
+        label = "Date",
+        options = CallHistoryViewModel.DatePreset.entries.map { it.name },
+        display = { name -> CallHistoryViewModel.DatePreset.entries.first { it.name == name }.label },
+        modifier = modifier
+    )
+}
+
+@Composable
+private fun CallHistorySummaryText(
+    state: CallHistoryViewModel.UiState,
+    recordedCount: Int,
+    modifier: Modifier = Modifier
+) {
+    Text(
+        text = if (state.total > 0) {
+            "${state.total} call${if (state.total == 1) "" else "s"}  ·  $recordedCount with recordings on this kiosk"
+        } else {
+            "$recordedCount recording${if (recordedCount == 1) "" else "s"} on this kiosk"
+        },
+        fontSize = 13.sp,
+        color = TextGray,
+        modifier = modifier.padding(horizontal = 4.dp)
+    )
+}
+
+@Composable
+private fun CallHistoryErrorCard(
+    error: String?,
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MoneyRedBg)
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Icon(Icons.Default.Error, contentDescription = null, tint = DangerRed)
+            Text(
+                text = error ?: "",
+                fontSize = 14.sp,
+                color = Color(0xFFB71C1C),
+                modifier = Modifier.weight(1f)
+            )
+            TextButton(onClick = onRetry) {
+                Icon(Icons.Default.Refresh, contentDescription = null)
+                Spacer(Modifier.width(4.dp))
+                Text("Retry")
+            }
+        }
+    }
+}
+
+@Composable
+private fun CallHistoryTableHeader() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFFF4F6F9))
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+    ) {
+        TableHead("DATE & TIME", Modifier.weight(1.15f))
+        TableHead("PARTICIPANTS", Modifier.weight(1.7f))
+        TableHead("TYPE", Modifier.weight(0.65f))
+        TableHead("DURATION", Modifier.weight(0.8f))
+        TableHead("STATUS", Modifier.weight(0.9f))
+        TableHead("RECORDING", Modifier.weight(1f))
+        TableHead("LOCATION", Modifier.weight(1.2f))
+    }
+}
+
+@Composable
+private fun TableHead(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text = text,
+        fontSize = 10.sp,
+        fontWeight = FontWeight.Bold,
+        color = TextGray,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = modifier
+    )
+}
+
+@Composable
+private fun CallHistoryTableMessage(
+    text: String,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Icon(
+            Icons.Default.History,
+            contentDescription = null,
+            tint = Color(0xFFB0BEC5),
+            modifier = Modifier.size(40.dp)
+        )
+        Text(text = text, fontSize = 14.sp, color = TextGray)
+    }
+}
+
+@Composable
+private fun CallHistoryTableRow(
+    call: CallHistory,
+    hasRecording: Boolean,
+    isPreparing: Boolean,
+    prepareProgress: Float,
+    onPlay: () -> Unit,
+    onLocationClick: (FamilyLocation) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            text = formatTime(call.startTime),
+            fontSize = 12.sp,
+            color = PrimaryDarkNavy,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1.15f)
+        )
+        Column(modifier = Modifier.weight(1.7f)) {
+            Text(
+                text = "${call.inmateName ?: "Inmate"}  →  ${call.contactName ?: "Family"}",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = PrimaryDarkNavy,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Row(
+            modifier = Modifier.weight(0.65f),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Icon(
+                imageVector = if (call.type == CallType.AUDIO) Icons.Default.Mic else Icons.Default.Videocam,
+                contentDescription = null,
+                tint = if (call.type == CallType.AUDIO) Color(0xFF8E24AA) else PrimaryNavy,
+                modifier = Modifier.size(16.dp)
+            )
+            Text(
+                text = call.type?.name?.lowercase()?.replaceFirstChar { it.uppercase() } ?: "—",
+                fontSize = 12.sp,
+                color = TextGray,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Text(
+            text = call.durationMinutes?.let { "$it min" } ?: "—",
+            fontSize = 12.sp,
+            color = TextGray,
+            maxLines = 1,
+            modifier = Modifier.weight(0.8f)
+        )
+        Box(modifier = Modifier.weight(0.9f)) {
+            StatusChip(status = call.status)
+        }
+        Box(modifier = Modifier.weight(1f)) {
+            when {
+                hasRecording && isPreparing -> Text(
+                    text = "Preparing… ${(prepareProgress * 100).roundToInt()}%",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = AccentGreen,
+                    maxLines = 1
+                )
+                hasRecording -> OutlinedButton(
+                    onClick = onPlay,
+                    modifier = Modifier.height(32.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp)
+                ) {
+                    Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Play", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+                else -> Text(text = "No recording", fontSize = 11.sp, color = Color(0xFFB0BEC5))
+            }
+        }
+        Box(modifier = Modifier.weight(1.2f)) {
+            val loc = call.family?.location
+            if (loc == null) {
+                Text(text = "—", fontSize = 12.sp, color = TextGray)
+            } else {
+                val hasCoords = loc.lat != null && loc.lng != null
+                Row(
+                    modifier = Modifier
+                        .then(if (hasCoords) Modifier.clickable { onLocationClick(loc) } else Modifier)
+                        .padding(vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(
+                        Icons.Default.LocationOn,
+                        contentDescription = null,
+                        tint = InfoText,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Text(
+                        text = loc.displayLabel,
+                        fontSize = 11.sp,
+                        color = TextGray,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (hasCoords) {
+                        Icon(
+                            Icons.Default.Map,
+                            contentDescription = "Show on map",
+                            tint = InfoText,
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
+                }
+            }
         }
     }
 }

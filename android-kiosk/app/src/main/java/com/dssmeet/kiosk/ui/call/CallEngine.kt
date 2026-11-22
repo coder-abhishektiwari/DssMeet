@@ -135,6 +135,13 @@ class CallEngine @Inject constructor(
     private val _familyLeft = MutableStateFlow(false)
     val familyLeft = _familyLeft.asStateFlow()
 
+    /** Gateway-confirmed SMS result — link-sent and link-opened stay separate. */
+    private val _smsSent = MutableStateFlow(false)
+    val smsSent = _smsSent.asStateFlow()
+
+    private val _smsFailed = MutableStateFlow(false)
+    val smsFailed = _smsFailed.asStateFlow()
+
     /** Per-minute rate for THIS call (video/audio differ) — from the call record. */
     private val _ratePerMinute = MutableStateFlow(0.0)
 
@@ -426,6 +433,8 @@ class CallEngine @Inject constructor(
         _deviceVerifyFailed.value = false
         _otpVerifyFailed.value = false
         _familyLeft.value = false
+        _smsSent.value = false
+        _smsFailed.value = false
         _ratePerMinute.value = 0.0
         _liveCost.value = 0.0
         _maxCallSeconds.value = MAX_CALL_SECONDS
@@ -519,6 +528,9 @@ class CallEngine @Inject constructor(
         // screen marks these steps red until they succeed.
         _deviceVerifyFailed.value = (fam.deviceFailedAttempts ?: 0) > 0
         _otpVerifyFailed.value = (fam.otpFailedAttempts ?: 0) > 0
+        val linkSent = !s.linkSentAt.isNullOrBlank() || s.sms?.sent == true
+        _smsSent.value = linkSent
+        _smsFailed.value = !linkSent && s.sms?.sent == false
 
         // Family-left detection: the verification pages heartbeat every 5s.
         // Once the link is open, a stale heartbeat mid-verification means the

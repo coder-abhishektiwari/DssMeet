@@ -38,8 +38,20 @@ data class WalletTransaction(
     @SerializedName("grossAmount") val grossAmount: Double? = null,
     @SerializedName("fee") val fee: Double? = null,
     @SerializedName("tax") val tax: Double? = null,
-    @SerializedName("gateway") val gateway: String? = null
+    @SerializedName("gateway") val gateway: String? = null,
+    @SerializedName("performedBy") val performedBy: String? = null,
+    @SerializedName("orderId") val orderId: String? = null,
+    @SerializedName("paymentId") val paymentId: String? = null,
+    @SerializedName("sourceName") val sourceName: String? = null,
+    @SerializedName("location") val location: String? = null,
+    @SerializedName("callDetails") val callDetails: CallDetails? = null
 ) {
+    data class CallDetails(
+        @SerializedName("callId") val callId: String? = null,
+        @SerializedName("type") val type: String? = null,
+        @SerializedName("startTime") val startTime: String? = null,
+        @SerializedName("contactName") val contactName: String? = null
+    )
     /** True when money was deducted from the inmate's balance (e.g. call charge). */
     val isDebit: Boolean get() = type.equals("charge", ignoreCase = true)
 

@@ -77,6 +77,45 @@ data class FingerprintCandidate(
     )
 }
 
+data class AdminFingerprintLoginRequest(
+    @SerializedName("adminId") val adminId: String,
+    @SerializedName("kioskId") val kioskId: String
+)
+
+data class AdminFingerprintCandidate(
+    @SerializedName("adminId") val adminId: String,
+    @SerializedName("employeeId") val employeeId: String = "",
+    @SerializedName("name") val name: String = "",
+    @SerializedName("email") val email: String = "",
+    @SerializedName("role") val role: String = "admin",
+    @SerializedName("permissions") val permissions: List<String> = emptyList(),
+    @SerializedName("status") val status: String = "active",
+    @SerializedName("prisonId") val prisonId: String? = null,
+    @SerializedName("fingerprintTemplate") val fingerprintTemplate: String
+) {
+    fun toAdminProfile() = AdminProfile(
+        adminId = adminId,
+        employeeId = employeeId,
+        name = name,
+        email = email,
+        role = role,
+        permissions = permissions,
+        status = status
+    )
+}
+
+data class AdminFingerprintLoginResponse(
+    @SerializedName("accessToken") val accessToken: String,
+    @SerializedName("refreshToken") val refreshToken: String,
+    @SerializedName("expiresIn") val expiresIn: Long,
+    @SerializedName("adminId") val adminId: String,
+    @SerializedName("role") val role: String = "admin",
+    @SerializedName("permissions") val permissions: List<String> = emptyList(),
+    @SerializedName("kioskId") val kioskId: String? = null,
+    @SerializedName("prisonId") val prisonId: String? = null,
+    @SerializedName("profile") val profile: AdminProfile? = null
+)
+
 data class KioskVerifyRequest(
     @SerializedName("deviceSerialNumber") val deviceSerialNumber: String
 )

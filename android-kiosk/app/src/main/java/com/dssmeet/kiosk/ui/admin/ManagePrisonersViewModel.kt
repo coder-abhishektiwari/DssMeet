@@ -4,18 +4,26 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.dssmeet.kiosk.models.admin.Prisoner
 import com.dssmeet.kiosk.models.admin.UpdatePrisonerStatusRequest
+import com.dssmeet.kiosk.models.wallet.WalletStatement
 import com.dssmeet.kiosk.network.NetworkResult
 import com.dssmeet.kiosk.repository.AdminRepository
+import com.dssmeet.kiosk.repository.InmateRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
 class ManagePrisonersViewModel @Inject constructor(
-    private val adminRepository: AdminRepository
+    private val adminRepository: AdminRepository,
+    private val inmateRepository: InmateRepository
 ) : ViewModel() {
 
     private val _prisoners = MutableStateFlow<List<Prisoner>>(emptyList())
@@ -42,6 +50,12 @@ class ManagePrisonersViewModel @Inject constructor(
     private val _resetPinState = MutableStateFlow<NetworkResult<String>?>(null)
     val resetPinState: StateFlow<NetworkResult<String>?> = _resetPinState.asStateFlow()
 
+    private val _walletBalances = MutableStateFlow<Map<String, Double>>(emptyMap())
+    val walletBalances: StateFlow<Map<String, Double>> = _walletBalances.asStateFlow()
+
+    private val _ledgerState = MutableStateFlow<InmateLedgerUiState>(InmateLedgerUiState.Idle)
+    val ledgerState: StateFlow<InmateLedgerUiState> = _ledgerState.asStateFlow()
+
     init {
         loadPrisoners()
     }
@@ -65,6 +79,7 @@ class ManagePrisonersViewModel @Inject constructor(
                 when (result) {
                     is NetworkResult.Success -> {
                         _prisoners.value = result.data
+                        loadWalletBalances(result.data)
                         _isLoading.value = false
                     }
                     is NetworkResult.Failure -> {
@@ -85,6 +100,7 @@ class ManagePrisonersViewModel @Inject constructor(
                 when (result) {
                     is NetworkResult.Success -> {
                         _prisoners.value = result.data
+                        loadWalletBalances(result.data)
                         _isLoading.value = false
                     }
                     is NetworkResult.Failure -> {
@@ -97,6 +113,43 @@ class ManagePrisonersViewModel @Inject constructor(
         }
     }
 
+    private fun loadWalletBalances(prisoners: List<Prisoner>) {
+        viewModelScope.launch {
+            val balances = prisoners.map { prisoner ->
+                async(Dispatchers.IO) {
+                    val balance = inmateRepository.peekWalletStatement(prisoner.inmateId)?.wallet?.balance
+                        ?: when (val result = inmateRepository.getWalletStatement(prisoner.inmateId)
+                            .filter { it !is NetworkResult.Loading }
+                            .firstOrNull()) {
+                            is NetworkResult.Success -> result.data.wallet.balance
+                            else -> null
+                        }
+                    prisoner.inmateId to balance
+                }
+            }.awaitAll()
+            _walletBalances.value = balances.mapNotNull { (id, balance) ->
+                balance?.let { id to it }
+            }.toMap()
+        }
+    }
+
+    fun loadLedger(prisonerId: String) {
+        _ledgerState.value = InmateLedgerUiState.Loading
+        viewModelScope.launch {
+            inmateRepository.getWalletStatement(prisonerId).collect { result ->
+                _ledgerState.value = when (result) {
+                    is NetworkResult.Success -> InmateLedgerUiState.Success(result.data)
+                    is NetworkResult.Failure -> InmateLedgerUiState.Error(result.error.message ?: "Failed to load wallet ledger")
+                    else -> InmateLedgerUiState.Loading
+                }
+            }
+        }
+    }
+
+    fun closeLedger() {
+        _ledgerState.value = InmateLedgerUiState.Idle
+    }
+
     fun refresh() {
         if (_isRefreshing.value) return
         viewModelScope.launch {
@@ -106,6 +159,7 @@ class ManagePrisonersViewModel @Inject constructor(
                 when (result) {
                     is NetworkResult.Success -> {
                         _prisoners.value = result.data
+                        loadWalletBalances(result.data)
                         _isRefreshing.value = false
                     }
                     is NetworkResult.Failure -> {
@@ -226,4 +280,11 @@ class ManagePrisonersViewModel @Inject constructor(
             }
         }
     }
+}
+
+sealed interface InmateLedgerUiState {
+    data object Idle : InmateLedgerUiState
+    data object Loading : InmateLedgerUiState
+    data class Success(val statement: WalletStatement) : InmateLedgerUiState
+    data class Error(val message: String) : InmateLedgerUiState
 }

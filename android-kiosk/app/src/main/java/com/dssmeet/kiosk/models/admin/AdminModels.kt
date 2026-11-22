@@ -26,6 +26,8 @@ data class Prisoner(
     @SerializedName("nationality") val nationality: String? = null,
     @SerializedName("state") val state: String? = null,
     @SerializedName("district") val district: String? = null,
+    @SerializedName("city") val city: String? = null,
+    @SerializedName("kioskName") val kioskName: String? = null,
     @SerializedName("address") val address: String? = null,
     @SerializedName("prisonId") val prisonId: String? = null,
     @SerializedName("facility") val facility: String? = null,

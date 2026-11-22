@@ -7,9 +7,13 @@ import com.dssmeet.kiosk.ui.theme.LightBg
 
 import com.dssmeet.kiosk.ui.theme.TextGray
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.items as listItems
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -36,6 +40,8 @@ import com.dssmeet.kiosk.ui.components.KioskTopBar
 import com.dssmeet.kiosk.ui.theme.PrimaryNavy
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import com.dssmeet.kiosk.hardware.FingerprintCaptureState
+import com.dssmeet.kiosk.ui.auth.FingerprintFeedbackIcon
 
 private val EMPLOYEE_ID_PATTERN = Regex("^[A-Za-z0-9._-]{3,40}$")
 private val EMAIL_PATTERN = Regex("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$")
@@ -44,6 +50,7 @@ private val EMAIL_PATTERN = Regex("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$")
 fun KioskAdminsScreen(
     windowSizeClass: WindowSizeClass,
     onBackClick: () -> Unit,
+    onLogoutClick: () -> Unit = {},
     viewModel: KioskAdminsViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsState()
@@ -51,13 +58,22 @@ fun KioskAdminsScreen(
     KioskAdminsContent(
         state = state,
         onBackClick = onBackClick,
+        onLogoutClick = onLogoutClick,
         onRetry = viewModel::load,
-        onCreate = { name, employeeId, email, password ->
-            viewModel.create(name, employeeId, email, password)
+        onCreate = { name, employeeId, email, password, fingerprints ->
+            viewModel.create(name, employeeId, email, password, fingerprints)
         },
-        onUpdate = { adminId, name, employeeId, email ->
-            viewModel.update(adminId, name, employeeId, email)
+        onUpdate = { adminId, name, employeeId, email, fingerprints ->
+            viewModel.update(adminId, name, employeeId, email, fingerprints)
         },
+        fingerprintCaptureState = state.captureState,
+        pendingFingerprints = state.pendingFingerprints,
+        fingerprintError = state.fingerprintError,
+        onStartFingerprintCapture = viewModel::startFingerprintCapture,
+        onStopFingerprintCapture = viewModel::stopFingerprintCapture,
+        onClearPendingFingerprints = viewModel::clearPendingFingerprints,
+        onSaveFingerprints = viewModel::savePendingFingerprints,
+        onRemoveFingerprint = viewModel::removeFingerprint,
         onDialogDismissed = viewModel::clearSaveError,
         onMessageShown = viewModel::consumeMessage
     )
@@ -67,9 +83,18 @@ fun KioskAdminsScreen(
 fun KioskAdminsContent(
     state: KioskAdminsViewModel.UiState,
     onBackClick: () -> Unit,
+    onLogoutClick: () -> Unit = {},
     onRetry: () -> Unit,
-    onCreate: (String, String, String?, String) -> Unit,
-    onUpdate: (String, String, String, String?) -> Unit,
+    onCreate: (String, String, String?, String, List<String>) -> Unit,
+    onUpdate: (String, String, String, String?, List<String>) -> Unit,
+    fingerprintCaptureState: FingerprintCaptureState,
+    pendingFingerprints: List<String>,
+    fingerprintError: String?,
+    onStartFingerprintCapture: () -> Unit,
+    onStopFingerprintCapture: () -> Unit,
+    onClearPendingFingerprints: () -> Unit,
+    onSaveFingerprints: (String) -> Unit,
+    onRemoveFingerprint: (String, String) -> Unit,
     onDialogDismissed: () -> Unit,
     onMessageShown: () -> Unit
 ) {
@@ -93,25 +118,34 @@ fun KioskAdminsContent(
         }
     }
 
+    LaunchedEffect(showAddDialog, editing?.adminId) {
+        if (showAddDialog || editing != null) {
+            onStartFingerprintCapture()
+        } else {
+            onStopFingerprintCapture()
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose { onStopFingerprintCapture() }
+    }
+
     Scaffold(
         topBar = {
             KioskTopBar(
                 title = "Kiosk Admins",
                 showBackButton = true,
-                onBackClick = onBackClick
+                onBackClick = onBackClick,
+                trailingActions = {
+                    com.dssmeet.kiosk.ui.components.KioskLogoutButton(onClick = onLogoutClick)
+                }
             )
-        },
-        floatingActionButton = {
-            FloatingActionButton(
-                onClick = { showAddDialog = true },
-                containerColor = PrimaryNavy,
-                contentColor = Color.White
-            ) {
-                Icon(Icons.Default.Add, contentDescription = "Add Kiosk Admin")
-            }
         },
         snackbarHost = {
             snackbarMessage?.let { message -> Snackbar { Text(message) } }
+        },
+        bottomBar = {
+            com.dssmeet.kiosk.ui.components.KioskBottomActionBar(onBackClick = onBackClick)
         },
         containerColor = LightBg
     ) { paddingValues ->
@@ -159,10 +193,21 @@ fun KioskAdminsContent(
                     }
                 }
                 else -> {
-                    KioskAdminsList(
-                        admins = state.admins,
-                        onEdit = { editing = it }
-                    )
+                    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                        if (maxWidth >= 900.dp) {
+                            KioskAdminsWideList(
+                                admins = state.admins,
+                                onAdd = { showAddDialog = true },
+                                onEdit = { editing = it },
+                                modifier = Modifier.padding(16.dp)
+                            )
+                        } else {
+                            KioskAdminsList(
+                                admins = state.admins,
+                                onEdit = { editing = it }
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -174,11 +219,19 @@ fun KioskAdminsContent(
             initial = null,
             saving = state.isSaving,
             serverError = state.saveError,
+            captureState = fingerprintCaptureState,
+            pendingFingerprints = pendingFingerprints,
+            fingerprintError = fingerprintError,
+            onRemoveFingerprint = onRemoveFingerprint,
+            onSaveFingerprints = onSaveFingerprints,
             onDismiss = {
                 showAddDialog = false
+                onClearPendingFingerprints()
                 onDialogDismissed()
             },
-            onConfirm = onCreate
+            onConfirm = { name, employeeId, email, password, fingerprints ->
+                onCreate(name, employeeId, email, password, fingerprints)
+            }
         )
     }
 
@@ -188,12 +241,18 @@ fun KioskAdminsContent(
             initial = admin,
             saving = state.isSaving,
             serverError = state.saveError,
+            captureState = fingerprintCaptureState,
+            pendingFingerprints = pendingFingerprints,
+            fingerprintError = fingerprintError,
+            onRemoveFingerprint = onRemoveFingerprint,
+            onSaveFingerprints = onSaveFingerprints,
             onDismiss = {
                 editing = null
+                onClearPendingFingerprints()
                 onDialogDismissed()
             },
-            onConfirm = { name, employeeId, email, _ ->
-                onUpdate(admin.adminId, name, employeeId, email)
+            onConfirm = { name, employeeId, email, _, fingerprints ->
+                onUpdate(admin.adminId, name, employeeId, email, fingerprints)
             }
         )
     }
@@ -204,14 +263,234 @@ private fun KioskAdminsList(
     admins: List<KioskAdmin>,
     onEdit: (KioskAdmin) -> Unit
 ) {
-    LazyColumn(
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(minSize = 480.dp),
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        items(admins, key = { it.adminId }) { admin ->
+        gridItems(admins, key = { it.adminId }) { admin ->
             KioskAdminRow(admin = admin, onEdit = { onEdit(admin) })
+        }
+    }
+}
+
+@Composable
+private fun KioskAdminsWideList(
+    admins: List<KioskAdmin>,
+    onAdd: () -> Unit,
+    onEdit: (KioskAdmin) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    LazyColumn(
+        modifier = modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        text = "Kiosk admin accounts",
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = PrimaryDarkNavy
+                    )
+                    Text(
+                        text = "${admins.size} ${if (admins.size == 1) "account" else "accounts"} configured on this kiosk",
+                        fontSize = 13.sp,
+                        color = TextGray
+                    )
+                }
+                Button(
+                    onClick = onAdd,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryNavy)
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Add admin", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                elevation = CardDefaults.cardElevation(2.dp)
+            ) {
+                Column {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0xFFF4F6F9))
+                            .padding(horizontal = 20.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "ADMIN",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextGray,
+                            modifier = Modifier.weight(1.4f)
+                        )
+                        Text(
+                            text = "USERNAME",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextGray,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = "EMAIL",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextGray,
+                            modifier = Modifier.weight(1.5f)
+                        )
+                        Text(
+                            text = "FINGER",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextGray,
+                            modifier = Modifier.weight(0.7f),
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                        Text(
+                            text = "STATUS",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextGray,
+                            modifier = Modifier.weight(0.8f)
+                        )
+                        Text(
+                            text = "ACTION",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextGray,
+                            modifier = Modifier.width(76.dp),
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                    }
+
+                    admins.forEach { admin ->
+                        KioskAdminTableRow(admin = admin, onEdit = { onEdit(admin) })
+                        HorizontalDivider(color = Color(0xFFE8ECF1))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun KioskAdminTableRow(
+    admin: KioskAdmin,
+    onEdit: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Surface(
+            shape = CircleShape,
+            color = PrimaryNavy.copy(alpha = 0.1f),
+            modifier = Modifier.size(40.dp)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = Icons.Default.Person,
+                    contentDescription = null,
+                    tint = PrimaryNavy,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+        Spacer(Modifier.width(12.dp))
+        Text(
+            text = admin.name.ifBlank { "—" },
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Bold,
+            color = PrimaryDarkNavy,
+            maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1.4f)
+        )
+        Text(
+            text = admin.employeeId ?: "—",
+            fontSize = 13.sp,
+            color = PrimaryNavy,
+            maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+        Text(
+            text = admin.email ?: "—",
+            fontSize = 13.sp,
+            color = TextGray,
+            maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1.5f)
+        )
+        Box(modifier = Modifier.weight(0.7f), contentAlignment = Alignment.Center) {
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = if (admin.fingerprintCount > 0) Color(0xFFE6F7EE) else Color(0xFFF4F6F9)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.Fingerprint,
+                        contentDescription = null,
+                        tint = if (admin.fingerprintCount > 0) Color(0xFF17875B) else TextGray,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        "${admin.fingerprintCount}/3",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (admin.fingerprintCount > 0) Color(0xFF17875B) else TextGray
+                    )
+                }
+            }
+        }
+        val active = admin.status?.equals("active", ignoreCase = true) != false
+        Box(modifier = Modifier.weight(0.8f), contentAlignment = Alignment.CenterStart) {
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = if (active) Color(0xFFE6F7EE) else Color(0xFFFDECEC)
+            ) {
+                Text(
+                    text = if (active) "Active" else (admin.status ?: "Inactive").replaceFirstChar { it.uppercase() },
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (active) Color(0xFF17875B) else DangerRed,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                )
+            }
+        }
+        Spacer(Modifier.width(8.dp))
+        OutlinedButton(
+            onClick = onEdit,
+            modifier = Modifier.width(76.dp).height(36.dp),
+            shape = RoundedCornerShape(10.dp),
+            contentPadding = PaddingValues(horizontal = 8.dp)
+        ) {
+            Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(4.dp))
+            Text("Edit", fontSize = 12.sp)
         }
     }
 }
@@ -262,6 +541,20 @@ private fun KioskAdminRow(
                     color = TextGray,
                     fontSize = 13.sp
                 )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.Fingerprint,
+                        contentDescription = null,
+                        tint = if (admin.fingerprintCount > 0) Color(0xFF17875B) else TextGray,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        "${admin.fingerprintCount}/3 fingerprints",
+                        color = if (admin.fingerprintCount > 0) Color(0xFF17875B) else TextGray,
+                        fontSize = 12.sp
+                    )
+                }
             }
             IconButton(onClick = onEdit) {
                 Icon(
@@ -284,8 +577,13 @@ private fun KioskAdminDialog(
     initial: KioskAdmin?,
     saving: Boolean,
     serverError: String?,
+    captureState: FingerprintCaptureState,
+    pendingFingerprints: List<String>,
+    fingerprintError: String?,
+    onRemoveFingerprint: (String, String) -> Unit,
+    onSaveFingerprints: (String) -> Unit,
     onDismiss: () -> Unit,
-    onConfirm: (String, String, String?, String) -> Unit
+    onConfirm: (String, String, String?, String, List<String>) -> Unit
 ) {
     val isAdd = initial == null
     var name by remember(initial?.adminId) { mutableStateOf(initial?.name ?: "") }
@@ -340,7 +638,7 @@ private fun KioskAdminDialog(
                     onValueChange = { name = it },
                     label = "Full name",
                     required = true,
-                    placeholder = "e.g. Neha Gupta",
+                    placeholder = "e.g. Abhishek Tiwari",
                     errorText = nameError,
                     enabled = !saving,
                     imeAction = ImeAction.Next
@@ -352,7 +650,6 @@ private fun KioskAdminDialog(
                     label = "Username (employee ID)",
                     required = true,
                     placeholder = "e.g. empsa003",
-                    helperText = "What the operator types on the kiosk to sign in.",
                     errorText = employeeIdError,
                     enabled = !saving,
                     imeAction = if (isAdd) ImeAction.Next else ImeAction.Done
@@ -383,6 +680,16 @@ private fun KioskAdminDialog(
                     )
                 }
 
+                AdminFingerprintCaptureSection(
+                    initial = initial,
+                    captureState = captureState,
+                    pendingCount = pendingFingerprints.size,
+                    error = fingerprintError,
+                    enabled = !saving,
+                    onRemoveFingerprint = onRemoveFingerprint,
+                    onSaveFingerprints = onSaveFingerprints
+                )
+
                 serverError?.let {
                     Text(it, color = DangerRed, fontSize = 13.sp)
                 }
@@ -397,7 +704,8 @@ private fun KioskAdminDialog(
                             trimmedName,
                             trimmedUsername,
                             trimmedEmail.ifEmpty { null },
-                            password
+                            password,
+                            pendingFingerprints
                         )
                     }
                 },
@@ -421,6 +729,86 @@ private fun KioskAdminDialog(
 }
 
 @Composable
+private fun AdminFingerprintCaptureSection(
+    initial: KioskAdmin?,
+    captureState: FingerprintCaptureState,
+    pendingCount: Int,
+    error: String?,
+    enabled: Boolean,
+    onRemoveFingerprint: (String, String) -> Unit,
+    onSaveFingerprints: (String) -> Unit
+) {
+    val registered = initial?.fingerprintCount ?: 0
+    val total = registered + pendingCount
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFFF4F6F9), RoundedCornerShape(12.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            FingerprintFeedbackIcon(
+                isScanning = captureState is FingerprintCaptureState.Searching ||
+                    captureState is FingerprintCaptureState.Captured,
+                isMismatch = false,
+                isDeviceError = captureState is FingerprintCaptureState.Failed,
+                modifier = Modifier.size(32.dp)
+            )
+            Spacer(Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Fingerprint (optional)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Text(
+                    "$total of 3 registered" + if (pendingCount > 0) " • $pendingCount new" else "",
+                    fontSize = 12.sp,
+                    color = TextGray
+                )
+            }
+            if (initial != null && pendingCount > 0) {
+                TextButton(
+                    onClick = { onSaveFingerprints(initial.adminId) },
+                    enabled = enabled
+                ) {
+                    Text("Save", fontSize = 12.sp)
+                }
+            }
+        }
+        error?.let { Text(it, color = DangerRed, fontSize = 12.sp) }
+        initial?.fingerprints?.forEach { fingerprint ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Default.Fingerprint,
+                    contentDescription = null,
+                    tint = PrimaryNavy,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    fingerprint.label.ifBlank { "Fingerprint" },
+                    fontSize = 13.sp,
+                    color = PrimaryDarkNavy,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(
+                    onClick = { onRemoveFingerprint(initial.adminId, fingerprint.biometricId) },
+                    enabled = enabled
+                ) {
+                    Icon(
+                        Icons.Default.Close,
+                        contentDescription = "Remove fingerprint",
+                        tint = DangerRed,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun PreviewKioskAdminsContent() {
     KioskAdminsContent(
         state = KioskAdminsViewModel.UiState(
@@ -437,8 +825,16 @@ private fun PreviewKioskAdminsContent() {
         ),
         onBackClick = {},
         onRetry = {},
-        onCreate = { _, _, _, _ -> },
-        onUpdate = { _, _, _, _ -> },
+        onCreate = { _, _, _, _, _ -> },
+        onUpdate = { _, _, _, _, _ -> },
+        fingerprintCaptureState = FingerprintCaptureState.Idle,
+        pendingFingerprints = emptyList(),
+        fingerprintError = null,
+        onStartFingerprintCapture = {},
+        onStopFingerprintCapture = {},
+        onClearPendingFingerprints = {},
+        onSaveFingerprints = { _ -> },
+        onRemoveFingerprint = { _, _ -> },
         onDialogDismissed = {},
         onMessageShown = {}
     )

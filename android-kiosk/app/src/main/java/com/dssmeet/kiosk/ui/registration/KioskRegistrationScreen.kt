@@ -57,12 +57,13 @@ fun KioskRegistrationScreen(
                 )
             )
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp, vertical = 20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
+        com.dssmeet.kiosk.ui.components.KioskResponsiveBox(maxWidth = 900.dp) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp, vertical = 20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
             // Header / Logo Section (Responsive Row / Column)
             // Step dots hidden while the pre-registration gate is showing.
             HeaderSection(
@@ -196,6 +197,7 @@ fun KioskRegistrationScreen(
                     }
                 }
             }
+        }
         }
     }
 }

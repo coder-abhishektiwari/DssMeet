@@ -1,10 +1,17 @@
 package com.dssmeet.kiosk.ui.components
 
+import android.content.Context
+import android.view.inputmethod.InputMethodManager
 import com.dssmeet.kiosk.ui.theme.SuccessGreen
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.*
@@ -14,18 +21,53 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dssmeet.kiosk.R
 import com.dssmeet.kiosk.core.NetworkQualityMonitor
+import com.dssmeet.kiosk.ui.theme.DangerRed
 import com.dssmeet.kiosk.ui.theme.PrimaryNavy
 import com.dssmeet.kiosk.ui.theme.PrisonKioskTheme
 import java.text.SimpleDateFormat
 import java.util.*
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun Modifier.dismissKeyboardOnOutsideTap(): Modifier {
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val view = LocalView.current
+    val imeVisible = WindowInsets.isImeVisible
+
+    fun hideKeyboard() {
+        keyboardController?.hide()
+        runCatching {
+            val manager = view.context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+            manager?.hideSoftInputFromWindow(view.windowToken, 0)
+        }
+    }
+
+    BackHandler(enabled = imeVisible) {
+        focusManager.clearFocus(force = true)
+        hideKeyboard()
+    }
+
+    return this.pointerInput(Unit) {
+        detectTapGestures {
+            focusManager.clearFocus(force = true)
+            hideKeyboard()
+        }
+    }
+}
 
 /**
  * Per-bar strength colours: the bottom bar is red and the top bar green, so
@@ -140,7 +182,7 @@ fun KioskTopBar(
                     Icon(
                         imageVector = Icons.Default.ArrowBack,
                         contentDescription = "Back",
-                        tint = Color.White
+                        tint = Color(0xFFCFD8DC)
                     )
                         }
                         Spacer(modifier = Modifier.width(4.dp))
@@ -206,6 +248,187 @@ fun KioskTopBar(
                     }
 
                     trailingActions?.invoke()
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun KioskResponsiveBox(
+    maxWidth: Dp = 900.dp,
+    modifier: Modifier = Modifier,
+    contentAlignment: Alignment = Alignment.TopCenter,
+    content: @Composable BoxScope.() -> Unit
+) {
+    BoxWithConstraints(
+        modifier = modifier.fillMaxSize(),
+        contentAlignment = contentAlignment
+    ) {
+        val width = minOf(this.maxWidth - 32.dp, maxWidth).coerceAtLeast(240.dp)
+        Box(modifier = Modifier.width(width), content = content)
+    }
+}
+
+@Composable
+fun KioskLogoutButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Button(
+        onClick = onClick,
+        modifier = modifier.height(44.dp),
+        shape = RoundedCornerShape(20.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = DangerRed,
+            contentColor = Color.White
+        ),
+        contentPadding = PaddingValues(horizontal = 16.dp)
+    ) {
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.ExitToApp,
+            contentDescription = null,
+            modifier = Modifier.size(20.dp)
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text("Logout", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+/**
+ * Fixed bottom action row. Placed in Scaffold's bottomBar so it never scrolls
+ * with the content and the content padding keeps it from covering anything.
+ * Admin screens pass [onLogoutClick] to get a 50/50 Back + Logout row; the
+ * admin dashboard omits Back and gets a full-width Logout.
+ */
+@Composable
+fun KioskBottomActionBar(
+    modifier: Modifier = Modifier,
+    showBackButton: Boolean = true,
+    onBackClick: () -> Unit = {},
+    onLogoutClick: (() -> Unit)? = null
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = Color.White,
+        shadowElevation = 8.dp,
+        tonalElevation = 0.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            if (showBackButton) {
+                Button(
+                    onClick = onBackClick,
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(52.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF6B7280),
+                        contentColor = Color.White
+                    )
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ArrowBack,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Back", fontWeight = FontWeight.Bold)
+                }
+            }
+            if (onLogoutClick != null) {
+                Button(
+                    onClick = onLogoutClick,
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(52.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = DangerRed,
+                        contentColor = Color.White
+                    )
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ExitToApp,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Logout", fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun KioskFormActionBar(
+    step: Int,
+    onScreenBack: () -> Unit,
+    onStepBack: () -> Unit,
+    onNext: () -> Unit,
+    nextLabel: String = "Next",
+    nextEnabled: Boolean = true,
+    showProgress: Boolean = false,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = Color.White,
+        shadowElevation = 8.dp,
+        tonalElevation = 0.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Button(
+                onClick = onScreenBack,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(52.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF6B7280),
+                    contentColor = Color.White
+                )
+            ) {
+                Icon(Icons.Default.ArrowBack, contentDescription = null, modifier = Modifier.size(20.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Back", fontWeight = FontWeight.Bold)
+            }
+            OutlinedButton(
+                onClick = onStepBack,
+                enabled = step > 0,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(52.dp),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(Icons.Default.ArrowBack, contentDescription = null, modifier = Modifier.size(20.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Previous", fontWeight = FontWeight.Bold)
+            }
+            Button(
+                onClick = onNext,
+                enabled = nextEnabled,
+                modifier = Modifier
+                    .weight(1.2f)
+                    .height(52.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = PrimaryNavy, contentColor = Color.White)
+            ) {
+                if (showProgress) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = Color.White)
+                } else {
+                    Text(nextLabel, fontWeight = FontWeight.Bold)
                 }
             }
         }

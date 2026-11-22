@@ -15,7 +15,15 @@ const { sendSuccess, sendError, asyncRoute, deepMerge } = require('./lib/respons
 const { jailScopeOf, inAdminScope, inScopeOf, scopeList, kioskScopeOf } = require('./lib/scoping');
 const { paginate } = require('./lib/paginate');
 const { buildInmateIndex } = require('./lib/kioskView');
-const { rfidCardNumberFor } = require('./lib/biometrics');
+const {
+  rfidCardNumberFor,
+  fingerprintEntries,
+  isValidFingerprintTemplate,
+  fingerprintTemplateValidationError,
+  fingerprintCapacityError,
+  addFingerprintTemplate,
+  removeFingerprintTemplate
+} = require('./lib/biometrics');
 const { verifyWebhookSignature } = require('./lib/razorpay');
 const { creditFromRazorpay, markPaymentFailed, sweepWalletPayments } = require('./lib/wallet-credit');
 const { createPgStore } = require('./lib/rateLimitStore');
@@ -454,11 +462,20 @@ app.get('/kiosk-admins', requireAuth, requireRole('admin', 'kiosk_admin', 'warde
       void password;
       void pin;
       void biometricData;
+      const fingerprints = fingerprintEntries(a, a.adminId)
+        .filter((entry) => isValidFingerprintTemplate(entry.template))
+        .map((entry) => ({
+          biometricId: entry.biometricId,
+          label: entry.label || 'Fingerprint',
+          registeredAt: entry.registeredAt || null
+        }));
       return {
         ...safe,
         kioskId: a.kioskId || null,
         location: kiosk?.location || null,
         registeredInmates: a.kioskId ? index.countFor(a.kioskId) : 0,
+        fingerprintCount: fingerprints.length,
+        fingerprints
       };
     });
   return sendSuccess(res, data);
@@ -758,6 +775,75 @@ app.patch('/kiosk-admins/:adminId', requireAuth, requireRole('admin', 'kiosk_adm
   void pin;
   void biometricData;
   return sendSuccess(res, safe);
+}));
+
+app.post('/kiosk-admins/:adminId/fingerprints', requireAuth, requireRole('admin', 'kiosk_admin', 'warden', 'super-admin', 'super_admin'), asyncRoute(async (req, res) => {
+  const isSuper = ['super-admin', 'super_admin'].includes(req.auth?.role);
+  const jailId = await effectiveJailId(req);
+  if (!isSuper && !jailId) return sendError(res, 'FORBIDDEN', 'Your account is not linked to a prison yet', 403);
+
+  const capture = String(req.body.capture || req.body.template || '').trim();
+  if (!capture) return sendError(res, 'INVALID_REQUEST', 'fingerprint template is required', 400);
+  const validation = fingerprintTemplateValidationError(capture);
+  if (validation) return sendError(res, 'INVALID_REQUEST', validation, 400);
+
+  const result = await updateDb('admins.json', (all) => {
+    const idx = all.findIndex((a) => a.adminId === req.params.adminId && a.role === 'kiosk_admin');
+    if (idx === -1 || (!isSuper && all[idx].prisonId !== jailId)) return { data: all, result: null };
+    const capacity = fingerprintCapacityError(all[idx]);
+    if (capacity) return { data: all, result: { error: 'FINGERPRINT_LIMIT', message: capacity } };
+    const { biometricData } = addFingerprintTemplate(all[idx], capture);
+    all[idx] = { ...all[idx], biometricData };
+    return { data: all, result: { admin: all[idx] } };
+  });
+  if (!result) return sendError(res, 'NOT_FOUND', 'Kiosk admin not found', 404);
+  if (result.error) return sendError(res, result.error, result.message, 409);
+
+  const fingerprints = fingerprintEntries(result.admin, result.admin.adminId)
+    .filter((entry) => isValidFingerprintTemplate(entry.template))
+    .map((entry) => ({ biometricId: entry.biometricId, label: entry.label || 'Fingerprint', registeredAt: entry.registeredAt || null }));
+  await auditFromReq(req, 'admin.fingerprint.added', {
+    entityType: 'admin', entityId: result.admin.adminId, prisonId: result.admin.prisonId || jailId || null,
+    metadata: { count: fingerprints.length }
+  });
+  return sendSuccess(res, {
+    adminId: result.admin.adminId,
+    fingerprintCount: fingerprints.length,
+    fingerprints
+  }, 201);
+}));
+
+app.delete('/kiosk-admins/:adminId/fingerprints/:biometricId', requireAuth, requireRole('admin', 'kiosk_admin', 'warden', 'super-admin', 'super_admin'), asyncRoute(async (req, res) => {
+  const isSuper = ['super-admin', 'super_admin'].includes(req.auth?.role);
+  const jailId = await effectiveJailId(req);
+  if (!isSuper && !jailId) return sendError(res, 'FORBIDDEN', 'Your account is not linked to a prison yet', 403);
+
+  const result = await updateDb('admins.json', (all) => {
+    const idx = all.findIndex((a) => a.adminId === req.params.adminId && a.role === 'kiosk_admin');
+    if (idx === -1 || (!isSuper && all[idx].prisonId !== jailId)) return { data: all, result: null };
+    const before = fingerprintEntries(all[idx], all[idx].adminId);
+    if (!before.some((entry) => entry.biometricId === req.params.biometricId)) {
+      return { data: all, result: { error: 'FINGERPRINT_NOT_FOUND' } };
+    }
+    const { biometricData, removed } = removeFingerprintTemplate(all[idx], req.params.biometricId);
+    all[idx] = { ...all[idx], biometricData };
+    return { data: all, result: { admin: all[idx], removed } };
+  });
+  if (!result) return sendError(res, 'NOT_FOUND', 'Kiosk admin not found', 404);
+  if (result.error === 'FINGERPRINT_NOT_FOUND') return sendError(res, 'NOT_FOUND', 'Fingerprint not found', 404);
+
+  const fingerprints = fingerprintEntries(result.admin, result.admin.adminId)
+    .filter((entry) => isValidFingerprintTemplate(entry.template))
+    .map((entry) => ({ biometricId: entry.biometricId, label: entry.label || 'Fingerprint', registeredAt: entry.registeredAt || null }));
+  await auditFromReq(req, 'admin.fingerprint.removed', {
+    entityType: 'admin', entityId: result.admin.adminId, prisonId: result.admin.prisonId || jailId || null,
+    metadata: { biometricId: result.removed?.biometricId || null, count: fingerprints.length }
+  });
+  return sendSuccess(res, {
+    adminId: result.admin.adminId,
+    fingerprintCount: fingerprints.length,
+    fingerprints
+  });
 }));
 
 app.delete('/kiosk-admins/:adminId', requireAuth, requireRole('admin', 'warden', 'super-admin', 'super_admin'), asyncRoute(async (req, res) => {

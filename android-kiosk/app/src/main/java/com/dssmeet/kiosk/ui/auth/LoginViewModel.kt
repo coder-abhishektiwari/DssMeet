@@ -29,6 +29,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import kotlin.time.Duration.Companion.milliseconds
@@ -83,8 +84,17 @@ class LoginViewModel @Inject constructor(
     val rfidState = rfidReaderManager.state
 
     private var fingerprintSessionJob: Job? = null
-    private var rfidSessionJob: Job? = null
+    private var adminFingerprintSessionJob: Job? = null
 
+    private val _adminCreateFingerprints = MutableStateFlow<List<String>>(emptyList())
+    val adminCreateFingerprints = _adminCreateFingerprints.asStateFlow()
+
+    private val _adminCreateFingerprintError = MutableStateFlow<String?>(null)
+    val adminCreateFingerprintError = _adminCreateFingerprintError.asStateFlow()
+
+    private var adminCreateFingerprintJob: Job? = null
+
+    private var rfidSessionJob: Job? = null
     private val _isNetworkAvailable = MutableStateFlow(true)
     val isNetworkAvailable = _isNetworkAvailable.asStateFlow()
 
@@ -239,6 +249,63 @@ class LoginViewModel @Inject constructor(
         }
     }
 
+    fun startAdminFingerprintAuth() {
+        if (adminFingerprintSessionJob?.isActive == true) return
+        _fingerprintMismatch.value = false
+        fingerprintHardwareManager.startCapture(HARDWARE_OWNER)
+        adminFingerprintSessionJob = viewModelScope.launch {
+            fingerprintHardwareManager.captureState.collect { state ->
+                if (state is FingerprintCaptureState.Captured && uiState.value !is UiState.Loading) {
+                    fingerprintHardwareManager.stopCapture(HARDWARE_OWNER)
+                    identifyAdminFingerprint(state.template)
+                }
+            }
+        }
+    }
+
+    private fun identifyAdminFingerprint(template: String) {
+        launch {
+            setLoading()
+            authRepository.identifyAdminFingerprint(template).collect identifyCollect@{ result ->
+                when (result) {
+                    is NetworkResult.Success -> {
+                        adminFingerprintSessionJob?.cancel()
+                        adminFingerprintSessionJob = null
+                        authRepository.adminFingerprintLogin(result.data.adminId).collect loginCollect@{ loginResult ->
+                            when (loginResult) {
+                                is NetworkResult.Success -> {
+                                    setSuccess()
+                                    delay(200.milliseconds)
+                                    _navigationEvent.emit(LoginNavigation.NavigateToAdminDashboard)
+                                }
+                                is NetworkResult.Failure -> {
+                                    if (redirectIfDeviceUnverified(loginResult)) return@loginCollect
+                                    _fingerprintMismatch.value = true
+                                    setError(loginResult.error.message)
+                                    delay(1500.milliseconds)
+                                    _fingerprintMismatch.value = false
+                                    setIdle()
+                                    fingerprintHardwareManager.startCapture(HARDWARE_OWNER)
+                                }
+                                else -> {}
+                            }
+                        }
+                    }
+                    is NetworkResult.Failure -> {
+                        if (redirectIfDeviceUnverified(result)) return@identifyCollect
+                        _fingerprintMismatch.value = true
+                        setError(result.error.message)
+                        delay(1500.milliseconds)
+                        _fingerprintMismatch.value = false
+                        setIdle()
+                        fingerprintHardwareManager.startCapture(HARDWARE_OWNER)
+                    }
+                    else -> {}
+                }
+            }
+        }
+    }
+
     fun requestUsbPermission() {
         val device = fingerprintHardwareManager.connectedScanner.value
         if (device != null) {
@@ -303,6 +370,8 @@ class LoginViewModel @Inject constructor(
                 when (result) {
                     is NetworkResult.Success -> {
                         Logger.i("LoginViewModel: Admin login SUCCESS")
+                        adminFingerprintSessionJob?.cancel()
+                        adminFingerprintSessionJob = null
                         setSuccess()
                         delay(200.milliseconds) // Wait for session persistence
                         _navigationEvent.emit(LoginNavigation.NavigateToAdminDashboard)
@@ -324,8 +393,10 @@ class LoginViewModel @Inject constructor(
     }
 
     fun startAdminAuth() {
+        stopAdminCreateFingerprintCapture()
         _loginStage.value = LoginStage.ADMIN_USERNAME_ENTRY
         _identifiedAdmin.value = null
+        startAdminFingerprintAuth()
     }
 
     /** Welcome screen needs to know which admin button to show — asked silently. */
@@ -344,8 +415,58 @@ class LoginViewModel @Inject constructor(
 
     fun startAdminCreate() {
         Logger.d("LoginViewModel: opening first-admin create form")
+        adminFingerprintSessionJob?.cancel()
+        adminFingerprintSessionJob = null
+        fingerprintHardwareManager.stopCapture(HARDWARE_OWNER)
+        _adminCreateFingerprints.value = emptyList()
+        _adminCreateFingerprintError.value = null
         _loginStage.value = LoginStage.ADMIN_CREATE_ENTRY
         _identifiedAdmin.value = null
+        startAdminCreateFingerprintCapture()
+    }
+
+    fun startAdminCreateFingerprintCapture() {
+        if (adminCreateFingerprintJob?.isActive == true) return
+        if (_adminCreateFingerprints.value.size >= 3) return
+        fingerprintHardwareManager.startCapture(HARDWARE_OWNER)
+        adminCreateFingerprintJob = viewModelScope.launch {
+            fingerprintHardwareManager.captureState.collect { capture ->
+                when (capture) {
+                    is FingerprintCaptureState.Captured -> {
+                        fingerprintHardwareManager.stopCapture(HARDWARE_OWNER)
+                        val error = FingerprintTemplateValidator.validationError(capture.template)
+                            ?: if (_adminCreateFingerprints.value.size >= 3) {
+                                "Maximum 3 fingerprints can be registered"
+                            } else null
+                        if (error != null) {
+                            _adminCreateFingerprintError.value = error
+                            return@collect
+                        }
+                        _adminCreateFingerprints.value = _adminCreateFingerprints.value + capture.template
+                        _adminCreateFingerprintError.value = null
+                        if (_adminCreateFingerprints.value.size < 3) {
+                            delay(700)
+                            fingerprintHardwareManager.startCapture(HARDWARE_OWNER)
+                        }
+                    }
+                    is FingerprintCaptureState.Failed -> {
+                        _adminCreateFingerprintError.value = capture.message
+                    }
+                    else -> {}
+                }
+            }
+        }
+    }
+
+    fun stopAdminCreateFingerprintCapture() {
+        adminCreateFingerprintJob?.cancel()
+        adminCreateFingerprintJob = null
+        fingerprintHardwareManager.stopCapture(HARDWARE_OWNER)
+    }
+
+    fun clearAdminCreateFingerprints() {
+        _adminCreateFingerprints.value = emptyList()
+        _adminCreateFingerprintError.value = null
     }
 
     /**
@@ -387,6 +508,16 @@ class LoginViewModel @Inject constructor(
                 when (result) {
                     is NetworkResult.Success -> {
                         Logger.i("LoginViewModel: first admin created — ${result.data.adminId} signed in")
+                        stopAdminCreateFingerprintCapture()
+                        var fingerprintFailures = 0
+                        _adminCreateFingerprints.value.forEach { template ->
+                            authRepository.registerAdminFingerprint(result.data.adminId, template).collect { fpResult ->
+                                if (fpResult is NetworkResult.Failure) fingerprintFailures++
+                            }
+                        }
+                        if (fingerprintFailures > 0) {
+                            Logger.w("LoginViewModel: $fingerprintFailures fingerprint(s) could not be saved for first admin")
+                        }
                         setSuccess()
                         delay(200.milliseconds) // Wait for session persistence
                         _navigationEvent.emit(LoginNavigation.NavigateToAdminDashboard)
@@ -449,6 +580,7 @@ class LoginViewModel @Inject constructor(
                         Logger.i("LoginViewModel: Admin identified: ${result.data.name}")
                         _identifiedAdmin.value = result.data
                         _loginStage.value = LoginStage.ADMIN_PIN_ENTRY
+                        startAdminFingerprintAuth()
                         setSuccess()
                     }
                     is NetworkResult.Failure -> {
@@ -604,6 +736,12 @@ class LoginViewModel @Inject constructor(
         _rfidManualMode.value = false
         fingerprintSessionJob?.cancel()
         fingerprintSessionJob = null
+        adminFingerprintSessionJob?.cancel()
+        adminFingerprintSessionJob = null
+        adminCreateFingerprintJob?.cancel()
+        adminCreateFingerprintJob = null
+        _adminCreateFingerprints.value = emptyList()
+        _adminCreateFingerprintError.value = null
         rfidSessionJob?.cancel()
         rfidSessionJob = null
         fingerprintHardwareManager.stopCapture(HARDWARE_OWNER)

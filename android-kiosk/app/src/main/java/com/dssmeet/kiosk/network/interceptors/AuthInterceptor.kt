@@ -214,9 +214,11 @@ class AuthInterceptor @Inject constructor(
     /** Routes that must carry the device credential, never a user session. */
     private fun isDeviceCredentialRequest(request: Request): Boolean {
         val segments = request.url.pathSegments
-        return segments.size >= 2 &&
-            segments[segments.size - 2] == "auth" &&
-            segments.last() in setOf("fingerprint-candidates", "fingerprint-login")
+        val last = segments.lastOrNull() ?: return false
+        if (last !in setOf("fingerprint-candidates", "fingerprint-login")) return false
+        val directAuth = segments.size >= 2 && segments[segments.size - 2] == "auth"
+        val adminAuth = segments.size >= 3 && segments[0] == "auth" && segments[1] == "admin"
+        return directAuth || adminAuth
     }
 
     private fun isTokenStillValid(token: String): Boolean {

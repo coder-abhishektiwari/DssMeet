@@ -2,7 +2,6 @@ package com.dssmeet.kiosk.ui.auth
 
 import com.dssmeet.kiosk.ui.theme.PrimaryNavy
 import com.dssmeet.kiosk.ui.theme.PrimaryDarkNavy
-import com.dssmeet.kiosk.ui.theme.PrimaryBlue
 import com.dssmeet.kiosk.ui.theme.ControlBtnBg
 import com.dssmeet.kiosk.ui.theme.DangerRed
 
@@ -13,6 +12,7 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -32,6 +32,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -43,11 +45,34 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.dssmeet.kiosk.core.UiState
 import com.dssmeet.kiosk.hardware.FingerprintCaptureState
 import com.dssmeet.kiosk.hardware.RfidReaderState
+import com.dssmeet.kiosk.ui.components.KioskBottomActionBar
 import com.dssmeet.kiosk.ui.components.KioskPasswordField
 import com.dssmeet.kiosk.ui.components.KioskTextField
 import com.dssmeet.kiosk.ui.components.KioskTopBar
 import com.dssmeet.kiosk.ui.theme.PrisonKioskTheme
 import androidx.compose.ui.text.input.ImeAction
+
+@Composable
+private fun LoginSubmitArrow(
+    enabled: Boolean,
+    onClick: () -> Unit
+) {
+    IconButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier
+            .size(48.dp)
+            .clip(CircleShape)
+            .background(if (enabled) PrimaryNavy else Color.Gray)
+    ) {
+        Icon(
+            imageVector = Icons.AutoMirrored.Default.ArrowForward,
+            contentDescription = "Continue",
+            tint = Color.White,
+            modifier = Modifier.size(24.dp)
+        )
+    }
+}
 
 @Composable
 fun LoginScreen(
@@ -66,6 +91,8 @@ fun LoginScreen(
     val isNetworkAvailable by viewModel.isNetworkAvailable.collectAsState()
     val fingerprintCaptureState by viewModel.fingerprintCaptureState.collectAsState()
     val fingerprintMismatch by viewModel.fingerprintMismatch.collectAsState()
+    val adminCreateFingerprints by viewModel.adminCreateFingerprints.collectAsState()
+    val adminCreateFingerprintError by viewModel.adminCreateFingerprintError.collectAsState()
     val fingerDetected by viewModel.fingerDetected.collectAsState()
     val rfidState by viewModel.rfidState.collectAsState()
     val rfidManualMode by viewModel.rfidManualMode.collectAsState()
@@ -106,6 +133,11 @@ fun LoginScreen(
         Scaffold(
             topBar = { KioskTopBar(title = "PRISON KIOSK LOGIN") },
             snackbarHost = { SnackbarHost(snackbarHostState) },
+            bottomBar = {
+                if (stage == LoginStage.FINGERPRINT_SCANNING || stage == LoginStage.RFID_SCANNING) {
+                    KioskBottomActionBar(onBackClick = { viewModel.resetToSelection() })
+                }
+            },
             containerColor = ControlBtnBg
         ) { padding ->
             Box(
@@ -133,16 +165,14 @@ fun LoginScreen(
                         viewModel = viewModel,
                         captureState = fingerprintCaptureState,
                         fingerprintMismatch = fingerprintMismatch,
-                        fingerDetected = fingerDetected,
-                        onCancel = { viewModel.resetToSelection() }
+                        fingerDetected = fingerDetected
                     )
                     LoginStage.RFID_SCANNING -> RfidScanningLayout(
                         state = rfidState,
                         manualMode = rfidManualMode,
                         onCardTap = { viewModel.onRfidCardTapped(it) },
                         onManualModeChange = { viewModel.setRfidManualMode(it) },
-                        onManualSubmit = { viewModel.onRfidScanned(it) },
-                        onCancel = { viewModel.resetToSelection() }
+                        onManualSubmit = { viewModel.onRfidScanned(it) }
                     )
                     LoginStage.PRISONER_ID_ENTRY -> PrisonerIdEntryLayout(
                         uiState = uiState,
@@ -158,6 +188,9 @@ fun LoginScreen(
                     LoginStage.ADMIN_USERNAME_ENTRY -> AdminUsernameEntryLayout(
                         windowSizeClass = windowSizeClass,
                         uiState = uiState,
+                        fingerprintMismatch = fingerprintMismatch,
+                        fingerDetected = fingerDetected,
+                        captureState = fingerprintCaptureState,
                         onUsernameSubmit = { viewModel.onAdminUsernameSubmit(it) },
                         onCancel = { viewModel.resetToSelection() }
                     )
@@ -165,12 +198,17 @@ fun LoginScreen(
                         windowSizeClass = windowSizeClass,
                         adminName = admin?.name ?: "Admin",
                         uiState = uiState,
+                        fingerprintMismatch = fingerprintMismatch,
+                        fingerDetected = fingerDetected,
+                        captureState = fingerprintCaptureState,
                         onPinSubmit = { viewModel.onAdminPasswordSubmit(it) },
                         onCancel = { viewModel.resetToSelection() }
                     )
                     LoginStage.ADMIN_CREATE_ENTRY -> AdminCreateLoginLayout(
                         windowSizeClass = windowSizeClass,
                         uiState = uiState,
+                        fingerprintCount = adminCreateFingerprints.size,
+                        fingerprintError = adminCreateFingerprintError,
                         onCreateSubmit = { n, u, e, p -> viewModel.onAdminCreateSubmit(n, u, e, p) },
                         onCancel = { viewModel.resetToSelection() }
                     )
@@ -200,8 +238,7 @@ fun RfidScanningLayout(
     manualMode: Boolean,
     onCardTap: (String) -> Unit,
     onManualModeChange: (Boolean) -> Unit,
-    onManualSubmit: (String) -> Unit,
-    onCancel: () -> Unit
+    onManualSubmit: (String) -> Unit
 ) {
     var showManualDialog by remember { mutableStateOf(false) }
     var manualDigits by remember { mutableStateOf("") }
@@ -287,10 +324,6 @@ fun RfidScanningLayout(
             }) {
                 Text("Enter card number instead", color = PrimaryNavy, fontWeight = FontWeight.Medium)
             }
-
-            TextButton(onClick = onCancel) {
-                Text("<- Back to Login Methods", color = PrimaryBlue, fontWeight = FontWeight.Bold)
-            }
         }
     }
 
@@ -341,6 +374,9 @@ fun RfidScanningLayout(
 fun AdminUsernameEntryLayout(
     windowSizeClass: WindowSizeClass,
     uiState: UiState<Unit>,
+    fingerprintMismatch: Boolean,
+    fingerDetected: Boolean,
+    captureState: FingerprintCaptureState,
     onUsernameSubmit: (String) -> Unit,
     onCancel: () -> Unit
 ) {
@@ -352,12 +388,20 @@ fun AdminUsernameEntryLayout(
     ) {
         val compactHeight = maxHeight < 560.dp ||
             windowSizeClass.heightSizeClass == WindowHeightSizeClass.Compact
-        val contentWidth = minOf(maxWidth - 48.dp, 520.dp).coerceAtLeast(240.dp)
-        val iconSize = (maxHeight * 0.16f).coerceIn(52.dp, 80.dp)
-        val titleSize = if (maxWidth < 420.dp) 24.sp else 28.sp
-        val subtitleSize = if (compactHeight) 14.sp else 18.sp
-        val fieldGap = if (compactHeight) 16.dp else 24.dp
+        val wideScreen = maxWidth >= 600.dp ||
+            windowSizeClass.widthSizeClass != WindowWidthSizeClass.Compact
+        val contentWidth = if (wideScreen) {
+            minOf(maxWidth - 96.dp, 820.dp)
+        } else {
+            minOf(maxWidth - 48.dp, 520.dp)
+        }.coerceAtLeast(240.dp)
+        val iconSize = if (wideScreen) 96.dp else (maxHeight * 0.16f).coerceIn(52.dp, 80.dp)
+        val titleSize = if (wideScreen) 34.sp else if (maxWidth < 420.dp) 24.sp else 28.sp
+        val subtitleSize = if (wideScreen) 18.sp else if (compactHeight) 14.sp else 18.sp
+        val fieldGap = if (wideScreen) 32.dp else if (compactHeight) 16.dp else 24.dp
         val buttonHeight = if (compactHeight) 48.dp else 56.dp
+        val canSubmit = username.isNotBlank() && uiState !is UiState.Loading
+        val submit = { if (canSubmit) onUsernameSubmit(username.trim()) }
 
         Column(
             modifier = Modifier
@@ -387,41 +431,67 @@ fun AdminUsernameEntryLayout(
 
             Spacer(modifier = Modifier.height(fieldGap))
 
-            KioskTextField(
-                value = username,
-                onValueChange = { username = it },
-                label = "Username / Employee ID",
-                required = true,
-                placeholder = "e.g. empsa003",
-                leadingIcon = Icons.Default.Person,
-                imeAction = ImeAction.Next
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                KioskTextField(
+                    value = username,
+                    onValueChange = { username = it },
+                    label = "Username / Employee ID",
+                    modifier = Modifier.weight(1f),
+                    required = true,
+                    placeholder = "e.g. empsa003",
+                    leadingIcon = Icons.Default.Person,
+                    imeAction = ImeAction.Done,
+                    keyboardActions = KeyboardActions(onDone = { submit() })
+                )
+                LoginSubmitArrow(enabled = canSubmit, onClick = submit)
+            }
 
-            Spacer(modifier = Modifier.height(fieldGap))
-
-            Button(
-                onClick = {
-                    if (username.isNotEmpty()) {
-                        onUsernameSubmit(username)
-                    }
-                },
+            Spacer(modifier = Modifier.height(fieldGap + 8.dp))
+            OutlinedButton(
+                onClick = onCancel,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(buttonHeight),
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = PrimaryNavy, contentColor = Color.White),
-                enabled = username.isNotEmpty() && uiState !is UiState.Loading
+                shape = RoundedCornerShape(12.dp)
             ) {
-                Text("Continue to Password", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                Spacer(modifier = Modifier.width(8.dp))
-                Icon(Icons.AutoMirrored.Default.ArrowForward, contentDescription = null, tint = Color.White)
+                Text(
+                    "Back to Login Methods",
+                    fontSize = if (wideScreen) 16.sp else 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextGray
+                )
             }
 
-            Spacer(modifier = Modifier.height(if (compactHeight) 10.dp else 16.dp))
-            TextButton(onClick = onCancel) {
-                Text("<- Back to Login Methods", color = PrimaryBlue, fontWeight = FontWeight.Bold)
-            }
+            Spacer(modifier = Modifier.height(fieldGap))
+            AdminFingerprintIcon(
+                isScanning = fingerDetected || captureState is FingerprintCaptureState.Captured || uiState is UiState.Loading,
+                isMismatch = fingerprintMismatch,
+                size = if (wideScreen) 64.dp else 52.dp
+            )
         }
+    }
+}
+
+@Composable
+private fun AdminFingerprintIcon(
+    isScanning: Boolean,
+    isMismatch: Boolean,
+    size: androidx.compose.ui.unit.Dp
+) {
+    Box(
+        modifier = Modifier.size(size),
+        contentAlignment = Alignment.Center
+    ) {
+        FingerprintFeedbackIcon(
+            modifier = Modifier.size(size),
+            isScanning = isScanning,
+            isMismatch = isMismatch,
+            isDeviceError = false
+        )
     }
 }
 
@@ -430,8 +500,7 @@ fun FingerprintScanningLayout(
     viewModel: LoginViewModel,
     captureState: FingerprintCaptureState,
     fingerprintMismatch: Boolean,
-    fingerDetected: Boolean,
-    onCancel: () -> Unit
+    fingerDetected: Boolean
 ) {
     val device by viewModel.connectedScanner.collectAsState()
     val hasPermission by viewModel.usbPermissionGranted.collectAsState()
@@ -544,11 +613,6 @@ fun FingerprintScanningLayout(
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
-
-            TextButton(onClick = onCancel) {
-                Text("<- Back to Login Methods", color = PrimaryBlue, fontWeight = FontWeight.Bold)
-            }
         }
     }
 }
@@ -572,28 +636,33 @@ fun WelcomeSelectionLayout(
             windowSizeClass.widthSizeClass != WindowWidthSizeClass.Compact
 
         val contentWidth = when {
-            compactHeight && wideScreen -> minOf(maxWidth - 96.dp, 820.dp)
-            wideScreen -> minOf(maxWidth - 96.dp, 720.dp)
+            compactHeight && wideScreen -> minOf(maxWidth - 80.dp, 900.dp)
+            wideScreen -> minOf(maxWidth - 80.dp, 820.dp)
             else -> minOf(maxWidth - 32.dp, 460.dp)
         }.coerceAtLeast(240.dp)
 
         val cardHeight = when {
-            compactHeight && maxWidth < 480.dp -> 108.dp
-            compactHeight -> (maxHeight * 0.44f).coerceIn(118.dp, 150.dp)
+            !wideScreen && compactHeight && maxWidth < 480.dp -> 108.dp
+            !wideScreen && compactHeight -> (maxHeight * 0.44f).coerceIn(118.dp, 150.dp)
+            compactHeight && wideScreen -> (maxHeight * 0.26f).coerceIn(150.dp, 190.dp)
+            wideScreen -> (maxHeight * 0.24f).coerceIn(180.dp, 230.dp)
             else -> (maxHeight * 0.22f).coerceIn(140.dp, 180.dp)
         }
         val compactCards = cardHeight < 124.dp
-        val cardSpacing = if (compactHeight) 20.dp else 16.dp
+        val cardSpacing = if (wideScreen) 20.dp else 16.dp
         val titleSize = when {
             maxWidth < 420.dp -> 24.sp
-            compactHeight && wideScreen -> 30.sp
-            wideScreen -> 32.sp
+            wideScreen -> 40.sp
             else -> 28.sp
         }
-        val subtitleSize = if (compactHeight) 14.sp else 15.sp
-        val subtitleGap = (maxHeight * 0.02f).coerceIn(8.dp, 12.dp)
-        val methodsGap = (maxHeight * 0.06f).coerceIn(24.dp, 40.dp)
-        val adminGap = (maxHeight * 0.04f).coerceIn(16.dp, 32.dp)
+        val subtitleSize = when {
+            wideScreen -> 18.sp
+            compactHeight -> 14.sp
+            else -> 15.sp
+        }
+        val subtitleGap = if (wideScreen) 16.dp else (maxHeight * 0.02f).coerceIn(8.dp, 12.dp)
+        val methodsGap = if (wideScreen) 48.dp else (maxHeight * 0.06f).coerceIn(24.dp, 40.dp)
+        val adminGap = if (wideScreen) 36.dp else (maxHeight * 0.04f).coerceIn(16.dp, 32.dp)
 
         Column(
             modifier = Modifier
@@ -630,7 +699,8 @@ fun WelcomeSelectionLayout(
                     description = "Finger Scanning",
                     onClick = onFingerprintClick,
                     modifier = Modifier.weight(1f).height(cardHeight),
-                    compact = compactCards
+                    compact = compactCards,
+                    large = wideScreen
                 )
                 PremiumAuthCard(
                     title = "RFID Card",
@@ -638,7 +708,8 @@ fun WelcomeSelectionLayout(
                     description = "Tap Card",
                     onClick = onRfidClick,
                     modifier = Modifier.weight(1f).height(cardHeight),
-                    compact = compactCards
+                    compact = compactCards,
+                    large = wideScreen
                 )
                 // Prisoner ID login disabled - kiosk only allows fingerprint + RFID.
                 // PremiumAuthCard(
@@ -657,7 +728,7 @@ fun WelcomeSelectionLayout(
             if (needsBootstrap) {
                 Text(
                     text = "No admin account exists for this jail yet",
-                    fontSize = 13.sp,
+                    fontSize = if (wideScreen) 15.sp else 13.sp,
                     color = TextGray,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.padding(bottom = 4.dp)
@@ -673,12 +744,12 @@ fun WelcomeSelectionLayout(
                 Icon(
                     Icons.Default.AdminPanelSettings,
                     contentDescription = null,
-                    modifier = Modifier.size(if (compactHeight) 18.dp else 20.dp)
+                    modifier = Modifier.size(if (wideScreen) 24.dp else if (compactHeight) 18.dp else 20.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = if (needsBootstrap) "Create Admin" else "Admin Login",
-                    fontSize = if (compactHeight) 14.sp else 15.sp,
+                    fontSize = if (wideScreen) 18.sp else if (compactHeight) 14.sp else 15.sp,
                     fontWeight = FontWeight.Medium
                 )
             }
@@ -695,10 +766,11 @@ fun PinEntryLayout(
 ) {
     var pin by remember { mutableStateOf("") }
 
-    Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
+    com.dssmeet.kiosk.ui.components.KioskResponsiveBox(maxWidth = 560.dp) {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
         Spacer(modifier = Modifier.height(16.dp))
 
         Icon(
@@ -717,7 +789,7 @@ fun PinEntryLayout(
         Spacer(modifier = Modifier.height(12.dp))
 
         TextButton(onClick = onCancel) {
-            Text("<- Back to Login Methods", color = PrimaryBlue, fontWeight = FontWeight.Bold)
+            Text("<- Back to Login Methods", color = TextGray, fontWeight = FontWeight.Bold)
         }
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -753,6 +825,7 @@ fun PinEntryLayout(
             onNumberClick = { if (pin.length < 6) { pin += it; if (pin.length == 6) onPinSubmit(pin) } },
             onDeleteClick = { if (pin.isNotEmpty()) pin = pin.dropLast(1) }
         )
+        }
     }
 }
 
@@ -761,10 +834,18 @@ fun AdminPinEntryLayout(
     windowSizeClass: WindowSizeClass,
     adminName: String,
     uiState: UiState<Unit>,
+    fingerprintMismatch: Boolean,
+    fingerDetected: Boolean,
+    captureState: FingerprintCaptureState,
     onPinSubmit: (String) -> Unit,
     onCancel: () -> Unit
 ) {
     var password by remember { mutableStateOf("") }
+    val passwordFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        passwordFocusRequester.requestFocus()
+    }
 
     BoxWithConstraints(
         modifier = Modifier.fillMaxSize(),
@@ -772,13 +853,21 @@ fun AdminPinEntryLayout(
     ) {
         val compactHeight = maxHeight < 560.dp ||
             windowSizeClass.heightSizeClass == WindowHeightSizeClass.Compact
-        val contentWidth = minOf(maxWidth - 48.dp, 520.dp).coerceAtLeast(240.dp)
-        val iconSize = (maxHeight * 0.16f).coerceIn(52.dp, 80.dp)
-        val titleSize = if (maxWidth < 420.dp) 24.sp else 28.sp
-        val subtitleSize = if (compactHeight) 14.sp else 18.sp
-        val bodySize = if (compactHeight) 13.sp else 15.sp
-        val fieldGap = if (compactHeight) 16.dp else 24.dp
+        val wideScreen = maxWidth >= 600.dp ||
+            windowSizeClass.widthSizeClass != WindowWidthSizeClass.Compact
+        val contentWidth = if (wideScreen) {
+            minOf(maxWidth - 96.dp, 820.dp)
+        } else {
+            minOf(maxWidth - 48.dp, 520.dp)
+        }.coerceAtLeast(240.dp)
+        val iconSize = if (wideScreen) 96.dp else (maxHeight * 0.16f).coerceIn(52.dp, 80.dp)
+        val titleSize = if (wideScreen) 34.sp else if (maxWidth < 420.dp) 24.sp else 28.sp
+        val subtitleSize = if (wideScreen) 20.sp else if (compactHeight) 14.sp else 18.sp
+        val bodySize = if (wideScreen) 17.sp else if (compactHeight) 13.sp else 15.sp
+        val fieldGap = if (wideScreen) 32.dp else if (compactHeight) 16.dp else 24.dp
         val buttonHeight = if (compactHeight) 48.dp else 56.dp
+        val canSubmit = password.isNotBlank() && uiState !is UiState.Loading
+        val submit = { if (canSubmit) onPinSubmit(password) }
 
         Column(
             modifier = Modifier
@@ -815,39 +904,48 @@ fun AdminPinEntryLayout(
 
             Spacer(modifier = Modifier.height(fieldGap))
 
-            KioskPasswordField(
-                value = password,
-                onValueChange = { password = it },
-                label = "Password",
-                required = true,
-                errorText = if (uiState is UiState.Error) "Incorrect password" else null,
-                imeAction = ImeAction.Done
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                KioskPasswordField(
+                    value = password,
+                    onValueChange = { password = it },
+                    label = "Password",
+                    modifier = Modifier
+                        .weight(1f)
+                        .focusRequester(passwordFocusRequester),
+                    required = true,
+                    errorText = if (uiState is UiState.Error) "Incorrect password" else null,
+                    imeAction = ImeAction.Done,
+                    keyboardActions = KeyboardActions(onDone = { submit() })
+                )
+                LoginSubmitArrow(enabled = canSubmit, onClick = submit)
+            }
 
-            Spacer(modifier = Modifier.height(fieldGap))
-
-            Button(
-                onClick = {
-                    if (password.isNotEmpty()) {
-                        onPinSubmit(password)
-                    }
-                },
+            Spacer(modifier = Modifier.height(fieldGap + 8.dp))
+            OutlinedButton(
+                onClick = onCancel,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(buttonHeight),
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = PrimaryNavy, contentColor = Color.White),
-                enabled = password.isNotEmpty() && uiState !is UiState.Loading
+                shape = RoundedCornerShape(12.dp)
             ) {
-                Text("Login", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                Spacer(modifier = Modifier.width(8.dp))
-                Icon(Icons.AutoMirrored.Default.ArrowForward, contentDescription = null, tint = Color.White)
+                Text(
+                    "Back to Login Methods",
+                    fontSize = if (wideScreen) 16.sp else 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextGray
+                )
             }
 
-            Spacer(modifier = Modifier.height(if (compactHeight) 10.dp else 16.dp))
-            TextButton(onClick = onCancel) {
-                Text("<- Back to Login Methods", color = PrimaryBlue, fontWeight = FontWeight.Bold)
-            }
+            Spacer(modifier = Modifier.height(fieldGap))
+            AdminFingerprintIcon(
+                isScanning = fingerDetected || captureState is FingerprintCaptureState.Captured || uiState is UiState.Loading,
+                isMismatch = fingerprintMismatch,
+                size = if (wideScreen) 64.dp else 52.dp
+            )
         }
     }
 }
@@ -868,6 +966,8 @@ private val AdminEmailRegex = Regex("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$")
 fun AdminCreateLoginLayout(
     windowSizeClass: WindowSizeClass,
     uiState: UiState<Unit>,
+    fingerprintCount: Int,
+    fingerprintError: String?,
     onCreateSubmit: (name: String, employeeId: String, email: String, password: String) -> Unit,
     onCancel: () -> Unit
 ) {
@@ -986,6 +1086,31 @@ fun AdminCreateLoginLayout(
                 imeAction = ImeAction.Done
             )
 
+            Spacer(modifier = Modifier.height(fieldGap))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                AdminFingerprintIcon(
+                    isScanning = fingerprintCount < 3 && uiState !is UiState.Loading,
+                    isMismatch = fingerprintError != null,
+                    size = 40.dp
+                )
+                Spacer(Modifier.width(10.dp))
+                Column {
+                    Text(
+                        "Fingerprint (optional) — $fingerprintCount/3",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = PrimaryDarkNavy
+                    )
+                    fingerprintError?.let {
+                        Text(it, fontSize = 11.sp, color = DangerRed)
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(if (compactHeight) 16.dp else 24.dp))
 
             Button(
@@ -1007,7 +1132,7 @@ fun AdminCreateLoginLayout(
 
             Spacer(modifier = Modifier.height(if (compactHeight) 10.dp else 16.dp))
             TextButton(onClick = onCancel) {
-                Text("<- Back to Login Methods", color = PrimaryBlue, fontWeight = FontWeight.Bold)
+                Text("<- Back to Login Methods", color = TextGray, fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -1021,10 +1146,11 @@ fun PrisonerIdEntryLayout(
 ) {
     var prisonerId by remember { mutableStateOf("") }
 
-    Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
+    com.dssmeet.kiosk.ui.components.KioskResponsiveBox(maxWidth = 560.dp) {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
         Spacer(modifier = Modifier.height(16.dp))
 
         Icon(
@@ -1042,7 +1168,7 @@ fun PrisonerIdEntryLayout(
         Spacer(modifier = Modifier.height(12.dp))
 
         TextButton(onClick = onCancel) {
-            Text("<- Back to Login Methods", color = PrimaryBlue, fontWeight = FontWeight.Bold)
+            Text("<- Back to Login Methods", color = TextGray, fontWeight = FontWeight.Bold)
         }
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -1090,6 +1216,7 @@ fun PrisonerIdEntryLayout(
                 }
             }
         )
+        }
     }
 }
 
