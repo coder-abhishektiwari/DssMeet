@@ -3,6 +3,7 @@ const router = express.Router();
 const { signAccessToken } = require('./lib/auth');
 const sessions = require('./lib/sessions');
 const { readDb } = require('./lib/db');
+const { assignedKioskIdsOf } = require('./lib/scoping');
 const { requireAuth } = require('./middleware/auth');
 
 // Refresh token endpoint — rotating. The presented refresh token is revoked
@@ -62,7 +63,7 @@ router.post('/refresh', async (req, res) => {
           role: 'inmate',
           inmateId: inmate.inmateId,
           prisonId: inmate.prisonId,
-          kioskId: inmate.assignedKioskId
+          kioskId: assignedKioskIdsOf(inmate)[0] || null
         };
       }
     }

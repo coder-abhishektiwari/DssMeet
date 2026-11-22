@@ -1,6 +1,7 @@
 package com.dssmeet.kiosk.ui.admin
 
 import com.dssmeet.kiosk.ui.theme.BorderColor
+import com.dssmeet.kiosk.ui.theme.DangerRed
 import com.dssmeet.kiosk.ui.theme.PrimaryDarkNavy
 import com.dssmeet.kiosk.ui.theme.PrimaryNavy
 import com.dssmeet.kiosk.ui.theme.SuccessGreen
@@ -23,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Surface
@@ -80,6 +82,11 @@ class PrisonerFormState(initial: Prisoner?) {
     var address by mutableStateOf(initial?.address ?: "")
     var prisonerNumber by mutableStateOf(initial?.prisonerNumber ?: "")
     var assignedKioskId by mutableStateOf(initial?.assignedKioskId ?: "")
+    var assignedKioskIds by mutableStateOf(
+        initial?.assignedKioskIds?.filter { it.isNotBlank() }?.distinct()?.toSet()
+            ?: listOfNotNull(initial?.assignedKioskId?.takeIf { it.isNotBlank() }).toSet()
+    )
+    var allKiosks by mutableStateOf(initial?.allKiosks ?: false)
     var active by mutableStateOf(initial?.active ?: true)
 
     /**
@@ -88,8 +95,23 @@ class PrisonerFormState(initial: Prisoner?) {
      * has a kiosk keeps it.
      */
     fun applyDefaultKiosk(kioskId: String) {
-        if (kioskId.isBlank()) return
-        if (assignedKioskId.isBlank()) assignedKioskId = kioskId
+        if (kioskId.isBlank() || allKiosks || assignedKioskIds.isNotEmpty()) return
+        assignedKioskIds = setOf(kioskId)
+        assignedKioskId = kioskId
+    }
+
+    fun toggleKiosk(kioskId: String) {
+        if (allKiosks) return
+        assignedKioskIds = if (kioskId in assignedKioskIds) assignedKioskIds - kioskId else assignedKioskIds + kioskId
+        assignedKioskId = assignedKioskIds.firstOrNull().orEmpty()
+    }
+
+    fun updateAllKiosks(value: Boolean) {
+        allKiosks = value
+        if (value) {
+            assignedKioskIds = emptySet()
+            assignedKioskId = ""
+        }
     }
 
     fun toValues(): PrisonerFormValues = PrisonerFormValues(
@@ -107,7 +129,9 @@ class PrisonerFormState(initial: Prisoner?) {
         district = district.trim().ifBlank { null },
         address = address.trim().ifBlank { null },
         prisonerNumber = prisonerNumber.trim(),
-        assignedKioskId = assignedKioskId.trim().ifBlank { null }
+        assignedKioskId = assignedKioskIds.firstOrNull()?.takeIf { it.isNotBlank() },
+        assignedKioskIds = assignedKioskIds.filter { it.isNotBlank() }.distinct(),
+        allKiosks = allKiosks
     )
 
     /**
@@ -132,7 +156,7 @@ class PrisonerFormState(initial: Prisoner?) {
         if (values.idNumber.isNullOrBlank()) return "ID number is required"
         if (values.dateOfAdmission.isNullOrBlank()) return "Admission date is required"
         if (values.prisonerNumber.isBlank()) return "Inmate number is required"
-        if (values.assignedKioskId.isNullOrBlank()) return "Assigned kiosk is required"
+        if (!values.allKiosks && values.assignedKioskIds.isEmpty()) return "Select at least one kiosk or All kiosks"
         return ""
     }
 
@@ -308,21 +332,59 @@ fun IdentityAdmissionCard(
             imeAction = androidx.compose.ui.text.input.ImeAction.Next
         )
 
-        KioskSelectField(
-            value = state.assignedKioskId,
-            onValueChange = { state.assignedKioskId = it },
-            label = "Assigned Kiosk",
-            options = listOf("") + kioskOptions.map { it.kioskId },
-            placeholder = "Select kiosk",
-            required = true,
-            display = { id ->
-                if (id.isBlank()) "Select kiosk"
-                else kioskOptions.find { it.kioskId == id }
-                    ?.location?.takeIf { it.isNotBlank() }
-                    ?.let { "$id · $it" } ?: id
-            },
-            modifier = Modifier.fillMaxWidth()
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Checkbox(
+                checked = state.allKiosks,
+                onCheckedChange = { state.updateAllKiosks(it) }
+            )
+            Text(
+                text = "All kiosks",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                color = PrimaryDarkNavy
+            )
+        }
+
+        Text(
+            text = if (state.allKiosks)
+                "This inmate will be visible at every kiosk in the prison."
+            else "Assigned kiosks * — select one or more",
+            fontSize = 12.sp,
+            color = TextGray
         )
+
+        if (!state.allKiosks) {
+            val kioskIds = (kioskOptions.map { it.kioskId } + state.assignedKioskIds)
+                .filter { it.isNotBlank() }
+                .distinct()
+            if (kioskIds.isEmpty()) {
+                Text("No kiosks available", fontSize = 13.sp, color = DangerRed)
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    kioskIds.forEach { id ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = id in state.assignedKioskIds,
+                                onCheckedChange = { state.toggleKiosk(id) }
+                            )
+                            Text(
+                                text = kioskOptions.find { it.kioskId == id }
+                                    ?.location?.takeIf { it.isNotBlank() }
+                                    ?.let { "$id · $it" } ?: id,
+                                fontSize = 13.sp,
+                                color = PrimaryDarkNavy
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

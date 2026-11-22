@@ -307,6 +307,7 @@ fun KioskNavHost(
             val prisonerId = backStackEntry.arguments?.getString("prisonerId") ?: ""
             val prisonerName = backStackEntry.arguments?.getString("prisonerName") ?: ""
             com.dssmeet.kiosk.ui.admin.BiometricRegistrationScreen(
+                windowSizeClass = windowSizeClass,
                 prisonerId = prisonerId,
                 prisonerName = prisonerName,
                 onBackClick = { navController.popBackStack() }

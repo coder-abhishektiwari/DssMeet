@@ -3,9 +3,11 @@ package com.dssmeet.kiosk.ui.admin
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.dssmeet.kiosk.hardware.FingerprintHardwareManager
+import com.dssmeet.kiosk.hardware.FingerprintTemplateValidator
 import com.dssmeet.kiosk.hardware.RfidReaderManager
 import com.dssmeet.kiosk.models.admin.CreatePrisonerRequest
 import com.dssmeet.kiosk.models.admin.KioskDevice
+import com.dssmeet.kiosk.models.admin.MAX_FINGERPRINT_TEMPLATES
 import com.dssmeet.kiosk.network.NetworkResult
 import com.dssmeet.kiosk.repository.AdminRepository
 import com.dssmeet.kiosk.repository.AuthRepository
@@ -49,6 +51,7 @@ class AddPrisonerViewModel @Inject constructor(
     /** Live hardware sessions consumed by the Security step's capture dialogs. */
     val rfidState = rfidReaderManager.state
     val fingerprintState = fingerprintHardwareManager.captureState
+    val fingerDetected = fingerprintHardwareManager.fingerDetected
 
     fun startCapture(type: String) {
         if (type == "rfid") rfidReaderManager.startSession(HARDWARE_OWNER)
@@ -72,7 +75,7 @@ class AddPrisonerViewModel @Inject constructor(
     fun registerPrisoner(
         values: com.dssmeet.kiosk.models.admin.PrisonerFormValues,
         pin: String,
-        fingerprintTemplate: String? = null,
+        fingerprintTemplates: List<String>? = null,
         rfidTag: String? = null,
         familyContacts: List<com.dssmeet.kiosk.models.admin.FamilyContactPayload>? = null
     ) {
@@ -84,11 +87,27 @@ class AddPrisonerViewModel @Inject constructor(
             _registrationState.value = RegistrationState.Error("PIN must be exactly 6 digits")
             return
         }
-        if (fingerprintTemplate.isNullOrBlank() && rfidTag.isNullOrBlank()) {
+        val templates = fingerprintTemplates?.map { it.trim() }?.filter { it.isNotBlank() }.orEmpty()
+        if (templates.isEmpty() && rfidTag.isNullOrBlank()) {
             _registrationState.value = RegistrationState.Error(
                 "Register at least one biometric — fingerprint or RFID"
             )
             return
+        }
+        if (templates.size > MAX_FINGERPRINT_TEMPLATES) {
+            _registrationState.value = RegistrationState.Error(
+                "Maximum $MAX_FINGERPRINT_TEMPLATES fingerprints are allowed"
+            )
+            return
+        }
+        for (template in templates) {
+            val templateError = FingerprintTemplateValidator.validationError(template)
+            if (templateError != null) {
+                _registrationState.value = RegistrationState.Error(
+                    "Fingerprint template rejected: $templateError"
+                )
+                return
+            }
         }
 
         _registrationState.value = RegistrationState.Loading
@@ -110,7 +129,9 @@ class AddPrisonerViewModel @Inject constructor(
             address = values.address,
             pin = pin.ifBlank { null },
             assignedKioskId = values.assignedKioskId,
-            fingerprintTemplate = fingerprintTemplate?.ifBlank { null },
+            assignedKioskIds = values.assignedKioskIds,
+            allKiosks = values.allKiosks,
+            fingerprintTemplates = templates.ifEmpty { null },
             rfidTag = rfidTag?.ifBlank { null },
             familyContacts = familyContacts?.ifEmpty { null }
         )

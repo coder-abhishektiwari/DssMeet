@@ -5,7 +5,7 @@ const { readDb, updateDb } = require('../lib/db');
 const { signAccessToken } = require('../lib/auth');
 const { requireAuth } = require('../middleware/auth');
 const { sendSuccess, sendError, asyncRoute } = require('../lib/response');
-const { inAdminScope, adminScopeFilter, inScopeOf, scopeList, kioskScopeOf } = require('../lib/scoping');
+const { inAdminScope, adminScopeFilter, inScopeOf, scopeList, kioskScopeOf, assignedKioskIdsOf } = require('../lib/scoping');
 const { sendSms, otpTemplateVars, linkTemplateVars } = require('../lib/sms');
 const { maskedPhone, contactPhone, buildLinkSms, buildCallLink } = require('../lib/familySecurity');
 const { paginate } = require('../lib/paginate');
@@ -289,7 +289,7 @@ async function finalizeCall(call, requestedEndTimeMs, broadcastEvent, endReason,
         const inmates = await readDb('inmates.json');
         const inmate =
           inmates.find((i) => i.inmateId === claimed.inmateId) ||
-          inmates.find((i) => i.assignedKioskId === claimed.inmateId) ||
+          inmates.find((i) => assignedKioskIdsOf(i).includes(String(claimed.inmateId))) ||
           null;
         const wallets = await readDb('wallets.json');
         let wallet = pickWallet(wallets, claimed.inmateId, inmate?.walletId);
@@ -533,7 +533,7 @@ function createCallsRouter(broadcastEvent, signaling) {
       readDb('calls.json'), readDb('inmates.json'), readDb('contacts.json')
     ]);
     const inmate = inmates.find((i) => i.inmateId === id) ||
-                   inmates.find((i) => i.assignedKioskId === id) ||
+                   inmates.find((i) => assignedKioskIdsOf(i).includes(String(id))) ||
                    inmates.find((i) => i.prisonerNumber === id);
     if (!inmate || !(await inScopeOf(req, inmate))) {
       return sendError(res, 'NOT_FOUND', 'Inmate not found in your kiosk/jail', 404);
@@ -935,7 +935,7 @@ async function sweepExhaustedBalance(broadcastEvent, signaling) {
       if (rate <= 0) continue;
 
       const inmate = inmates.find((i) => i.inmateId === call.inmateId) ||
-        inmates.find((i) => i.assignedKioskId === call.inmateId) || null;
+        inmates.find((i) => assignedKioskIdsOf(i).includes(String(call.inmateId))) || null;
       const wallet = pickWallet(wallets, call.inmateId, inmate?.walletId);
       if (!wallet) continue;
 

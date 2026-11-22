@@ -48,7 +48,6 @@ import com.dssmeet.kiosk.ui.components.KioskTextField
 import com.dssmeet.kiosk.ui.components.KioskTopBar
 import com.dssmeet.kiosk.ui.theme.PrisonKioskTheme
 import androidx.compose.ui.text.input.ImeAction
-import kotlin.time.Duration.Companion.milliseconds
 
 @Composable
 fun LoginScreen(
@@ -126,7 +125,6 @@ fun LoginScreen(
                         windowSizeClass = windowSizeClass,
                         onFingerprintClick = { viewModel.startFingerprintAuth() },
                         onRfidClick = { viewModel.startRfidAuth() },
-                        onPrisonerIdClick = { viewModel.startPrisonerIdEntry() },
                         onAdminClick = { viewModel.startAdminAuth() },
                         needsBootstrap = needsBootstrap,
                         onCreateLoginClick = { viewModel.startAdminCreate() }
@@ -158,17 +156,20 @@ fun LoginScreen(
                         onCancel = { viewModel.resetToSelection() }
                     )
                     LoginStage.ADMIN_USERNAME_ENTRY -> AdminUsernameEntryLayout(
+                        windowSizeClass = windowSizeClass,
                         uiState = uiState,
                         onUsernameSubmit = { viewModel.onAdminUsernameSubmit(it) },
                         onCancel = { viewModel.resetToSelection() }
                     )
                     LoginStage.ADMIN_PIN_ENTRY -> AdminPinEntryLayout(
+                        windowSizeClass = windowSizeClass,
                         adminName = admin?.name ?: "Admin",
                         uiState = uiState,
                         onPinSubmit = { viewModel.onAdminPasswordSubmit(it) },
                         onCancel = { viewModel.resetToSelection() }
                     )
                     LoginStage.ADMIN_CREATE_ENTRY -> AdminCreateLoginLayout(
+                        windowSizeClass = windowSizeClass,
                         uiState = uiState,
                         onCreateSubmit = { n, u, e, p -> viewModel.onAdminCreateSubmit(n, u, e, p) },
                         onCancel = { viewModel.resetToSelection() }
@@ -338,64 +339,88 @@ fun RfidScanningLayout(
 
 @Composable
 fun AdminUsernameEntryLayout(
+    windowSizeClass: WindowSizeClass,
     uiState: UiState<Unit>,
     onUsernameSubmit: (String) -> Unit,
     onCancel: () -> Unit
 ) {
     var username by remember { mutableStateOf("") }
 
-    Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+    BoxWithConstraints(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
     ) {
-        Icon(
-            imageVector = Icons.Default.AdminPanelSettings,
-            contentDescription = null,
-            tint = PrimaryNavy,
-            modifier = Modifier.size(80.dp)
-        )
+        val compactHeight = maxHeight < 560.dp ||
+            windowSizeClass.heightSizeClass == WindowHeightSizeClass.Compact
+        val contentWidth = minOf(maxWidth - 48.dp, 520.dp).coerceAtLeast(240.dp)
+        val iconSize = (maxHeight * 0.16f).coerceIn(52.dp, 80.dp)
+        val titleSize = if (maxWidth < 420.dp) 24.sp else 28.sp
+        val subtitleSize = if (compactHeight) 14.sp else 18.sp
+        val fieldGap = if (compactHeight) 16.dp else 24.dp
+        val buttonHeight = if (compactHeight) 48.dp else 56.dp
 
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Text("Admin Login", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = PrimaryDarkNavy)
-        Text("Enter your username or Employee ID", fontSize = 20.sp, color = TextGray, modifier = Modifier.padding(top = 8.dp))
-
-        Spacer(modifier = Modifier.height(48.dp))
-
-        KioskTextField(
-            value = username,
-            onValueChange = { username = it },
-            label = "Username / Employee ID",
-            required = true,
-            placeholder = "e.g. empsa003",
-            leadingIcon = Icons.Default.Person,
-            imeAction = ImeAction.Next
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Button(
-            onClick = {
-                if (username.isNotEmpty()) {
-                    onUsernameSubmit(username)
-                }
-            },
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp),
-            shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = PrimaryNavy, contentColor = Color.White),
-            enabled = username.isNotEmpty()
+                .width(contentWidth)
+                .verticalScroll(rememberScrollState())
+                .padding(vertical = if (compactHeight) 10.dp else 20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
         ) {
-            Text("Continue to Password", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
-            Spacer(modifier = Modifier.width(8.dp))
-            Icon(Icons.AutoMirrored.Default.ArrowForward, contentDescription = null, tint = Color.White)
-        }
+            Icon(
+                imageVector = Icons.Default.AdminPanelSettings,
+                contentDescription = null,
+                tint = PrimaryNavy,
+                modifier = Modifier.size(iconSize)
+            )
 
-        Spacer(modifier = Modifier.height(16.dp))
-        TextButton(onClick = onCancel) {
-            Text("<- Back to Login Methods", color = PrimaryBlue, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(fieldGap))
+
+            Text("Admin Login", fontSize = titleSize, fontWeight = FontWeight.Bold, color = PrimaryDarkNavy)
+            Text(
+                "Enter your username or Employee ID",
+                fontSize = subtitleSize,
+                color = TextGray,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 6.dp)
+            )
+
+            Spacer(modifier = Modifier.height(fieldGap))
+
+            KioskTextField(
+                value = username,
+                onValueChange = { username = it },
+                label = "Username / Employee ID",
+                required = true,
+                placeholder = "e.g. empsa003",
+                leadingIcon = Icons.Default.Person,
+                imeAction = ImeAction.Next
+            )
+
+            Spacer(modifier = Modifier.height(fieldGap))
+
+            Button(
+                onClick = {
+                    if (username.isNotEmpty()) {
+                        onUsernameSubmit(username)
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(buttonHeight),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = PrimaryNavy, contentColor = Color.White),
+                enabled = username.isNotEmpty() && uiState !is UiState.Loading
+            ) {
+                Text("Continue to Password", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                Spacer(modifier = Modifier.width(8.dp))
+                Icon(Icons.AutoMirrored.Default.ArrowForward, contentDescription = null, tint = Color.White)
+            }
+
+            Spacer(modifier = Modifier.height(if (compactHeight) 10.dp else 16.dp))
+            TextButton(onClick = onCancel) {
+                Text("<- Back to Login Methods", color = PrimaryBlue, fontWeight = FontWeight.Bold)
+            }
         }
     }
 }
@@ -419,7 +444,7 @@ fun FingerprintScanningLayout(
         uiState is UiState.Loading
     val isDeviceError = device == null ||
         !hasPermission ||
-        captureState is FingerprintCaptureState.Failed
+        (captureState is FingerprintCaptureState.Failed && captureState.deviceFault)
 
     val statusText = when {
         fingerprintMismatch -> "Fingerprint not recognized. Try again."
@@ -498,14 +523,7 @@ fun FingerprintScanningLayout(
                             modifier = Modifier.size(28.dp)
                         )
                         Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = statusText,
-                            fontWeight = FontWeight.Medium,
-                            textAlign = TextAlign.Center,
-                            color = DangerRed,
-                            fontSize = 14.sp
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
+
                         Text(
                             text = "Please call the admin.",
                             textAlign = TextAlign.Center,
@@ -540,7 +558,6 @@ fun WelcomeSelectionLayout(
     windowSizeClass: WindowSizeClass,
     onFingerprintClick: () -> Unit,
     onRfidClick: () -> Unit,
-    onPrisonerIdClick: () -> Unit,
     onAdminClick: () -> Unit,
     needsBootstrap: Boolean = false,
     onCreateLoginClick: () -> Unit = {}
@@ -741,6 +758,7 @@ fun PinEntryLayout(
 
 @Composable
 fun AdminPinEntryLayout(
+    windowSizeClass: WindowSizeClass,
     adminName: String,
     uiState: UiState<Unit>,
     onPinSubmit: (String) -> Unit,
@@ -748,58 +766,88 @@ fun AdminPinEntryLayout(
 ) {
     var password by remember { mutableStateOf("") }
 
-    Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+    BoxWithConstraints(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
     ) {
-        Icon(
-            imageVector = Icons.Default.AdminPanelSettings,
-            contentDescription = null,
-            tint = PrimaryNavy,
-            modifier = Modifier.size(80.dp)
-        )
+        val compactHeight = maxHeight < 560.dp ||
+            windowSizeClass.heightSizeClass == WindowHeightSizeClass.Compact
+        val contentWidth = minOf(maxWidth - 48.dp, 520.dp).coerceAtLeast(240.dp)
+        val iconSize = (maxHeight * 0.16f).coerceIn(52.dp, 80.dp)
+        val titleSize = if (maxWidth < 420.dp) 24.sp else 28.sp
+        val subtitleSize = if (compactHeight) 14.sp else 18.sp
+        val bodySize = if (compactHeight) 13.sp else 15.sp
+        val fieldGap = if (compactHeight) 16.dp else 24.dp
+        val buttonHeight = if (compactHeight) 48.dp else 56.dp
 
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Text("Admin Access", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = PrimaryDarkNavy)
-        Text("Welcome, $adminName", fontSize = 20.sp, color = TextGray, modifier = Modifier.padding(top = 8.dp))
-        Text("Enter your password to continue", fontSize = 16.sp, color = TextGray, modifier = Modifier.padding(top = 16.dp))
-
-        Spacer(modifier = Modifier.height(48.dp))
-
-        KioskPasswordField(
-            value = password,
-            onValueChange = { password = it },
-            label = "Password",
-            required = true,
-            errorText = if (uiState is UiState.Error) "Incorrect password" else null,
-            imeAction = ImeAction.Done
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Button(
-            onClick = {
-                if (password.isNotEmpty()) {
-                    onPinSubmit(password)
-                }
-            },
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp),
-            shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = PrimaryNavy, contentColor = Color.White),
-            enabled = password.isNotEmpty()
+                .width(contentWidth)
+                .verticalScroll(rememberScrollState())
+                .padding(vertical = if (compactHeight) 10.dp else 20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
         ) {
-            Text("Login", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
-            Spacer(modifier = Modifier.width(8.dp))
-            Icon(Icons.AutoMirrored.Default.ArrowForward, contentDescription = null, tint = Color.White)
-        }
+            Icon(
+                imageVector = Icons.Default.AdminPanelSettings,
+                contentDescription = null,
+                tint = PrimaryNavy,
+                modifier = Modifier.size(iconSize)
+            )
 
-        Spacer(modifier = Modifier.height(16.dp))
-        TextButton(onClick = onCancel) {
-            Text("<- Back to Login Methods", color = PrimaryBlue, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(fieldGap))
+
+            Text("Admin Access", fontSize = titleSize, fontWeight = FontWeight.Bold, color = PrimaryDarkNavy)
+            Text(
+                "Welcome, $adminName",
+                fontSize = subtitleSize,
+                color = TextGray,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 6.dp)
+            )
+            Text(
+                "Enter your password to continue",
+                fontSize = bodySize,
+                color = TextGray,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = if (compactHeight) 8.dp else 12.dp)
+            )
+
+            Spacer(modifier = Modifier.height(fieldGap))
+
+            KioskPasswordField(
+                value = password,
+                onValueChange = { password = it },
+                label = "Password",
+                required = true,
+                errorText = if (uiState is UiState.Error) "Incorrect password" else null,
+                imeAction = ImeAction.Done
+            )
+
+            Spacer(modifier = Modifier.height(fieldGap))
+
+            Button(
+                onClick = {
+                    if (password.isNotEmpty()) {
+                        onPinSubmit(password)
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(buttonHeight),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = PrimaryNavy, contentColor = Color.White),
+                enabled = password.isNotEmpty() && uiState !is UiState.Loading
+            ) {
+                Text("Login", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                Spacer(modifier = Modifier.width(8.dp))
+                Icon(Icons.AutoMirrored.Default.ArrowForward, contentDescription = null, tint = Color.White)
+            }
+
+            Spacer(modifier = Modifier.height(if (compactHeight) 10.dp else 16.dp))
+            TextButton(onClick = onCancel) {
+                Text("<- Back to Login Methods", color = PrimaryBlue, fontWeight = FontWeight.Bold)
+            }
         }
     }
 }
@@ -818,6 +866,7 @@ private val AdminEmailRegex = Regex("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$")
  */
 @Composable
 fun AdminCreateLoginLayout(
+    windowSizeClass: WindowSizeClass,
     uiState: UiState<Unit>,
     onCreateSubmit: (name: String, employeeId: String, email: String, password: String) -> Unit,
     onCancel: () -> Unit
@@ -828,9 +877,6 @@ fun AdminCreateLoginLayout(
     var password by remember { mutableStateOf("") }
     var submitted by remember { mutableStateOf(false) }
 
-    // Required-field errors appear on submit (the button is always tappable, so
-    // a tap reveals what is missing); format errors show live once a value is
-    // typed — same rules, same messages as the warden dashboard.
     val nameError = if (submitted && name.isBlank()) "Name is required" else null
     val employeeIdError = when {
         submitted && employeeId.isBlank() -> "Username is required"
@@ -850,99 +896,119 @@ fun AdminCreateLoginLayout(
         password.length >= 6 &&
         (email.isBlank() || AdminEmailRegex.matches(email.trim()))
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+    BoxWithConstraints(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
     ) {
-        Icon(
-            imageVector = Icons.Default.AdminPanelSettings,
-            contentDescription = null,
-            tint = PrimaryNavy,
-            modifier = Modifier.size(64.dp)
-        )
+        val compactHeight = maxHeight < 560.dp ||
+            windowSizeClass.heightSizeClass == WindowHeightSizeClass.Compact
+        val contentWidth = minOf(maxWidth - 48.dp, 600.dp).coerceAtLeast(240.dp)
+        val iconSize = (maxHeight * 0.12f).coerceIn(44.dp, 64.dp)
+        val titleSize = if (maxWidth < 420.dp) 24.sp else 28.sp
+        val subtitleSize = if (compactHeight) 13.sp else 15.sp
+        val fieldGap = if (compactHeight) 10.dp else 14.dp
+        val buttonHeight = if (compactHeight) 48.dp else 56.dp
 
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Text("Create Admin Login", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = PrimaryDarkNavy)
-        Text(
-            "Set up the first admin account for this jail",
-            fontSize = 16.sp,
-            color = TextGray,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.padding(top = 8.dp)
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        KioskTextField(
-            value = name,
-            onValueChange = { name = it },
-            label = "Full name",
-            required = true,
-            placeholder = "e.g. Neha Gupta",
-            errorText = nameError,
-            leadingIcon = Icons.Default.Person,
-            imeAction = ImeAction.Next
-        )
-
-        KioskTextField(
-            value = employeeId,
-            onValueChange = { employeeId = it },
-            label = "Username (employee ID)",
-            required = true,
-            placeholder = "e.g. empsa003",
-            helperText = "What the operator types on the kiosk to sign in.",
-            errorText = employeeIdError,
-            leadingIcon = Icons.Default.Badge,
-            imeAction = ImeAction.Next
-        )
-
-        KioskTextField(
-            value = email,
-            onValueChange = { email = it },
-            label = "Email (optional)",
-            placeholder = "name@dssmeet.io",
-            errorText = emailError,
-            leadingIcon = Icons.Default.Email,
-            keyboardType = androidx.compose.ui.text.input.KeyboardType.Email,
-            imeAction = ImeAction.Next
-        )
-
-        KioskPasswordField(
-            value = password,
-            onValueChange = { password = it },
-            label = "Password",
-            required = true,
-            placeholder = "At least 6 characters",
-            errorText = passwordError,
-            imeAction = ImeAction.Done
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Button(
-            onClick = {
-                submitted = true
-                if (isValid) onCreateSubmit(name, employeeId, email, password)
-            },
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp),
-            shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = PrimaryNavy, contentColor = Color.White),
-            enabled = uiState !is UiState.Loading
+                .width(contentWidth)
+                .verticalScroll(rememberScrollState())
+                .padding(vertical = if (compactHeight) 10.dp else 20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text("Create & Sign In", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
-            Spacer(modifier = Modifier.width(8.dp))
-            Icon(Icons.AutoMirrored.Default.ArrowForward, contentDescription = null, tint = Color.White)
-        }
+            Icon(
+                imageVector = Icons.Default.AdminPanelSettings,
+                contentDescription = null,
+                tint = PrimaryNavy,
+                modifier = Modifier.size(iconSize)
+            )
 
-        Spacer(modifier = Modifier.height(16.dp))
-        TextButton(onClick = onCancel) {
-            Text("<- Back to Login Methods", color = PrimaryBlue, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(if (compactHeight) 8.dp else 12.dp))
+
+            Text("Create Admin Login", fontSize = titleSize, fontWeight = FontWeight.Bold, color = PrimaryDarkNavy)
+            Text(
+                "Set up the first admin account for this jail",
+                fontSize = subtitleSize,
+                color = TextGray,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 6.dp)
+            )
+
+            Spacer(modifier = Modifier.height(if (compactHeight) 16.dp else 24.dp))
+
+            KioskTextField(
+                value = name,
+                onValueChange = { name = it },
+                label = "Full name",
+                required = true,
+                placeholder = "e.g. Neha Gupta",
+                errorText = nameError,
+                leadingIcon = Icons.Default.Person,
+                imeAction = ImeAction.Next
+            )
+
+            Spacer(modifier = Modifier.height(fieldGap))
+
+            KioskTextField(
+                value = employeeId,
+                onValueChange = { employeeId = it },
+                label = "Username (employee ID)",
+                required = true,
+                placeholder = "e.g. empsa003",
+                helperText = "What the operator types on the kiosk to sign in.",
+                errorText = employeeIdError,
+                leadingIcon = Icons.Default.Badge,
+                imeAction = ImeAction.Next
+            )
+
+            Spacer(modifier = Modifier.height(fieldGap))
+
+            KioskTextField(
+                value = email,
+                onValueChange = { email = it },
+                label = "Email (optional)",
+                placeholder = "name@dssmeet.io",
+                errorText = emailError,
+                leadingIcon = Icons.Default.Email,
+                keyboardType = androidx.compose.ui.text.input.KeyboardType.Email,
+                imeAction = ImeAction.Next
+            )
+
+            Spacer(modifier = Modifier.height(fieldGap))
+
+            KioskPasswordField(
+                value = password,
+                onValueChange = { password = it },
+                label = "Password",
+                required = true,
+                placeholder = "At least 6 characters",
+                errorText = passwordError,
+                imeAction = ImeAction.Done
+            )
+
+            Spacer(modifier = Modifier.height(if (compactHeight) 16.dp else 24.dp))
+
+            Button(
+                onClick = {
+                    submitted = true
+                    if (isValid) onCreateSubmit(name, employeeId, email, password)
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(buttonHeight),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = PrimaryNavy, contentColor = Color.White),
+                enabled = uiState !is UiState.Loading
+            ) {
+                Text("Create & Sign In", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                Spacer(modifier = Modifier.width(8.dp))
+                Icon(Icons.AutoMirrored.Default.ArrowForward, contentDescription = null, tint = Color.White)
+            }
+
+            Spacer(modifier = Modifier.height(if (compactHeight) 10.dp else 16.dp))
+            TextButton(onClick = onCancel) {
+                Text("<- Back to Login Methods", color = PrimaryBlue, fontWeight = FontWeight.Bold)
+            }
         }
     }
 }

@@ -80,6 +80,8 @@ const template = (seed) => {
 };
 const TEMPLATE = template(7);
 const TEMPLATE_NEW = template(9);
+const TEMPLATE_2 = template(11);
+const TEMPLATE_3 = template(13);
 const REAL_WORLD_SG400_TEMPLATE = '3NPvPuAAzrdwgbMgdFQIFYQsdv4eTIIG8i4Zu9JJWBLqZwA7FjVkyFRz4zbv8EkxdVOfZ6m7huKoWQIfx6ry/YpagHu7tK6NQUz3k8Mhn653KAV55hw2IBonUpxcJYyvI3dnkSCdfNnUwR6jn+MB5rcGgfbAnmW3dadg8dAWXk+IPjAjb8ML9+LLjqlbC7ZoJdD/3t4b8vxnAMSQf123+sPs/c8CoyCun05NDPcKx6S74ZtowWcHXZL0PkH1qGCKmix9/RI+n4Uml9Cq0G5hKX9GO2uQQAIbTvAiwnWBEbnmspCBWzJjxAKkG1qzW2LwGy3J668NX2AqZP9H8Gz5fBstyeuvDV9gKmT/R/Bs+XwbLcnrrw1fYCpk/0fwbPl8Gy3J668NX2AqZP9H8Gz5fBstyeuvDV9gKmT/R/Bs+XwbLcnrrw1fYCpk/0fwbPl8Gy3J668NX2AqZP9H8Gz5fBstyeuvDV9gKmT/R/Bs+XwbLcnrrw1fYCpk/0fwbPl8Gy3J668NX2AqZP9H8Gz5fA==';
 const SG400_PADDED_TEMPLATE = 'vF8DiQE1fRZWKW9uCczcAYjPZ0oY6TIB4SyL46rzT8A2INWYPykDwqWMAT+d9pKaAeG1Ure1WBFL4kfaWMDYyb9UbLVCkCr/4Oggo7f5wacX8Ywy9vxJGvLmaYYv42Qfs1D81cnD1PCs/HS4ZEo1WtKkekVS6xC1D1lqPp0YX6S8YFiwVub0UzbSqZWQFHhA8cAL8LmQEw2xaScQL73BtRP4yMxcORzc4YQdZ5UhxbDb3HSGtbewxNoRzJaZQrrtAXr1SSzOxRwNSQDAUtwm97Uljg8m7Uee/2bjCFEbtJescpaCwu1DyaB0RhkPDqTzqW8uXXsC46V77+PJj5EnTRstyeuvDV9gKmT/R/Bs+XwbLcnrrw1fYCpk/0fwbPl8Gy3J668NX2AqZP9H8Gz5fBstyeuvDV9gKmT/R/Bs+XwbLcnrrw1fYCpk/0fwbPl8Gy3J668NX2AqZP9H8Gz5fBstyeuvDV9gKmT/R/Bs+XwbLcnrrw1fYCpk/0fwbPl8Gy3J668NX2AqZP9H8Gz5fA==';
 const BCRYPT_FP = '$2b$10$stalefingerprintdigest0000000000000000000000000000000';
@@ -361,18 +363,18 @@ describe('fingerprint templates are stored RAW, never bcrypt', () => {
     expect(res.status).toBe(200);
 
     const stored = store['inmates.json'].find((i) => i.inmateId === 'INM-OK');
-    expect(stored.biometricData.fingerprintTemplate).toBe(TEMPLATE_NEW);
     expect(stored.biometricData.fingerprintRegistered).toBe(true);
+    expect(stored.biometricData.fingerprintTemplates.map((e) => e.template)).toEqual([TEMPLATE, TEMPLATE_NEW]);
     expect(stored.biometricData.fingerprintTemplate).not.toMatch(/^\$2[aby]\$/);
   });
 
-  test('re-enrolling replaces the previous template', async () => {
+  test('re-enrolling appends the next template', async () => {
     await request(app)
       .post(bioUrl('INM-OK')).set(ip()).set(token())
       .send({ type: 'fingerprint', capture: TEMPLATE_NEW });
     const stored = store['inmates.json'].find((i) => i.inmateId === 'INM-OK');
-    expect(stored.biometricData.fingerprintTemplate).toBe(TEMPLATE_NEW);
-    expect(stored.biometricData.fingerprintTemplate).not.toBe(TEMPLATE);
+    expect(stored.biometricData.fingerprintTemplates.map((e) => e.template)).toEqual([TEMPLATE, TEMPLATE_NEW]);
+    expect(stored.biometricData.fingerprintTemplate).toBe(TEMPLATE);
   });
 
   test('a legacy bcrypt digest is rejected — it could never match a capture', async () => {
@@ -504,5 +506,114 @@ describe('PUT round-trip never loses an enrolled biometric', () => {
     expect(data(res).biometricData).not.toHaveProperty('fingerprintTemplate');
     expect(data(res).biometricData).not.toHaveProperty('rfidToken');
     expect(res.text).not.toContain(TEMPLATE);
+  });
+});
+
+describe('multiple fingerprints and kiosk assignments', () => {
+  const token = () => ({ Authorization: `Bearer ${superToken()}` });
+  const bioUrl = (id) => `/admin/prisoners/${id}/biometrics`;
+
+  test('candidates emit one record per enrolled fingerprint with the unchanged contract', async () => {
+    store['inmates.json'][0].biometricData = {
+      fingerprintRegistered: true,
+      fingerprintTemplate: TEMPLATE_2,
+      fingerprintTemplates: [
+        { biometricId: 'BIO-INM-OK-FGP-1', template: TEMPLATE_2 },
+        { biometricId: 'BIO-INM-OK-FGP-2', template: TEMPLATE_3 }
+      ],
+      rfidRegistered: false
+    };
+
+    const res = await candidates(KIOSK);
+    expect(res.status).toBe(200);
+    const mine = data(res).filter((c) => c.inmateId === 'INM-OK');
+    expect(mine.map((c) => c.fingerprintTemplate)).toEqual([TEMPLATE_2, TEMPLATE_3]);
+    expect(Object.keys(mine[0]).sort()).toEqual([
+      'fingerprintTemplate', 'facility', 'inmateId', 'name', 'photoUrl', 'prisonId', 'status'
+    ].sort());
+  });
+
+  test('biometrics endpoint appends up to three fingerprints and rejects the fourth', async () => {
+    const first = await request(app).post(bioUrl('INM-OK')).set(ip()).set(token())
+      .send({ type: 'fingerprint', capture: TEMPLATE_2 });
+    expect(first.status).toBe(200);
+
+    const second = await request(app).post(bioUrl('INM-OK')).set(ip()).set(token())
+      .send({ type: 'fingerprint', capture: TEMPLATE_3 });
+    expect(second.status).toBe(200);
+
+    const third = await request(app).post(bioUrl('INM-OK')).set(ip()).set(token())
+      .send({ type: 'fingerprint', capture: template(17) });
+    expect(third.status).toBe(409);
+    expect(third.body.error.code).toBe('FINGERPRINT_LIMIT');
+
+    const stored = store['inmates.json'].find((i) => i.inmateId === 'INM-OK');
+    expect(stored.biometricData.fingerprintTemplates.map((e) => e.template)).toEqual([TEMPLATE, TEMPLATE_2, TEMPLATE_3]);
+    expect(stored.biometricData.fingerprintTemplate).toBe(TEMPLATE);
+  });
+
+  test('deleting one fingerprint keeps the others', async () => {
+    await request(app).post(bioUrl('INM-OK')).set(ip()).set(token())
+      .send({ type: 'fingerprint', capture: TEMPLATE_2 });
+    await request(app).post(bioUrl('INM-OK')).set(ip()).set(token())
+      .send({ type: 'fingerprint', capture: TEMPLATE_3 });
+
+    const res = await request(app)
+      .delete(`/admin/biometrics/BIO-INM-OK-FGP-2?prisonerId=INM-OK`).set(ip()).set(token());
+    expect(res.status).toBe(200);
+
+    const stored = store['inmates.json'].find((i) => i.inmateId === 'INM-OK');
+    expect(stored.biometricData.fingerprintTemplates.map((e) => e.template)).toEqual([TEMPLATE, TEMPLATE_3]);
+    expect(stored.biometricData.fingerprintTemplate).toBe(TEMPLATE);
+    expect(stored.biometricData.fingerprintRegistered).toBe(true);
+
+    const listed = await request(app).get(bioUrl('INM-OK')).set(ip()).set(token());
+    expect(listed.status).toBe(200);
+    expect(data(listed).filter((b) => b.type === 'fingerprint')).toHaveLength(2);
+  });
+
+  test('create accepts multiple top-level templates and multi-kiosk assignment', async () => {
+    const res = await request(app).post('/inmates').set(ip()).set(token()).send({
+      inmateId: 'INM-MULTI',
+      name: 'Multi Pati',
+      prisonId: PRISON,
+      assignedKioskIds: [KIOSK, KIOSK],
+      status: 'active',
+      fingerprintTemplates: [TEMPLATE_2, TEMPLATE_3]
+    });
+    expect(res.status).toBe(201);
+
+    const stored = store['inmates.json'].find((i) => i.inmateId === 'INM-MULTI');
+    expect(stored.assignedKioskIds).toEqual([KIOSK]);
+    expect(stored.assignedKioskId).toBe(KIOSK);
+    expect(stored.allKiosks).toBe(false);
+    expect(stored.biometricData.fingerprintTemplates.map((e) => e.template)).toEqual([TEMPLATE_2, TEMPLATE_3]);
+    expect(stored.biometricData.fingerprintTemplate).toBe(TEMPLATE_2);
+    expect(stored).not.toHaveProperty('fingerprintTemplates');
+    expect(data(res).fingerprintCount).toBe(2);
+    expect(res.text).not.toContain(TEMPLATE_2);
+  });
+
+  test('allKiosks clears the list and makes the inmate visible from another kiosk', async () => {
+    store['kiosks.json'].find((k) => k.kioskId === KIOSK_B).prisonId = PRISON;
+    const res = await request(app).post('/inmates').set(ip()).set(token()).send({
+      inmateId: 'INM-ALL',
+      name: 'All Kiosk Pati',
+      prisonId: PRISON,
+      allKiosks: true,
+      assignedKioskIds: [KIOSK],
+      status: 'active',
+      fingerprintTemplates: [TEMPLATE_2]
+    });
+    expect(res.status).toBe(201);
+
+    const stored = store['inmates.json'].find((i) => i.inmateId === 'INM-ALL');
+    expect(stored.allKiosks).toBe(true);
+    expect(stored.assignedKioskIds).toEqual([]);
+    expect(stored.assignedKioskId).toBeNull();
+
+    const listed = await candidates(KIOSK_B);
+    expect(listed.status).toBe(200);
+    expect(data(listed).some((c) => c.inmateId === 'INM-ALL')).toBe(true);
   });
 });

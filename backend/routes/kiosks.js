@@ -4,7 +4,7 @@ const { readDb, updateDb } = require('../lib/db');
 const { hashSecret, verifySecret, verifyToken, signAccessToken } = require('../lib/auth');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { sendSuccess, sendError, asyncRoute } = require('../lib/response');
-const { jailScopeOf, inAdminScope, adminScopeFilter, inScopeOf, scopeList } = require('../lib/scoping');
+const { jailScopeOf, inAdminScope, adminScopeFilter, inScopeOf, scopeList, assignedKioskIdsOf, isInmateAssignedToKiosk } = require('../lib/scoping');
 const { paginate } = require('../lib/paginate');
 const { buildInmateIndex } = require('../lib/kioskView');
 const { checkRateLimit } = require('../lib/rateLimitStore');
@@ -674,7 +674,7 @@ router.get('/:kioskId/stats', requireAuth, requireRole('admin', 'warden', 'super
   }
 
   const inScope = adminScopeFilter(req);
-  const registered = inmates.filter((i) => i.assignedKioskId === kiosk.kioskId && inScope(i));
+  const registered = inmates.filter((i) => isInmateAssignedToKiosk(i, kiosk.kioskId) && inScope(i));
 
   const placed = calls.filter((c) => c.kioskId === kiosk.kioskId && inScope(c) && PLACED_CALL_STATES.includes(c.status));
   const now = new Date();
@@ -817,7 +817,7 @@ router.delete('/:kioskId', requireAuth, requireRole('admin', 'warden', 'super-ad
   // Deleting a device that still holds prisoners would silently unassign all of
   // them (inmates.kiosk_id is SET NULL), so the roster has to be emptied first.
   const inmates = await readDb('inmates.json');
-  const assigned = inmates.filter((i) => i.assignedKioskId === kiosk.kioskId);
+  const assigned = inmates.filter((i) => assignedKioskIdsOf(i).includes(kiosk.kioskId));
   if (assigned.length) {
     return sendError(
       res, 'CONFLICT',

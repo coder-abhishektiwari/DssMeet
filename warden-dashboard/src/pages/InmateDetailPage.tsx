@@ -2,14 +2,13 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Card } from '@/components/Card';
 import { Skeleton, SkeletonList, SkeletonText } from '@/components/Skeleton';
-import { SearchableSelect } from '@/components/SearchableSelect';
 import { LocationLink } from '@/components/LocationLink';
 import { wardenApi, cacheKeys } from '@/services/api/wardenApi';
 import { apiClient } from '@/services/api/client';
 import { useCachedResource } from '@/hooks/useCachedResource';
 import { usePageHeader } from '@/context/PageHeaderContext';
 import { errorMessage } from '@/utils/error';
-import type { Inmate, Contact, DeviceFingerprint, ListParams } from '@/services/api/wardenApi';
+import type { Inmate, Contact, DeviceFingerprint, BiometricRecord, ListParams } from '@/services/api/wardenApi';
 
 /**
  * Android/iOS user agents never say "Samsung"/"Vivo" outright, but they do
@@ -66,6 +65,12 @@ function modelFromUserAgent(ua?: string): string | null {
 
 const digits = (v?: string) => String(v || '').replace(/\D/g, '');
 
+const assignedKioskIdsOf = (record?: Partial<Inmate> | null): string[] => {
+  if (!record) return [];
+  if (Array.isArray(record.assignedKioskIds) && record.assignedKioskIds.length) return record.assignedKioskIds;
+  return record.assignedKioskId ? [record.assignedKioskId] : [];
+};
+
 /** Select options for the inmate identity/address fields. */
 const ID_PROOF_OPTIONS = ['Aadhaar Card', 'Voter ID', 'PAN Card'];
 const RELIGION_OPTIONS = ['Hindu', 'Muslim', 'Christian', 'Sikh', 'Buddhist', 'Jain', 'Other'];
@@ -111,7 +116,7 @@ export function InmateDetailPage() {
   const [resetPinError, setResetPinError] = useState('');
   const [resetPinSuccess, setResetPinSuccess] = useState(false);
   const [nextId, setNextId] = useState<string>('');
-  const [biometrics, setBiometrics] = useState<any[]>([]);
+  const [biometrics, setBiometrics] = useState<BiometricRecord[]>([]);
   const [biometricsLoading, setBiometricsLoading] = useState(false);
   const [deletingBiometric, setDeletingBiometric] = useState<string | null>(null);
   const [biometricError, setBiometricError] = useState('');
@@ -147,7 +152,7 @@ export function InmateDetailPage() {
       apiClient.get('/kiosks').then(r => r.data?.data?.items ?? r.data?.data ?? []).catch(() => []),
       isNew ? wardenApi.getNextInmateId().catch(() => '') : Promise.resolve(''),
     ]);
-    setKioskNames(kiosks.map((k: any) => ({ id: k.kioskId, name: k.kioskId })).filter(k => k.id));
+    setKioskNames(kiosks.map((k: any) => ({ id: k.kioskId, name: k.name || k.kioskId })).filter(k => k.id));
     setNextId(generatedId || '');
   }, [isNew]);
 
@@ -163,7 +168,11 @@ export function InmateDetailPage() {
 
   const startEditInmate = () => {
     if (!inmate) return;
-    setEditData({ ...inmate });
+    setEditData({
+      ...inmate,
+      allKiosks: inmate.allKiosks === true,
+      assignedKioskIds: assignedKioskIdsOf(inmate),
+    });
     setEditingInmate(true);
   };
 
@@ -171,12 +180,19 @@ export function InmateDetailPage() {
     if (!editData.name) return;
     setSaving(true);
     try {
+      const allKiosks = editData.allKiosks === true;
+      const assignedKioskIds = allKiosks ? [] : assignedKioskIdsOf(editData);
+      const assignment = {
+        allKiosks,
+        assignedKioskIds,
+        assignedKioskId: allKiosks ? null : (assignedKioskIds[0] || null),
+      };
       if (isNew) {
-        const payload = { ...editData, inmateId: nextId, status: 'active', photoUrl: '' } as any;
+        const payload = { ...editData, ...assignment, inmateId: nextId, status: 'active', photoUrl: '' } as any;
         const saved = await wardenApi.createInmate(payload);
         if (saved) navigate(`/inmates-family/${saved.inmateId}`, { replace: true });
       } else {
-        await wardenApi.updateInmate(editData.inmateId, editData);
+        await wardenApi.updateInmate(editData.inmateId, { ...editData, ...assignment });
         await refreshInmate();
         setEditingInmate(false);
       }
@@ -396,6 +412,21 @@ export function InmateDetailPage() {
     }
   };
 
+  const biometricRows = (() => {
+    const registered = (b: BiometricRecord) => b.status?.toLowerCase() === 'registered';
+    const fingerprints = biometrics.filter((b) => b.type === 'fingerprint' && registered(b));
+    const rfid = biometrics.find((b) => b.type === 'rfid' && registered(b)) || null;
+    const rows = fingerprints.map((bio, index) => ({
+      id: bio.biometricId,
+      label: bio.label || `Fingerprint ${index + 1}`,
+      icon: 'fingerprint',
+      bio,
+    }));
+    if (!rows.length) rows.push({ id: 'fingerprint-none', label: 'Fingerprint', icon: 'fingerprint', bio: null });
+    rows.push({ id: 'rfid', label: 'RFID', icon: 'credit_card', bio: rfid });
+    return rows;
+  })();
+
   const headerIcon = useMemo(() => <span className="material-icons text-primary-600 text-xl">{isNew ? 'person_add' : 'person'}</span>, [isNew]);
   usePageHeader({
     title: isNew ? 'Add New Inmate' : (inmate?.name || 'Inmate Details'),
@@ -492,35 +523,63 @@ export function InmateDetailPage() {
     );
   };
 
-  const searchableRow = (label: string, key: keyof Inmate, icon: string, options: { id: string; name: string }[], addLabel?: string, fallbackKey?: keyof Inmate) => {
-    const val = editingInmate ? (editData[key] ?? '') : (inmate?.[key] ?? '');
-    const fallback = fallbackKey ? String(inmate?.[fallbackKey] ?? '') : '';
+  const kioskAssignmentRow = () => {
+    const allKiosks = editData.allKiosks === true;
+    const selected = assignedKioskIdsOf(editData);
     if (editingInmate) {
       return (
-        <div key={key} className="py-3 border-b border-neutral-100 last:border-0">
-          <p className="text-11 font-semibold text-neutral-500 uppercase tracking-wider mb-2">{label}</p>
-          <SearchableSelect
-            value={String(val)}
-            options={options}
-            onChange={v => setEditData({ ...editData, [key]: v })}
-            fallbackLabel={fallback}
-            onAdd={async (name) => {
-              if (key === 'assignedKioskId') {
-                setKioskNames(prev => [...prev, { id: name, name }]);
-              }
-            }}
-            addLabel={addLabel}
-            placeholder={`Select ${label}`}
-          />
+        <div className="py-3 border-b border-neutral-100 last:border-0">
+          <p className="text-11 font-semibold text-neutral-500 uppercase tracking-wider mb-2">Assigned Kiosks</p>
+          <label className="flex items-center gap-2 mb-2 text-sm text-neutral-800">
+            <input
+              type="checkbox"
+              checked={allKiosks}
+              onChange={(e) => setEditData({
+                ...editData,
+                allKiosks: e.target.checked,
+                assignedKioskIds: e.target.checked ? [] : selected,
+                assignedKioskId: e.target.checked ? null : (selected[0] || null),
+              })}
+            />
+            All kiosks
+          </label>
+          <div className={`space-y-1 ${allKiosks ? 'opacity-50 pointer-events-none' : ''}`}>
+            {kioskNames.length === 0 && <p className="text-11 text-neutral-400">No kiosks available</p>}
+            {kioskNames.map((k) => (
+              <label key={k.id} className="flex items-center gap-2 text-sm text-neutral-700">
+                <input
+                  type="checkbox"
+                  disabled={allKiosks}
+                  checked={selected.includes(k.id)}
+                  onChange={(e) => {
+                    const next = e.target.checked
+                      ? [...selected, k.id]
+                      : selected.filter((id) => id !== k.id);
+                    setEditData({
+                      ...editData,
+                      assignedKioskIds: next,
+                      assignedKioskId: next[0] || null,
+                    });
+                  }}
+                />
+                {k.name}
+              </label>
+            ))}
+          </div>
+          <p className="text-10 text-neutral-400 mt-2">Maximum {kioskNames.length} kiosks in this jail</p>
         </div>
       );
     }
+    const ids = assignedKioskIdsOf(inmate);
+    const display = inmate?.allKiosks
+      ? 'All kiosks'
+      : (ids.map((id) => kioskNames.find((k) => k.id === id)?.name || id).join(', ') || inmate?.kioskName || '—');
     return (
-      <div key={key} className="py-3 border-b border-neutral-100 last:border-0 flex items-center gap-3">
-        <span className="material-icons text-neutral-400 text-lg">{icon}</span>
+      <div className="py-3 border-b border-neutral-100 last:border-0 flex items-center gap-3">
+        <span className="material-icons text-neutral-400 text-lg">tablet_mac</span>
         <div>
-          <p className="text-11 font-semibold text-neutral-500 uppercase tracking-wider">{label}</p>
-          <p className="text-sm text-neutral-900">{fieldsPending ? <SkeletonText /> : val || '—'}</p>
+          <p className="text-11 font-semibold text-neutral-500 uppercase tracking-wider">Assigned Kiosks</p>
+          <p className="text-sm text-neutral-900">{fieldsPending ? <SkeletonText /> : display}</p>
         </div>
       </div>
     );
@@ -741,7 +800,7 @@ export function InmateDetailPage() {
           {fieldRow('State', 'state', 'map', { select: STATE_OPTIONS })}
           {fieldRow('District', 'district', 'location_city')}
           {fieldRow('Address', 'address', 'home', { textarea: true })}
-          {searchableRow('Assigned Kiosk', 'assignedKioskId', 'tablet_mac', kioskNames, '+ Add new kiosk', 'kioskName')}
+          {kioskAssignmentRow()}
 
           {/* Biometrics Section */}
           {!isNew && (
@@ -757,14 +816,10 @@ export function InmateDetailPage() {
                 <SkeletonList rows={3} />
               ) : (
                 <div className="space-y-2">
-                  {([
-                    { type: 'fingerprint', label: 'Fingerprint', icon: 'fingerprint' },
-                    { type: 'rfid', label: 'RFID', icon: 'credit_card' },
-                  ]).map(({ type, label, icon }) => {
-                    const bio = biometrics.find(b => b.type === type);
-                    const isRegistered = bio?.status?.toLowerCase() === 'registered';
+                  {biometricRows.map(({ id, label, icon, bio }) => {
+                    const isRegistered = !!bio;
                     return (
-                      <div key={type} className="flex items-center justify-between px-3 py-2.5 bg-neutral-50 rounded-lg border border-neutral-100">
+                      <div key={id} className="flex items-center justify-between px-3 py-2.5 bg-neutral-50 rounded-lg border border-neutral-100">
                         <div className="flex items-center gap-3">
                           <span className="material-icons text-neutral-500 text-lg">{icon}</span>
                           <div>
@@ -773,7 +828,7 @@ export function InmateDetailPage() {
                               {isRegistered ? 'Registered' : 'Not registered'}
                               {bio?.registeredAt && ` • ${new Date(bio.registeredAt).toLocaleDateString()}`}
                             </p>
-                            {type === 'rfid' && isRegistered && bio?.cardNumber && (
+                            {label === 'RFID' && isRegistered && bio?.cardNumber && (
                               <p className="text-11 font-mono text-neutral-600 mt-0.5">Card No: {bio.cardNumber}</p>
                             )}
                           </div>
@@ -782,7 +837,7 @@ export function InmateDetailPage() {
                           <span className={`px-2 py-0.5 rounded-full text-10 font-bold ${isRegistered ? 'bg-green-100 text-green-700' : 'bg-neutral-200 text-neutral-500'}`}>
                             {isRegistered ? 'ACTIVE' : 'NONE'}
                           </span>
-                          {isRegistered && bio && (
+                          {bio && (
                             <button
                               onClick={() => deleteBiometric(bio.biometricId)}
                               disabled={deletingBiometric === bio.biometricId}

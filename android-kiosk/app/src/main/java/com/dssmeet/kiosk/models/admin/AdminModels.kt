@@ -2,6 +2,8 @@ package com.dssmeet.kiosk.models.admin
 
 import com.google.gson.annotations.SerializedName
 
+const val MAX_FINGERPRINT_TEMPLATES = 3
+
 /**
  * Admin domain model for a prisoner.
  */
@@ -31,10 +33,14 @@ data class Prisoner(
     @SerializedName("active") val active: Boolean = true,
     @SerializedName("assignedDeviceId") val assignedDeviceId: String? = null,
     @SerializedName("assignedKioskId") val assignedKioskId: String? = null,
+    @SerializedName("assignedKioskIds") val assignedKioskIds: List<String>? = null,
+    @SerializedName("allKiosks") val allKiosks: Boolean = false,
     @SerializedName("photoUrl") val photoUrl: String? = null,
     @SerializedName("mobileNumber") val mobileNumber: String? = null,
     @SerializedName("deviceInfo") val deviceInfo: KioskDevice? = null,
     @SerializedName("approvedContactIds") val approvedContactIds: List<String>? = null,
+    @SerializedName("biometrics") val biometrics: List<BiometricRegistration>? = null,
+    @SerializedName("fingerprintCount") val fingerprintCountValue: Int? = null,
     @SerializedName("biometricData") val biometricData: BiometricData? = null,
     @SerializedName("rfidCardNumber") val rfidCardNumber: String? = null,
     @SerializedName("familyContactIds") val familyContactIds: List<String>? = null,
@@ -43,12 +49,36 @@ data class Prisoner(
 ) {
     val displayName: String
         get() = name ?: fullName ?: listOfNotNull(firstName, lastName).joinToString(" ").ifEmpty { "Unknown" }
+
+    val fingerprintCount: Int
+        get() {
+            fingerprintCountValue?.let { return it }
+            val fromRecords = biometrics?.count { it.type == "fingerprint" && it.status == "registered" } ?: 0
+            if (fromRecords > 0) return fromRecords
+            return if (biometricData?.fingerprintRegistered == true) 1 else 0
+        }
+
+    val assignedKioskIdsOrLegacy: List<String>
+        get() {
+            val ids = assignedKioskIds?.filter { it.isNotBlank() }.orEmpty().distinct()
+            if (ids.isNotEmpty()) return ids
+            return listOfNotNull(assignedKioskId?.takeIf { it.isNotBlank() })
+        }
 }
 
 data class BiometricData(
     @SerializedName("fingerprintRegistered") val fingerprintRegistered: Boolean = false,
     @SerializedName("rfidRegistered") val rfidRegistered: Boolean = false,
+    @SerializedName("fingerprintTemplate") val fingerprintTemplate: String? = null,
+    @SerializedName("fingerprintTemplates") val fingerprintTemplates: List<StoredFingerprintTemplate>? = null,
     @SerializedName("lastBiometricUpdate") val lastBiometricUpdate: String? = null
+)
+
+data class StoredFingerprintTemplate(
+    @SerializedName("biometricId") val biometricId: String? = null,
+    @SerializedName("template") val template: String? = null,
+    @SerializedName("label") val label: String? = null,
+    @SerializedName("registeredAt") val registeredAt: String? = null
 )
 
 /**
@@ -87,10 +117,13 @@ data class VerifiedContact(
  * Admin domain model for a biometric registration.
  */
 data class BiometricRegistration(
-    @SerializedName("biometricId") val biometricId: String,
-    @SerializedName("inmateId") val inmateId: String,
-    @SerializedName("type") val type: String, // 'fingerprint' | 'rfid'
-    @SerializedName("status") val status: String, // 'registered' | 'pending' | 'failed'
+    @SerializedName("biometricId") val biometricId: String = "",
+    @SerializedName("inmateId") val inmateId: String = "",
+    @SerializedName("prisonerId") val prisonerId: String? = null,
+    @SerializedName("type") val type: String = "", // 'fingerprint' | 'rfid'
+    @SerializedName("status") val status: String = "", // 'registered' | 'pending' | 'failed'
+    @SerializedName("label") val label: String? = null,
+    @SerializedName("cardNumber") val cardNumber: String? = null,
     @SerializedName("registeredAt") val registeredAt: String? = null,
     @SerializedName("lastVerifiedAt") val lastVerifiedAt: String? = null,
     @SerializedName("confidence") val confidence: Double? = null,
@@ -175,7 +208,10 @@ data class CreatePrisonerRequest(
     @SerializedName("pin") val pin: String? = null,
     @SerializedName("assignedDeviceId") val assignedDeviceId: String? = null,
     @SerializedName("assignedKioskId") val assignedKioskId: String? = null,
+    @SerializedName("assignedKioskIds") val assignedKioskIds: List<String>? = null,
+    @SerializedName("allKiosks") val allKiosks: Boolean = false,
     @SerializedName("fingerprintTemplate") val fingerprintTemplate: String? = null,
+    @SerializedName("fingerprintTemplates") val fingerprintTemplates: List<String>? = null,
     @SerializedName("rfidTag") val rfidTag: String? = null,
     @SerializedName("familyContacts") val familyContacts: List<FamilyContactPayload>? = null
 )
@@ -207,6 +243,8 @@ data class EditPrisonerRequest(
     @SerializedName("district") val district: String? = null,
     @SerializedName("address") val address: String? = null,
     @SerializedName("assignedKioskId") val assignedKioskId: String? = null,
+    @SerializedName("assignedKioskIds") val assignedKioskIds: List<String>? = null,
+    @SerializedName("allKiosks") val allKiosks: Boolean = false,
     @SerializedName("status") val status: String? = null,
     @SerializedName("active") val active: Boolean? = null
 )
@@ -230,7 +268,9 @@ data class PrisonerFormValues(
     val district: String?,
     val address: String?,
     val prisonerNumber: String,
-    val assignedKioskId: String? = null
+    val assignedKioskId: String? = null,
+    val assignedKioskIds: List<String> = emptyList(),
+    val allKiosks: Boolean = false
 )
 
 data class UpdatePrisonerStatusRequest(

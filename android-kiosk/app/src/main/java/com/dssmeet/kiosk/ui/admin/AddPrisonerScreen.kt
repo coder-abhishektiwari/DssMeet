@@ -38,6 +38,7 @@ import com.dssmeet.kiosk.hardware.FingerprintCaptureState
 import com.dssmeet.kiosk.hardware.RfidReaderState
 import com.dssmeet.kiosk.models.admin.FamilyContactPayload
 import com.dssmeet.kiosk.models.admin.KioskDevice
+import com.dssmeet.kiosk.models.admin.MAX_FINGERPRINT_TEMPLATES
 import com.dssmeet.kiosk.models.admin.PrisonerFormValues
 import com.dssmeet.kiosk.ui.auth.HiddenRfidTapInput
 import com.dssmeet.kiosk.ui.auth.RfidKeypadEntry
@@ -60,6 +61,7 @@ fun AddPrisonerScreen(
 ) {
     val registrationState by viewModel.registrationState.collectAsState()
     val fingerprintState by viewModel.fingerprintState.collectAsState()
+    val fingerDetected by viewModel.fingerDetected.collectAsState()
     val rfidState by viewModel.rfidState.collectAsState()
     val kioskOptions by viewModel.kioskOptions.collectAsState()
     val currentKioskId by viewModel.currentKioskId.collectAsState()
@@ -73,12 +75,13 @@ fun AddPrisonerScreen(
         windowWidthSizeClass = windowSizeClass.widthSizeClass,
         onBackClick = onBackClick,
         onComplete = onComplete,
-        onRegister = { values, pin, finger, rfid, family ->
-            viewModel.registerPrisoner(values, pin, finger, rfid, family)
+        onRegister = { values, pin, fingers, rfid, family ->
+            viewModel.registerPrisoner(values, pin, fingers, rfid, family)
         },
         registrationState = registrationState,
         fingerprintState = fingerprintState,
         rfidState = rfidState,
+        fingerDetected = fingerDetected,
         kioskOptions = kioskOptions,
         currentKioskId = currentKioskId,
         onStartCapture = viewModel::startCapture,
@@ -93,9 +96,10 @@ fun AddPrisonerContent(
     windowWidthSizeClass: WindowWidthSizeClass,
     onBackClick: () -> Unit,
     onComplete: () -> Unit,
-    onRegister: (PrisonerFormValues, String, String?, String?, List<FamilyContactPayload>?) -> Unit,
+    onRegister: (PrisonerFormValues, String, List<String>?, String?, List<FamilyContactPayload>?) -> Unit,
     registrationState: AddPrisonerViewModel.RegistrationState = AddPrisonerViewModel.RegistrationState.Idle,
     fingerprintState: FingerprintCaptureState = FingerprintCaptureState.Idle,
+    fingerDetected: Boolean = false,
     rfidState: RfidReaderState = RfidReaderState.Idle,
     kioskOptions: List<KioskDevice> = emptyList(),
     currentKioskId: String = "",
@@ -108,7 +112,7 @@ fun AddPrisonerContent(
     var step by remember { mutableStateOf(0) }
     var pin by remember { mutableStateOf("") }
     var confirmPin by remember { mutableStateOf("") }
-    var fingerprintTemplate by remember { mutableStateOf("") }
+    var fingerprintTemplates by remember { mutableStateOf<List<String>>(emptyList()) }
     var rfidTag by remember { mutableStateOf("") }
     var familyMembers by remember { mutableStateOf<List<FamilyContactPayload>>(emptyList()) }
     var familyDraftName by remember { mutableStateOf("") }
@@ -124,7 +128,9 @@ fun AddPrisonerContent(
         val state = fingerprintState
         if (showFingerprintDialog && state is FingerprintCaptureState.Captured) {
             onAcknowledgeCapture("fingerprint")
-            fingerprintTemplate = state.template
+            if (fingerprintTemplates.size < MAX_FINGERPRINT_TEMPLATES && state.template !in fingerprintTemplates) {
+                fingerprintTemplates = fingerprintTemplates + state.template
+            }
             showFingerprintDialog = false
             onStopCapture()
         }
@@ -231,7 +237,7 @@ fun AddPrisonerContent(
                         else -> BiometricDataStep(
                             pin = pin,
                             confirmPin = confirmPin,
-                            fingerprintTemplate = fingerprintTemplate,
+                            fingerprintTemplates = fingerprintTemplates,
                             rfidTag = rfidTag,
                             onPinChange = { pin = it; formError = "" },
                             onConfirmPinChange = { confirmPin = it; formError = "" },
@@ -239,12 +245,15 @@ fun AddPrisonerContent(
                                 showFingerprintDialog = true
                                 onStartCapture("fingerprint")
                             },
-                            onClearFingerprint = { fingerprintTemplate = "" },
+                            onRemoveFingerprint = { index ->
+                                fingerprintTemplates = fingerprintTemplates.filterIndexed { i, _ -> i != index }
+                            },
                             onRegisterRfid = {
                                 showRfidDialog = true
                                 onStartCapture("rfid")
                             },
-                            onClearRfid = { rfidTag = "" }
+                            onClearRfid = { rfidTag = "" },
+                            compact = windowWidthSizeClass == WindowWidthSizeClass.Compact
                         )
                     }
 
@@ -296,7 +305,7 @@ fun AddPrisonerContent(
                                         addressError.isNotEmpty() -> addressError
                                         pin.length != 6 -> "PIN must be exactly 6 digits"
                                         pin != confirmPin -> "PINs do not match"
-                                        fingerprintTemplate.isBlank() && rfidTag.isBlank() ->
+                                        fingerprintTemplates.isEmpty() && rfidTag.isBlank() ->
                                             "Register at least one biometric — fingerprint or RFID"
                                         else -> ""
                                     }
@@ -304,7 +313,7 @@ fun AddPrisonerContent(
                                         onRegister(
                                             formState.toValues(),
                                             pin,
-                                            fingerprintTemplate.ifBlank { null },
+                                            fingerprintTemplates.ifEmpty { null },
                                             rfidTag.ifBlank { null },
                                             familyMembers.ifEmpty { null }
                                         )
@@ -358,7 +367,6 @@ fun AddPrisonerContent(
     if (showFingerprintDialog) {
         BiometricCaptureDialog(
             title = "Fingerprint",
-            icon = Icons.Default.Fingerprint,
             instruction = "Place the finger on the USB fingerprint scanner",
             hint = "Connect the scanner to the kiosk, then hold the finger still until it is detected.",
             showManualEntry = false,
@@ -368,6 +376,7 @@ fun AddPrisonerContent(
                 else -> BiometricCaptureStatus.Waiting
             },
             registerError = null,
+            fingerDetected = fingerDetected,
             onManualConfirm = {},
             onDismiss = {
                 showFingerprintDialog = false
@@ -378,7 +387,6 @@ fun AddPrisonerContent(
     if (showRfidDialog) {
         BiometricCaptureDialog(
             title = "RFID Card",
-            icon = Icons.Default.CreditCard,
             instruction = "Tap the RFID card on the reader",
             hint = "Hold the card on the reader until its number is detected.",
             showManualEntry = true,
@@ -394,7 +402,7 @@ fun AddPrisonerContent(
                 onStopCapture()
             },
             onCardTap = onRfidCardTapped,
-            animation = { RfidTapAnimation(modifier = Modifier.size(130.dp)) },
+            animation = { RfidTapAnimation(modifier = Modifier.fillMaxSize()) },
             onDismiss = {
                 showRfidDialog = false
                 onStopCapture()
@@ -434,14 +442,15 @@ internal fun ErrorCard(message: String) {
 private fun BiometricDataStep(
     pin: String,
     confirmPin: String,
-    fingerprintTemplate: String,
+    fingerprintTemplates: List<String>,
     rfidTag: String,
     onPinChange: (String) -> Unit,
     onConfirmPinChange: (String) -> Unit,
     onRegisterFingerprint: () -> Unit,
-    onClearFingerprint: () -> Unit,
+    onRemoveFingerprint: (Int) -> Unit,
     onRegisterRfid: () -> Unit,
-    onClearRfid: () -> Unit
+    onClearRfid: () -> Unit,
+    compact: Boolean = false
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -509,20 +518,48 @@ private fun BiometricDataStep(
                 color = PrimaryDarkNavy
             )
 
-            BiometricCard(
-                title = "Fingerprint",
-                icon = Icons.Default.Fingerprint,
-                isRegistered = fingerprintTemplate.isNotBlank(),
-                hint = "Place the finger on the scanner — no typing needed",
-                onRegister = onRegisterFingerprint,
-                onDelete = onClearFingerprint
+            Text(
+                text = "Fingerprints (${fingerprintTemplates.size}/$MAX_FINGERPRINT_TEMPLATES)",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                color = PrimaryDarkNavy
             )
+
+            fingerprintTemplates.forEachIndexed { index, _ ->
+                BiometricCard(
+                    title = "Fingerprint ${index + 1}",
+                    icon = Icons.Default.Fingerprint,
+                    isRegistered = true,
+                    compact = compact,
+                    onRegister = {},
+                    onDelete = { onRemoveFingerprint(index) }
+                )
+            }
+
+            if (fingerprintTemplates.size < MAX_FINGERPRINT_TEMPLATES) {
+                BiometricCard(
+                    title = "Fingerprint ${fingerprintTemplates.size + 1}",
+                    icon = Icons.Default.Fingerprint,
+                    isRegistered = false,
+                    hint = "Place the finger on the scanner — no typing needed",
+                    compact = compact,
+                    onRegister = onRegisterFingerprint,
+                    onDelete = {}
+                )
+            } else {
+                Text(
+                    text = "Maximum $MAX_FINGERPRINT_TEMPLATES fingerprints captured. Remove one to add another.",
+                    fontSize = 12.sp,
+                    color = TextGray
+                )
+            }
 
             BiometricCard(
                 title = "RFID Card",
                 icon = Icons.Default.CreditCard,
                 isRegistered = rfidTag.isNotBlank(),
                 hint = "Tap the card on the reader",
+                compact = compact,
                 onRegister = onRegisterRfid,
                 onDelete = onClearRfid
             )
@@ -553,7 +590,7 @@ private fun BiometricDataStep(
                             color = PrimaryNavy
                         )
                         Text(
-                            text = "Capture the fingerprint OR tap the RFID card — at least one is required to register the inmate. The other one can be added later from the Biometrics screen.",
+                            text = "Capture up to $MAX_FINGERPRINT_TEMPLATES fingerprints and/or tap the RFID card — at least one biometric is required. More fingerprints can be added later from the Biometrics screen.",
                             fontSize = 12.sp,
                             color = PrimaryNavy
                         )

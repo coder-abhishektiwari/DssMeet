@@ -1,3 +1,5 @@
+const { assignedKioskIdsOf, isAllKiosks } = require('./scoping');
+
 // Shared view helpers for kiosk devices: which rows are seeded demo units and
 // which prisoners are actually attached to a device.
 
@@ -20,15 +22,18 @@ function isDemoKiosk(k) {
 // listing kiosks stays O(inmates + kiosks) instead of a lookup per row.
 function buildInmateIndex({ inmates, inScope }) {
   const inmateCount = new Map();
+  let allKiosksCount = 0;
 
   for (const i of inmates || []) {
-    if (!i.assignedKioskId || (inScope && !inScope(i))) continue;
-    const id = i.assignedKioskId;
-    inmateCount.set(id, (inmateCount.get(id) || 0) + 1);
+    if (inScope && !inScope(i)) continue;
+    if (isAllKiosks(i)) { allKiosksCount += 1; continue; }
+    const ids = assignedKioskIdsOf(i);
+    if (!ids.length) continue;
+    for (const id of ids) inmateCount.set(id, (inmateCount.get(id) || 0) + 1);
   }
 
   return {
-    countFor: (kioskId) => inmateCount.get(kioskId) || 0,
+    countFor: (kioskId) => (inmateCount.get(kioskId) || 0) + allKiosksCount,
   };
 }
 

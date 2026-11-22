@@ -33,6 +33,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.dssmeet.kiosk.models.admin.MAX_FINGERPRINT_TEMPLATES
 import com.dssmeet.kiosk.models.admin.Prisoner
 import com.dssmeet.kiosk.network.NetworkResult
 import com.dssmeet.kiosk.ui.components.KioskLoadingState
@@ -192,8 +193,14 @@ private fun InmateDetailsContent(
         !prisoner.rfidCardNumber.isNullOrBlank() -> prisoner.rfidCardNumber
         else -> "Registered"
     }
-    val fingerprintText =
-        if (prisoner.biometricData?.fingerprintRegistered == true) "Registered" else "Not registered"
+    val fingerprintCount = prisoner.fingerprintCount
+    val fingerprintText = if (fingerprintCount > 0)
+        "Registered ($fingerprintCount/$MAX_FINGERPRINT_TEMPLATES)" else "Not registered"
+    val assignedKioskText = if (prisoner.allKiosks) {
+        "All kiosks"
+    } else {
+        prisoner.assignedKioskIdsOrLegacy.joinToString(", ").ifBlank { "Not assigned" }
+    }
 
     Column(
         modifier = Modifier
@@ -290,7 +297,7 @@ private fun InmateDetailsContent(
         InfoCard("Status & Access") {
             DetailRow(
                 "Status", prisoner.status,
-                "Assigned Kiosk", prisoner.assignedKioskId
+                "Assigned Kiosk(s)", assignedKioskText
             )
             DetailRow(
                 "RFID Card", rfidCardText,

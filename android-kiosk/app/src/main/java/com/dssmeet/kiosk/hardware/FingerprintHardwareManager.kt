@@ -8,16 +8,18 @@ import android.content.IntentFilter
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.os.Build
-import android.util.Base64
 import com.dssmeet.kiosk.core.Logger
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import SecuGen.FDxSDKPro.JSGFPLib
+import SecuGen.FDxSDKPro.SGDeviceInfoParam
 import SecuGen.FDxSDKPro.SGFDxDeviceName
 import SecuGen.FDxSDKPro.SGFDxErrorCode
 import SecuGen.FDxSDKPro.SGFDxTemplateFormat
 import SecuGen.FDxSDKPro.SGFingerInfo
+import SecuGen.FDxSDKPro.SGFingerPosition
+import SecuGen.FDxSDKPro.SGImpressionType
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -34,8 +36,8 @@ sealed class FingerprintCaptureState {
     /** A finger was captured — session code must consume it (acknowledgeCapture). */
     data class Captured(val template: String) : FingerprintCaptureState()
 
-    /** The scanner reported a fault — UI offers a retry (or RFID/PIN). */
-    data class Failed(val message: String) : FingerprintCaptureState()
+    /** Capture failed; [deviceFault] distinguishes hardware faults from a poor read. */
+    data class Failed(val message: String, val deviceFault: Boolean = false) : FingerprintCaptureState()
 }
 
 /**
@@ -81,8 +83,8 @@ class FingerprintHardwareManager @Inject constructor(
     // The vendor SDK is driven from a single background thread so the port
     // lifecycle stays strictly paired: opened only inside the loop, released
     // only in its finally. `driverGeneration` is bumped on every stop so a
-    // superseded loop exits on its own, and the NEXT session joins the old
-    // thread before opening — that is what guarantees the port is free.
+    // superseded loop exits on its own, and the next session starts only after
+    // that thread clears driverRunning — that is what guarantees a free port.
     @Volatile
     private var driverGeneration = 0
     @Volatile
@@ -93,6 +95,8 @@ class FingerprintHardwareManager @Inject constructor(
     private companion object {
         /** Quality floor SecuGen recommends for registration-grade captures. */
         const val CAPTURE_QUALITY = 50L
+        /** Minimum measured ridge quality accepted before template extraction. */
+        const val MIN_IMAGE_QUALITY = 50
         /** How long one GetImageEx waits for a finger before returning. */
         const val CAPTURE_TIMEOUT_MS = 10_000L
         /** Upper bound on waiting for a superseded session to release the port. */
@@ -237,13 +241,15 @@ class FingerprintHardwareManager @Inject constructor(
      * emitting so the next finger produces a fresh Captured event.
      */
     fun acknowledgeCapture() {
-        if (_captureState.value is FingerprintCaptureState.Captured) {
+        if (sessionOwner != null && _captureState.value is FingerprintCaptureState.Captured) {
+            _fingerDetected.value = false
             _captureState.value = FingerprintCaptureState.Searching
         }
     }
 
     /** Call from the driver whenever a finger template/ID is captured. */
     fun onTemplateCaptured(template: String) {
+        if (sessionOwner == null) return
         val cleaned = template.trim()
         if (cleaned.isEmpty()) return
         Logger.i("FingerprintHardwareManager: template captured")
@@ -252,10 +258,10 @@ class FingerprintHardwareManager @Inject constructor(
     }
 
     /** Call from the driver on a capture fault — the UI offers a retry. */
-    fun onCaptureError(message: String) {
+    fun onCaptureError(message: String, deviceFault: Boolean = true) {
         Logger.w("FingerprintHardwareManager: capture error: $message")
         _fingerDetected.value = false
-        _captureState.value = FingerprintCaptureState.Failed(message)
+        _captureState.value = FingerprintCaptureState.Failed(message, deviceFault)
     }
 
     /**
@@ -268,11 +274,13 @@ class FingerprintHardwareManager @Inject constructor(
      * @return true when the port is free (no driver, or it has finished).
      */
     fun awaitDriverIdle(timeoutMs: Long = PORT_RELEASE_WAIT_MS): Boolean {
-        val thread = synchronized(driverLock) { driverThread } ?: return true
+        val (thread, running) = synchronized(driverLock) { driverThread to driverRunning }
         if (thread === Thread.currentThread()) return true
+        if (!running && (thread == null || !thread.isAlive)) return true
+        if (thread == null) return !running
         return try {
             thread.join(timeoutMs)
-            !thread.isAlive
+            !thread.isAlive && !synchronized(driverLock) { driverRunning }
         } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
             false
@@ -320,9 +328,9 @@ class FingerprintHardwareManager @Inject constructor(
     // LIFECYCLE CONTRACT (strict): the USB port is opened ONLY inside
     // runCaptureLoop and released ONLY in its finally block. stopCaptureDriver
     // bumps a generation counter instead of touching the port; the loop
-    // notices, unwinds and closes. The NEXT startCaptureDriver joins that
-    // thread before opening, so a port left open here can never deadlock a
-    // later registration screen.
+    // notices, unwinds and closes. The exit path clears driverRunning and
+    // re-arms a still-live session, so a port left open here can never
+    // deadlock a later registration screen.
     // ================================================================
 
     /**
@@ -345,18 +353,14 @@ class FingerprintHardwareManager @Inject constructor(
     private fun startCaptureDriver() {
         synchronized(driverLock) {
             if (driverRunning) return
+            val previous = driverThread
+            if (previous != null && previous !== Thread.currentThread() && previous.isAlive) {
+                Logger.d("FingerprintHardwareManager: previous driver still releasing — start deferred (generation=$driverGeneration)")
+                return
+            }
             driverRunning = true
             val generation = driverGeneration
-            val previous = driverThread
             val thread = Thread({
-                // A superseded session may still be inside GetImageEx holding
-                // the port — let it unwind before we open our own.
-                try {
-                    previous?.join(PORT_RELEASE_WAIT_MS)
-                } catch (_: InterruptedException) {
-                    Thread.currentThread().interrupt()
-                }
-                if (generation != driverGeneration) return@Thread
                 runCaptureLoop(generation)
             }, "secugen-capture")
             thread.isDaemon = true
@@ -369,9 +373,6 @@ class FingerprintHardwareManager @Inject constructor(
     private fun stopCaptureDriver() {
         synchronized(driverLock) {
             driverGeneration++
-            driverRunning = false
-            // driverThread is kept on purpose: the next startCaptureDriver
-            // joins it, which is what proves the port was released.
             Logger.d("FingerprintHardwareManager: SecuGen driver stop requested (generation=$driverGeneration)")
         }
     }
@@ -391,15 +392,24 @@ class FingerprintHardwareManager @Inject constructor(
             }
 
             var err = sg.Init(deviceName ?: SGFDxDeviceName.SG_DEV_AUTO)
+            Logger.i("FingerprintHardwareManager: Init result=$err PID=${connectedPid ?: 0} (generation=$generation)")
             if (err != SGFDxErrorCode.SGFDX_ERROR_NONE.toLong()) {
                 if (generation == driverGeneration) {
                     onCaptureError(initErrorMessage(err, connectedPid))
                 }
                 return
             }
-            sg.SetTemplateFormat(SGFDxTemplateFormat.TEMPLATE_FORMAT_SG400)
+            val formatErr = sg.SetTemplateFormat(SGFDxTemplateFormat.TEMPLATE_FORMAT_SG400)
+            Logger.i("FingerprintHardwareManager: SetTemplateFormat(SG400) result=$formatErr (generation=$generation)")
+            if (formatErr != SGFDxErrorCode.SGFDX_ERROR_NONE.toLong()) {
+                if (generation == driverGeneration) {
+                    onCaptureError("Fingerprint scanner template format could not be set (error $formatErr)")
+                }
+                return
+            }
 
             err = sg.OpenDevice(0)
+            Logger.i("FingerprintHardwareManager: OpenDevice result=$err (generation=$generation)")
             if (err != SGFDxErrorCode.SGFDX_ERROR_NONE.toLong()) {
                 if (generation == driverGeneration) {
                     onCaptureError("Fingerprint scanner could not be opened (error $err)")
@@ -408,19 +418,15 @@ class FingerprintHardwareManager @Inject constructor(
             }
             Logger.i("FingerprintHardwareManager: SecuGen reader open")
 
-            // Sized for the largest sensor the SDK supports (the U20 in the
-            // HU20-AP is 300x400) so the buffer never depends on reading
-            // GetDeviceInfo fields, whose names differ between SDK releases.
-            val image = ByteArray(
-                JSGFPLib.MAX_IMAGE_WIDTH_ALL_DEVICES.toInt() *
-                    JSGFPLib.MAX_IMAGE_HEIGHT_ALL_DEVICES.toInt()
-            )
-            val maxTemplateSize = IntArray(1)
-            sg.GetMaxTemplateSize(maxTemplateSize)
-            // SG400 templates are a fixed 400 bytes; only trust the SDK when it
-            // actually told us something.
-            val template = ByteArray(maxTemplateSize[0].takeIf { it > 0 } ?: SG400_TEMPLATE_BYTES)
-            val fingerInfo = SGFingerInfo()
+            val deviceInfo = SGDeviceInfoParam()
+            val infoErr = sg.GetDeviceInfo(deviceInfo)
+            val imageWidth = deviceInfo.imageWidth.takeIf { it > 0 }
+                ?: JSGFPLib.MAX_IMAGE_WIDTH_ALL_DEVICES
+            val imageHeight = deviceInfo.imageHeight.takeIf { it > 0 }
+                ?: JSGFPLib.MAX_IMAGE_HEIGHT_ALL_DEVICES
+            Logger.i("FingerprintHardwareManager: image ${imageWidth}x${imageHeight} (GetDeviceInfo=$infoErr)")
+            val image = ByteArray(imageWidth * imageHeight)
+            val template = ByteArray(SG400_TEMPLATE_BYTES)
 
             val fingerPresent = BooleanArray(1)
             while (generation == driverGeneration) {
@@ -437,14 +443,72 @@ class FingerprintHardwareManager @Inject constructor(
                     continue
                 }
 
+                val quality = IntArray(1)
+                val qualityErr = sg.GetImageQuality(
+                    imageWidth.toLong(),
+                    imageHeight.toLong(),
+                    image,
+                    quality
+                )
+                if (
+                    qualityErr != SGFDxErrorCode.SGFDX_ERROR_NONE.toLong() ||
+                    quality[0] < MIN_IMAGE_QUALITY
+                ) {
+                    Logger.w("FingerprintHardwareManager: image quality ${quality[0]} rejected (err=$qualityErr) — capture discarded")
+                    onCaptureError(
+                        "Fingerprint not read clearly. Lift your finger, reposition it, and try again.",
+                        deviceFault = false
+                    )
+                    Thread.sleep(FAULT_BACKOFF_MS)
+                    continue
+                }
+
+                template.fill(0)
+                val fingerInfo = SGFingerInfo().apply {
+                    FingerNumber = SGFingerPosition.SG_FINGPOS_UK
+                    ViewNumber = 1
+                    ImpressionType = SGImpressionType.SG_IMPTYPE_LP
+                    ImageQuality = quality[0]
+                }
+
                 err = sg.CreateTemplate(fingerInfo, image, template)
+                Logger.i("FingerprintHardwareManager: CreateTemplate result=$err quality=${quality[0]} (generation=$generation)")
                 if (err != SGFDxErrorCode.SGFDX_ERROR_NONE.toLong()) {
                     Logger.w("FingerprintHardwareManager: CreateTemplate failed ($err) — try the finger again")
                     Thread.sleep(FAULT_BACKOFF_MS)
                     continue
                 }
 
-                onTemplateCaptured(Base64.encodeToString(template, Base64.NO_WRAP))
+                val templateSize = IntArray(1)
+                val sizeErr = sg.GetTemplateSize(template, templateSize)
+                Logger.i("FingerprintHardwareManager: GetTemplateSize result=$sizeErr size=${templateSize[0]} (generation=$generation)")
+                if (sizeErr != SGFDxErrorCode.SGFDX_ERROR_NONE.toLong() || templateSize[0] != SG400_TEMPLATE_BYTES) {
+                    Logger.w("FingerprintHardwareManager: invalid template size ${templateSize[0]} — capture discarded")
+                    onCaptureError("Fingerprint scanner returned an invalid template. Try again.", deviceFault = true)
+                    Thread.sleep(FAULT_BACKOFF_MS)
+                    continue
+                }
+
+                val encodedTemplate = FingerprintTemplateValidator.encode(template)
+                val validationError = FingerprintTemplateValidator.validationError(encodedTemplate)
+                val decodedTemplate = FingerprintTemplateValidator.decode(encodedTemplate)
+                val base64RoundTrip = decodedTemplate != null &&
+                    FingerprintTemplateValidator.encode(decodedTemplate) == encodedTemplate
+                Logger.d(
+                    "FingerprintHardwareManager: decodedSize=${decodedTemplate?.size ?: -1} " +
+                        "base64RoundTrip=$base64RoundTrip quality=${quality[0]} (generation=$generation)"
+                )
+                if (validationError != null || !base64RoundTrip) {
+                    val reason = validationError ?: "base64 round-trip mismatch"
+                    Logger.w("FingerprintHardwareManager: generated template rejected ($reason, quality=${quality[0]}) — capture discarded")
+                    onCaptureError(
+                        "Fingerprint not read clearly. Lift your finger, reposition it, and try again.",
+                        deviceFault = false
+                    )
+                    Thread.sleep(FAULT_BACKOFF_MS)
+                    continue
+                }
+                onTemplateCaptured(encodedTemplate)
                 // Hold until the session consumes it, so a second finger cannot
                 // overwrite a Captured nobody has acknowledged yet.
                 while (
@@ -482,6 +546,18 @@ class FingerprintHardwareManager @Inject constructor(
                 Logger.i("FingerprintHardwareManager: SecuGen port released (generation=$generation)")
             }
             _fingerDetected.value = false
+            val shouldRestart = synchronized(driverLock) {
+                if (driverThread === Thread.currentThread()) {
+                    driverRunning = false
+                    driverThread = null
+                }
+                sessionOwner != null &&
+                    _captureState.value is FingerprintCaptureState.Searching &&
+                    _connectedScanner.value != null &&
+                    _hasPermission.value
+            }
+            Logger.i("FingerprintHardwareManager: driver exited (generation=$generation, restart=$shouldRestart)")
+            if (shouldRestart) startCaptureDriver()
         }
     }
 }

@@ -3,9 +3,12 @@ package com.dssmeet.kiosk.ui.admin
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.dssmeet.kiosk.hardware.FingerprintHardwareManager
+import com.dssmeet.kiosk.hardware.FingerprintTemplateValidator
 import com.dssmeet.kiosk.hardware.RfidReaderManager
 import com.dssmeet.kiosk.models.admin.BiometricRegistration
+import com.dssmeet.kiosk.models.admin.MAX_FINGERPRINT_TEMPLATES
 import com.dssmeet.kiosk.models.admin.RegisterBiometricRequest
+import com.dssmeet.kiosk.models.common.ApiError
 import com.dssmeet.kiosk.network.NetworkResult
 import com.dssmeet.kiosk.repository.AdminRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -34,6 +37,7 @@ class BiometricRegistrationViewModel @Inject constructor(
     /** Live hardware sessions consumed by the capture dialogs. */
     val rfidState = rfidReaderManager.state
     val fingerprintState = fingerprintHardwareManager.captureState
+    val fingerDetected = fingerprintHardwareManager.fingerDetected
 
     /**
      * Open a hardware capture session for the given biometric type
@@ -66,6 +70,27 @@ class BiometricRegistrationViewModel @Inject constructor(
 
     fun registerFingerprint(prisonerId: String, template: String) {
         if (_registerState.value is NetworkResult.Loading) return
+        val fingerprintCount = (_biometrics.value as? NetworkResult.Success)?.data
+            ?.count { it.type == "fingerprint" && it.status == "registered" } ?: 0
+        if (fingerprintCount >= MAX_FINGERPRINT_TEMPLATES) {
+            _registerState.value = NetworkResult.Failure(
+                ApiError(
+                    code = "FINGERPRINT_LIMIT",
+                    message = "Maximum $MAX_FINGERPRINT_TEMPLATES fingerprints are allowed"
+                )
+            )
+            return
+        }
+        val templateError = FingerprintTemplateValidator.validationError(template)
+        if (templateError != null) {
+            _registerState.value = NetworkResult.Failure(
+                ApiError(
+                    code = "INVALID_BIOMETRIC",
+                    message = "Fingerprint template rejected: $templateError"
+                )
+            )
+            return
+        }
         _registerState.value = NetworkResult.Loading
         viewModelScope.launch {
             val result = adminRepository.registerBiometric(

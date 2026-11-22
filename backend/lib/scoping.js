@@ -47,10 +47,68 @@ function kioskScopeOf(req) {
   return req.auth?.kioskId || null;
 }
 
+function assignedKioskIdsOf(record) {
+  if (!record) return [];
+  if (Array.isArray(record.assignedKioskIds) && record.assignedKioskIds.length) {
+    return [...new Set(record.assignedKioskIds.map((id) => String(id)).filter(Boolean))];
+  }
+  if (record.assignedKioskId) return [String(record.assignedKioskId)];
+  return [];
+}
+
+function isAllKiosks(record) {
+  return !!(record && record.allKiosks === true);
+}
+
+function isInmateAssignedToKiosk(record, kioskId) {
+  if (!kioskId) return true;
+  if (!record) return false;
+  if (isAllKiosks(record)) return true;
+  const ids = assignedKioskIdsOf(record);
+  return ids.length === 0 || ids.includes(String(kioskId));
+}
+
+function normalizeKioskAssignment(input, fallbackKioskId) {
+  if (input && input.allKiosks === true) {
+    return { allKiosks: true, assignedKioskIds: [], assignedKioskId: null };
+  }
+  let ids = [];
+  if (input && Array.isArray(input.assignedKioskIds)) {
+    ids = input.assignedKioskIds.map((id) => String(id || '').trim()).filter(Boolean);
+  } else if (input && input.assignedKioskId) {
+    ids = [String(input.assignedKioskId).trim()];
+  }
+  ids = [...new Set(ids)];
+  if (!ids.length && fallbackKioskId) ids = [String(fallbackKioskId)];
+  return {
+    allKiosks: false,
+    assignedKioskIds: ids,
+    assignedKioskId: ids.length ? ids[0] : null
+  };
+}
+
+async function validateKioskAssignments(ids, jailId) {
+  const clean = [...new Set((ids || []).map((id) => String(id || '').trim()).filter(Boolean))];
+  if (!clean.length || !jailId) return { ok: true };
+  try {
+    const kiosks = await readDb('kiosks.json');
+    for (const id of clean) {
+      const kiosk = kiosks.find((k) => k.kioskId === id);
+      if (!kiosk) return { ok: false, code: 'NOT_FOUND', message: `Assigned kiosk '${id}' does not exist` };
+      if (kiosk.prisonId && kiosk.prisonId !== jailId) {
+        return { ok: false, code: 'FORBIDDEN', message: 'Cannot assign a kiosk from another prison' };
+      }
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: true };
+  }
+}
+
 function inKioskScope(req, record) {
   const kioskId = kioskScopeOf(req);
   if (!kioskId) return true;
-  return !!record && (record.assignedKioskId === kioskId || record.kioskId === kioskId);
+  return !!record && (isInmateAssignedToKiosk(record, kioskId) || record.kioskId === kioskId);
 }
 
 function inAdminScope(req, record) {
@@ -71,7 +129,8 @@ async function inScopeOf(req, record) {
   if (!kioskId && !jailId) return inOwnerScope(req, record);
   if (!record) return false;
 
-  let recKiosk = record.kioskId || record.assignedKioskId || null;
+  const hasKioskAssignment = isAllKiosks(record) || assignedKioskIdsOf(record).length > 0;
+  let recKiosk = record.kioskId || assignedKioskIdsOf(record)[0] || null;
   let recJail = record.prisonId || record.jailId || record.facility || null;
   let refInmateId = record.inmateId || null;
 
@@ -86,7 +145,7 @@ async function inScopeOf(req, record) {
     const owner = inmates.find((i) => i.inmateId === refInmateId) ||
                   inmates.find((i) => i.inmateId === `INM-${refInmateId}`);
     if (owner) {
-      recKiosk = recKiosk || owner.assignedKioskId || owner.kioskId;
+      recKiosk = recKiosk || assignedKioskIdsOf(owner)[0] || owner.kioskId;
       recJail = recJail || owner.prisonId;
     }
   }
@@ -97,7 +156,8 @@ async function inScopeOf(req, record) {
     if (k) recJail = k.prisonId;
   }
 
-  if (kioskId && recKiosk && recKiosk !== kioskId) return false;
+  if (kioskId && hasKioskAssignment && !isInmateAssignedToKiosk(record, kioskId)) return false;
+  if (kioskId && !hasKioskAssignment && recKiosk && recKiosk !== kioskId) return false;
   if (jailId && recJail && recJail !== jailId) return false;
   return inOwnerScope(req, record);
 }
@@ -110,7 +170,9 @@ async function scopeList(req, records) {
 
 module.exports = {
   jailScopeOf, inJailScope, scopeFilter,
-  kioskScopeOf, inKioskScope, inAdminScope, adminScopeFilter,
+  kioskScopeOf, assignedKioskIdsOf, isAllKiosks, isInmateAssignedToKiosk,
+  normalizeKioskAssignment, validateKioskAssignments,
+  inKioskScope, inAdminScope, adminScopeFilter,
   inScopeOf, scopeList,
   isSuperAdmin, isJailManaged, inOwnerScope
 };

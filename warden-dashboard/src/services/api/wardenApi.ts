@@ -221,7 +221,19 @@ export interface Inmate {
   status: string;
   photoUrl: string;
   assignedKioskId?: string;
+  assignedKioskIds?: string[];
+  allKiosks?: boolean;
   prisonerNumber?: string;
+}
+
+export interface BiometricRecord {
+  biometricId: string;
+  prisonerId?: string;
+  type: 'fingerprint' | 'rfid';
+  status: string;
+  registeredAt?: string | null;
+  label?: string;
+  cardNumber?: string | null;
 }
 
 export interface DeviceFingerprint {
@@ -789,7 +801,7 @@ export const wardenApi = {
 
   // Biometrics
   getInmateBiometrics: (inmateId: string) =>
-    apiClient.get<ApiResponse<any[]>>(`/admin/prisoners/${inmateId}/biometrics`).then((r) => r.data?.data ?? []),
+    apiClient.get<ApiResponse<BiometricRecord[]>>(`/admin/prisoners/${inmateId}/biometrics`).then((r) => r.data?.data ?? []),
 
   deleteBiometric: (biometricId: string, prisonerId: string) =>
     apiClient.delete<ApiResponse<any>>(`/admin/biometrics/${biometricId}`, { params: { prisonerId } }).then((r) => r.data?.data),

@@ -11,13 +11,14 @@
  * call charges, so transactions.json is a complete ledger on its own.
  */
 const { readDb } = require('./db');
+const { assignedKioskIdsOf } = require('./scoping');
 
 /** Resolve an inmate record by inmateId / assignedKioskId / prisonerNumber. */
 async function resolveInmate(id) {
   const inmates = await readDb('inmates.json');
   return (
     inmates.find((i) => i.inmateId === id) ||
-    inmates.find((i) => i.assignedKioskId === id) ||
+    inmates.find((i) => assignedKioskIdsOf(i).includes(String(id))) ||
     inmates.find((i) => i.prisonerNumber === id) ||
     null
   );

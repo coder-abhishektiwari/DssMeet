@@ -167,7 +167,9 @@ fun EditPrisonerForm(
                         state = values.state,
                         district = values.district,
                         address = values.address,
-                        assignedKioskId = formState.assignedKioskId.trim().ifBlank { null },
+                        assignedKioskId = values.assignedKioskId,
+                        assignedKioskIds = values.assignedKioskIds,
+                        allKiosks = values.allKiosks,
                         status = status,
                         active = formState.active
                     )

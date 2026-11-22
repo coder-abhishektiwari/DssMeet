@@ -4,11 +4,11 @@ const router = express.Router();
 const { readDb, updateDb } = require('./lib/db');
 const { hashSecret } = require('./lib/auth');
 const { requireRole } = require('./middleware/auth');
-const { inAdminScope, adminScopeFilter, jailScopeOf, kioskScopeOf } = require('./lib/scoping');
+const { inAdminScope, adminScopeFilter, jailScopeOf, kioskScopeOf, normalizeKioskAssignment, validateKioskAssignments } = require('./lib/scoping');
 const { paginate } = require('./lib/paginate');
 const { inmateDeleteHandler, validateInmateRefs, stripRemovedInmateFields, hashBiometricData, mergeBiometricData, foldTopLevelBiometrics } = require('./routes/inmates');
 const { creditWelcomeBonus } = require('./lib/wallets');
-const { isValidRfidNumber, rfidCardNumberFor, biometricValidationError, fingerprintTemplateValidationError, normalizeFingerprintTemplate } = require('./lib/biometrics');
+const { isValidRfidNumber, rfidCardNumberFor, biometricValidationError, fingerprintTemplateValidationError, fingerprintTemplatesValidationError, fingerprintEntries, biometricRecordsFor, addFingerprintTemplate, removeFingerprintTemplate, fingerprintCapacityError } = require('./lib/biometrics');
 const { auditFromReq } = require('./lib/audit');
 
 const ALL_ROLES = ['admin', 'warden', 'kiosk_admin', 'super-admin', 'super_admin'];
@@ -43,8 +43,9 @@ function normalizeInmate(i) {
   delete out.pin;
   delete out.password;
   if (out.biometricData && typeof out.biometricData === 'object') {
-    const { fingerprintTemplate, rfidToken, ...bio } = out.biometricData;
+    const { fingerprintTemplate, fingerprintTemplates, rfidToken, ...bio } = out.biometricData;
     void fingerprintTemplate;
+    void fingerprintTemplates;
     void rfidToken;
     out.biometricData = bio;
   }
@@ -120,15 +121,22 @@ router.post('/prisoners', requireRole(...ALL_ROLES), async (req, res) => {
   inmateData = foldTopLevelBiometrics(inmateData);
   const jailId = jailScopeOf(req);
   const kioskId = kioskScopeOf(req);
+  const assignment = normalizeKioskAssignment(inmateData, kioskId);
   if (jailId && inmateData.prisonId && inmateData.prisonId !== jailId) {
     return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Cannot create prisoner outside your jail' } });
   }
-  if (kioskId && inmateData.assignedKioskId && inmateData.assignedKioskId !== kioskId) {
+  if (kioskId && !assignment.allKiosks && assignment.assignedKioskIds.some((id) => id !== kioskId)) {
     return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Cannot create prisoner for another kiosk' } });
+  }
+  const kioskValidation = await validateKioskAssignments(assignment.assignedKioskIds, jailId);
+  if (!kioskValidation.ok) {
+    return res.status(kioskValidation.code === 'NOT_FOUND' ? 404 : 403).json({
+      success: false, error: { code: kioskValidation.code || 'INVALID_REFERENCE', message: kioskValidation.message }
+    });
   }
   const refs = await validateInmateRefs({
     prisonId: jailId || inmateData.prisonId,
-    assignedKioskId: kioskId || inmateData.assignedKioskId,
+    assignedKioskId: assignment.assignedKioskId,
   });
   if (!refs.ok) {
     return res.status(422).json({ success: false, error: { code: 'INVALID_REFERENCE', message: refs.message } });
@@ -137,7 +145,7 @@ router.post('/prisoners', requireRole(...ALL_ROLES), async (req, res) => {
   if (bioError) {
     return res.status(422).json({ success: false, error: { code: 'INVALID_BIOMETRIC', message: bioError } });
   }
-  const fpError = fingerprintTemplateValidationError(inmateData.biometricData?.fingerprintTemplate);
+  const fpError = fingerprintTemplatesValidationError(inmateData.biometricData, inmateData.inmateId);
   if (fpError) {
     return res.status(422).json({ success: false, error: { code: 'INVALID_BIOMETRIC', message: fpError } });
   }
@@ -146,14 +154,7 @@ router.post('/prisoners', requireRole(...ALL_ROLES), async (req, res) => {
   // POST /prisoners/:id/biometrics route writes, so the Biometrics screen
   // lists captures made during inmate creation too.
   const registeredAt = inmateData.biometricData?.lastBiometricUpdate || new Date().toISOString();
-  const biometrics = [
-    inmateData.biometricData?.fingerprintRegistered
-      ? { biometricId: `BIO-${inmateId}-FGP`, prisonerId: inmateId, type: 'fingerprint', status: 'registered', registeredAt }
-      : null,
-    inmateData.biometricData?.rfidRegistered
-      ? { biometricId: `BIO-${inmateId}-RFID`, prisonerId: inmateId, type: 'rfid', status: 'registered', registeredAt }
-      : null
-  ].filter(Boolean);
+  const biometrics = biometricRecordsFor(inmateId, inmateData.biometricData, registeredAt);
   const record = {
     ...inmateData,
     inmateId,
@@ -162,12 +163,12 @@ router.post('/prisoners', requireRole(...ALL_ROLES), async (req, res) => {
     walletId: inmateData.walletId || `WAL-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     prisonId: jailId || inmateData.prisonId,
     facility: jailId || inmateData.facility,
-    assignedKioskId: kioskId || inmateData.assignedKioskId,
+    ...assignment,
     status: inmateData.status || 'active',
     dateOfAdmission: inmateData.dateOfAdmission || new Date().toISOString().slice(0, 10),
     biometricData: await hashBiometricData(inmateData.biometricData || {
       fingerprintRegistered: false, rfidRegistered: false, lastBiometricUpdate: null
-    }),
+    }, inmateId),
     ...(biometrics.length ? { biometrics } : {}),
     createdAt: new Date().toISOString()
   };
@@ -222,12 +223,28 @@ router.put('/prisoners/:prisonerId', requireRole(...ALL_ROLES), async (req, res)
   // A prisoner's jail never changes through an edit — same rule as the
   // /inmates handler, and prison_id is a foreign key.
   delete updates.prisonId;
+  const hasAssignmentUpdate = ['allKiosks', 'assignedKioskIds', 'assignedKioskId']
+    .some((key) => Object.prototype.hasOwnProperty.call(updates, key));
+  const kioskId = kioskScopeOf(req);
+  const assignment = hasAssignmentUpdate ? normalizeKioskAssignment(updates, kioskId) : null;
+  if (assignment) {
+    if (kioskId && !assignment.allKiosks && assignment.assignedKioskIds.some((id) => id !== kioskId)) {
+      return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Cannot reassign prisoner to another kiosk' } });
+    }
+    const kioskValidation = await validateKioskAssignments(assignment.assignedKioskIds, jailScopeOf(req));
+    if (!kioskValidation.ok) {
+      return res.status(kioskValidation.code === 'NOT_FOUND' ? 404 : 403).json({
+        success: false, error: { code: kioskValidation.code || 'INVALID_REFERENCE', message: kioskValidation.message }
+      });
+    }
+  }
   const refs = await validateInmateRefs({
-    assignedKioskId: updates.assignedKioskId,
+    assignedKioskId: assignment ? assignment.assignedKioskId : undefined,
   });
   if (!refs.ok) {
     return res.status(422).json({ success: false, error: { code: 'INVALID_REFERENCE', message: refs.message } });
   }
+  if (assignment) Object.assign(updates, assignment);
   if (updates.name) {
     updates.firstName = updates.name.split(' ')[0];
     updates.lastName = updates.name.split(' ').slice(1).join(' ');
@@ -237,7 +254,7 @@ router.put('/prisoners/:prisonerId', requireRole(...ALL_ROLES), async (req, res)
     if (bioError) {
       return res.status(422).json({ success: false, error: { code: 'INVALID_BIOMETRIC', message: bioError } });
     }
-    const fpError = fingerprintTemplateValidationError(updates.biometricData.fingerprintTemplate);
+    const fpError = fingerprintTemplatesValidationError(updates.biometricData, req.params.prisonerId);
     if (fpError) {
       return res.status(422).json({ success: false, error: { code: 'INVALID_BIOMETRIC', message: fpError } });
     }
@@ -249,7 +266,8 @@ router.put('/prisoners/:prisonerId', requireRole(...ALL_ROLES), async (req, res)
       return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Prisoner not found' } });
     }
     updates.biometricData = await hashBiometricData(
-      mergeBiometricData(current.biometricData, updates.biometricData)
+      mergeBiometricData(current.biometricData, updates.biometricData),
+      req.params.prisonerId
     );
   }
   const updated = await updateDb('inmates.json', (inmates) => {
@@ -483,11 +501,19 @@ router.get('/prisoners/:prisonerId/biometrics', requireRole(...ALL_ROLES), async
   const inmate = inmates.find((i) => i.inmateId === prisonerId && inAdminScope(req, i));
   if (!inmate) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Prisoner not found' } });
   const biometricData = inmate.biometricData || {};
-  const biometricsList = inmate.biometrics || [];
-  const result = biometricsList.length > 0 ? biometricsList : [
-    biometricData.fingerprintRegistered ? { biometricId: `BIO-${prisonerId}-FGP`, prisonerId, type: 'fingerprint', status: 'registered', registeredAt: biometricData.lastBiometricUpdate } : null,
-    biometricData.rfidRegistered ? { biometricId: `BIO-${prisonerId}-RFID`, prisonerId, type: 'rfid', status: 'registered', registeredAt: biometricData.lastBiometricUpdate } : null,
-  ].filter(Boolean);
+  const fingerprintRecords = fingerprintEntries(inmate, prisonerId).map((entry, index) => ({
+    biometricId: entry.biometricId || `BIO-${prisonerId}-FGP-${index + 1}`,
+    prisonerId,
+    type: 'fingerprint',
+    status: 'registered',
+    registeredAt: entry.registeredAt || biometricData.lastBiometricUpdate || null,
+    label: entry.label || `Fingerprint ${index + 1}`
+  }));
+  const storedOthers = (inmate.biometrics || []).filter((b) => b.type !== 'fingerprint');
+  const rfidRecord = biometricData.rfidRegistered && !storedOthers.some((b) => b.type === 'rfid')
+    ? [{ biometricId: `BIO-${prisonerId}-RFID`, prisonerId, type: 'rfid', status: 'registered', registeredAt: biometricData.lastBiometricUpdate || null }]
+    : [];
+  const result = [...fingerprintRecords, ...storedOthers, ...rfidRecord];
   // Display copy of the RFID card number for the warden's inmate details page.
   // Plain value sits next to the hash at registration; legacy rows keep the
   // raw token; hashed-only rows have no displayable number (null).
@@ -523,10 +549,13 @@ router.post('/prisoners/:prisonerId/biometrics', requireRole(...ALL_ROLES), asyn
     if (fpError) {
       return res.status(422).json({ success: false, error: { code: 'INVALID_BIOMETRIC', message: fpError } });
     }
-    updateFields = {
-      biometricData: { ...inmates[inmateIdx].biometricData, fingerprintRegistered: true, fingerprintTemplate: normalizeFingerprintTemplate(capture), lastBiometricUpdate: new Date().toISOString() }
-    };
-    biometricRecord = { biometricId: `BIO-${prisonerId}-FGP`, prisonerId, type: 'fingerprint', status: 'registered', registeredAt: new Date().toISOString() };
+    const capacityError = fingerprintCapacityError(inmates[inmateIdx]);
+    if (capacityError) {
+      return res.status(409).json({ success: false, error: { code: 'FINGERPRINT_LIMIT', message: capacityError } });
+    }
+    const added = addFingerprintTemplate(inmates[inmateIdx], capture);
+    updateFields = { biometricData: added.biometricData };
+    biometricRecord = added.record;
   } else if (type === 'rfid') {
     if (!rfidToken) return res.status(400).json({ success: false, error: { code: 'INVALID_REQUEST', message: 'rfidToken is required for RFID' } });
     if (!isValidRfidNumber(rfidToken)) {
@@ -572,6 +601,9 @@ const TYPE_FROM_SUFFIX = {
 function resolveBiometricType(inmate, biometricId) {
   const record = (inmate.biometrics || []).find((b) => b.biometricId === biometricId);
   if (record && BIOMETRIC_TYPES.includes(record.type)) return record.type;
+  if (fingerprintEntries(inmate, inmate.inmateId).some((e) => e.biometricId === biometricId)) return 'fingerprint';
+  if (/-FGP(?:-\d+)?$/i.test(String(biometricId))) return 'fingerprint';
+  if (/-RFID$/i.test(String(biometricId))) return 'rfid';
   const suffix = String(biometricId).split('-').pop().toLowerCase();
   return TYPE_FROM_SUFFIX[suffix] || null;
 }
@@ -588,17 +620,25 @@ router.delete('/biometrics/:biometricId', requireRole(...ALL_ROLES), async (req,
   if (!inmate) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Prisoner not found' } });
   const type = resolveBiometricType(inmate, biometricId);
   if (!type) return res.status(400).json({ success: false, error: { code: 'INVALID_TYPE', message: 'Invalid biometric type in ID' } });
+  const fingerprintId = /-FGP$/i.test(biometricId) ? `${biometricId}-1` : biometricId;
+  if (type === 'fingerprint' && !fingerprintEntries(inmate, prisonerId).some((e) => e.biometricId === fingerprintId)) {
+    return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Fingerprint not found' } });
+  }
 
   const updated = await updateDb('inmates.json', (inmates) => {
     const idx = inmates.findIndex((i) => i.inmateId === prisonerId && inAdminScope(req, i));
     if (idx === -1) return { data: inmates, result: null };
-    const biometricData = { ...(inmates[idx].biometricData || {}) };
-    if (type === 'fingerprint') { biometricData.fingerprintRegistered = false; biometricData.fingerprintTemplate = null; }
-    else if (type === 'rfid') { biometricData.rfidRegistered = false; biometricData.rfidToken = null; biometricData.rfidCardNumber = null; }
-    biometricData.lastBiometricUpdate = new Date().toISOString();
-    // Drop by id AND by type: one record per type is allowed, so a stale or
-    // differently-formatted id must not leave the biometric behind.
-    const biometrics = (inmates[idx].biometrics || []).filter(b => b.biometricId !== biometricId && b.type !== type);
+    let biometricData;
+    if (type === 'fingerprint') {
+      biometricData = removeFingerprintTemplate(inmates[idx], biometricId).biometricData;
+    } else {
+      biometricData = { ...(inmates[idx].biometricData || {}) };
+      biometricData.rfidRegistered = false;
+      biometricData.rfidToken = null;
+      biometricData.rfidCardNumber = null;
+      biometricData.lastBiometricUpdate = new Date().toISOString();
+    }
+    const biometrics = (inmates[idx].biometrics || []).filter((b) => b.type !== type);
     inmates[idx] = { ...inmates[idx], biometricData, biometrics };
     return { data: inmates, result: inmates[idx] };
   });

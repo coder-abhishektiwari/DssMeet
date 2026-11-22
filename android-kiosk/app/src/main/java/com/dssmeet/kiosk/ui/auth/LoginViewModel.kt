@@ -11,6 +11,7 @@ import com.dssmeet.kiosk.core.Logger
 import com.dssmeet.kiosk.core.UiState
 import com.dssmeet.kiosk.hardware.FingerprintCaptureState
 import com.dssmeet.kiosk.hardware.FingerprintHardwareManager
+import com.dssmeet.kiosk.hardware.FingerprintTemplateValidator
 import com.dssmeet.kiosk.hardware.RfidReaderManager
 import com.dssmeet.kiosk.hardware.RfidReaderState
 import com.dssmeet.kiosk.models.auth.AdminBootstrapCreateRequest
@@ -181,6 +182,19 @@ class LoginViewModel @Inject constructor(
 
     private fun identifyFingerprint(template: String) {
         if (uiState.value is UiState.Loading) return
+
+        val templateError = FingerprintTemplateValidator.validationError(template)
+        if (templateError != null) {
+            _fingerprintMismatch.value = true
+            setError("Fingerprint not read clearly. Lift your finger, reposition it, and try again.")
+            launch {
+                delay(2000.milliseconds)
+                _fingerprintMismatch.value = false
+                setIdle()
+                fingerprintHardwareManager.startCapture(HARDWARE_OWNER)
+            }
+            return
+        }
 
         launch {
             _fingerprintMismatch.value = false

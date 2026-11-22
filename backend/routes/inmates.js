@@ -4,10 +4,10 @@ const { readDb, updateDb } = require('../lib/db');
 const { hashSecret } = require('../lib/auth');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { sendSuccess, sendError, asyncRoute } = require('../lib/response');
-const { jailScopeOf, inJailScope, kioskScopeOf, inAdminScope, adminScopeFilter, inScopeOf, scopeList } = require('../lib/scoping');
+const { jailScopeOf, inJailScope, kioskScopeOf, inAdminScope, adminScopeFilter, inScopeOf, scopeList, assignedKioskIdsOf, isAllKiosks, normalizeKioskAssignment, validateKioskAssignments } = require('../lib/scoping');
 const { paginate } = require('../lib/paginate');
 const { ensureWallet, creditWelcomeBonus } = require('../lib/wallets');
-const { biometricValidationError, rfidCardNumberFor, fingerprintTemplateValidationError, normalizeFingerprintTemplate } = require('../lib/biometrics');
+const { biometricValidationError, rfidCardNumberFor, fingerprintEntries, fingerprintTemplatesValidationError, normalizeFingerprintStorage, biometricRecordsFor } = require('../lib/biometrics');
 const { auditFromReq } = require('../lib/audit');
 
 const router = express.Router();
@@ -40,15 +40,12 @@ function stripRemovedInmateFields(payload) {
  * SecuGen capture against the stored template with the vendor matcher, which
  * needs the original bytes. It is only normalized here.
  */
-async function hashBiometricData(biometricData) {
+async function hashBiometricData(biometricData, inmateId) {
   if (!biometricData) return biometricData;
-  const out = { ...biometricData };
+  const out = normalizeFingerprintStorage(biometricData, inmateId);
   if (out.rfidToken && !/^\$2[aby]\$/.test(String(out.rfidToken))) {
     out.rfidCardNumber = String(out.rfidToken); // display copy for inmate details
     out.rfidToken = await hashSecret(String(out.rfidToken));
-  }
-  if (out.fingerprintTemplate != null) {
-    out.fingerprintTemplate = normalizeFingerprintTemplate(out.fingerprintTemplate);
   }
   return out;
 }
@@ -66,9 +63,10 @@ function mergeBiometricData(existing, incoming) {
   if (!incoming || typeof incoming !== 'object') return incoming;
   const base = existing && typeof existing === 'object' ? existing : {};
   const out = { ...base, ...incoming };
-  for (const secret of ['fingerprintTemplate', 'rfidToken', 'rfidCardNumber']) {
+  for (const secret of ['fingerprintTemplate', 'fingerprintTemplates', 'rfidToken', 'rfidCardNumber']) {
     if (incoming[secret] == null && base[secret] != null) out[secret] = base[secret];
   }
+  if (incoming.fingerprintTemplates != null) delete out.fingerprintTemplate;
   return out;
 }
 
@@ -81,11 +79,21 @@ function mergeBiometricData(existing, incoming) {
  */
 function foldTopLevelBiometrics(inmateData) {
   const out = { ...inmateData };
-  if (out.fingerprintTemplate && !out.biometricData?.fingerprintRegistered) {
+  const folded = Array.isArray(out.fingerprintTemplates) ? out.fingerprintTemplates.filter(Boolean) : [];
+  if (folded.length) {
+    out.biometricData = {
+      ...(out.biometricData || {}),
+      fingerprintRegistered: true,
+      fingerprintTemplate: String(folded[0]),
+      fingerprintTemplates: folded.map((entry) => (typeof entry === 'string' ? String(entry) : entry)),
+      lastBiometricUpdate: new Date().toISOString()
+    };
+  } else if (out.fingerprintTemplate && !out.biometricData?.fingerprintRegistered) {
     out.biometricData = {
       ...(out.biometricData || {}),
       fingerprintRegistered: true,
       fingerprintTemplate: String(out.fingerprintTemplate),
+      fingerprintTemplates: [String(out.fingerprintTemplate)],
       lastBiometricUpdate: new Date().toISOString()
     };
   }
@@ -98,6 +106,7 @@ function foldTopLevelBiometrics(inmateData) {
     };
   }
   delete out.fingerprintTemplate;
+  delete out.fingerprintTemplates;
   delete out.rfidTag;
   return out;
 }
@@ -146,8 +155,9 @@ function normalizeInmate(i) {
   delete out.pin;
   delete out.password;
   if (out.biometricData && typeof out.biometricData === 'object') {
-    const { fingerprintTemplate, rfidToken, ...bio } = out.biometricData;
+    const { fingerprintTemplate, fingerprintTemplates, rfidToken, ...bio } = out.biometricData;
     void fingerprintTemplate;
+    void fingerprintTemplates;
     void rfidToken;
     out.biometricData = bio;
   }
@@ -155,15 +165,18 @@ function normalizeInmate(i) {
   // stored copy lives inside biometricData — derive it when absent. Existing
   // top-level values are never clobbered.
   if (out.rfidCardNumber == null) out.rfidCardNumber = rfidCardNumberFor(i);
+  out.fingerprintCount = fingerprintEntries(i).length;
   return out;
 }
 
 async function enrichInmates(inmates) {
   const kiosks = await readDb('kiosks.json').catch(() => []);
-  const kioskMap = new Map(kiosks.map(k => [k.kioskId, k.kioskId]));
+  const kioskMap = new Map(kiosks.map(k => [k.kioskId, k.name || k.kioskId]));
   return inmates.map(i => ({
     ...i,
-    kioskName: i.assignedKioskId ? (kioskMap.get(i.assignedKioskId) || i.assignedKioskId) : '',
+    kioskName: isAllKiosks(i)
+      ? 'All kiosks'
+      : assignedKioskIdsOf(i).map((id) => kioskMap.get(id) || id).join(', '),
   }));
 }
 
@@ -206,32 +219,25 @@ async function inmateCreateHandler(req, res) {
   const inmateData = foldTopLevelBiometrics(stripRemovedInmateFields(req.body));
   const jailId = jailScopeOf(req);
   const kioskId = kioskScopeOf(req);
+  const assignment = normalizeKioskAssignment(inmateData, kioskId);
   if (jailId && inmateData.prisonId && inmateData.prisonId !== jailId) {
     return sendError(res, 'FORBIDDEN', 'Cannot create an inmate outside your jail', 403);
   }
-  if (kioskId && inmateData.assignedKioskId && inmateData.assignedKioskId !== kioskId) {
+  if (kioskId && !assignment.allKiosks && assignment.assignedKioskIds.some((id) => id !== kioskId)) {
     return sendError(res, 'FORBIDDEN', 'Cannot create an inmate for another kiosk', 403);
   }
-  // Verify assigned kiosk belongs to the same prison
-  const assignedKiosk = inmateData.assignedKioskId;
-  if (jailId && assignedKiosk) {
-    const kiosks = await readDb('kiosks.json');
-    const kiosk = kiosks.find((k) => k.kioskId === assignedKiosk);
-    if (!kiosk) {
-      return sendError(res, 'NOT_FOUND', 'Assigned kiosk not found', 404);
-    }
-    if (kiosk.prisonId && kiosk.prisonId !== jailId) {
-      return sendError(res, 'FORBIDDEN', 'Cannot assign a kiosk from another prison', 403);
-    }
+  const kioskValidation = await validateKioskAssignments(assignment.assignedKioskIds, jailId);
+  if (!kioskValidation.ok) {
+    return sendError(res, kioskValidation.code || 'INVALID_REFERENCE', kioskValidation.message, kioskValidation.code === 'NOT_FOUND' ? 404 : 403);
   }
   const refs = await validateInmateRefs({
     prisonId: jailId || inmateData.prisonId || inmateData.facility,
-    assignedKioskId: kioskId || inmateData.assignedKioskId,
+    assignedKioskId: assignment.assignedKioskId,
   });
   if (!refs.ok) return sendError(res, 'INVALID_REFERENCE', refs.message, 422);
   const bioError = biometricValidationError(inmateData.biometricData);
   if (bioError) return sendError(res, 'INVALID_BIOMETRIC', bioError, 422);
-  const fpError = fingerprintTemplateValidationError(inmateData.biometricData?.fingerprintTemplate);
+  const fpError = fingerprintTemplatesValidationError(inmateData.biometricData, inmateData.inmateId);
   if (fpError) return sendError(res, 'INVALID_BIOMETRIC', fpError, 422);
   try {
     const newInmate = await updateDb('inmates.json', async (inmates) => {
@@ -264,14 +270,7 @@ async function inmateCreateHandler(req, res) {
       // POST /prisoners/:id/biometrics route writes, so the Biometrics screen
       // lists captures made during inmate creation too.
       const registeredAt = inmateData.biometricData?.lastBiometricUpdate || new Date().toISOString();
-      const biometrics = [
-        inmateData.biometricData?.fingerprintRegistered
-          ? { biometricId: `BIO-${inmateId}-FGP`, prisonerId: inmateId, type: 'fingerprint', status: 'registered', registeredAt }
-          : null,
-        inmateData.biometricData?.rfidRegistered
-          ? { biometricId: `BIO-${inmateId}-RFID`, prisonerId: inmateId, type: 'rfid', status: 'registered', registeredAt }
-          : null
-      ].filter(Boolean);
+      const biometrics = biometricRecordsFor(inmateId, inmateData.biometricData, registeredAt);
       const record = {
         ...inmateData,
         inmateId: inmateId,
@@ -281,12 +280,12 @@ async function inmateCreateHandler(req, res) {
         walletId: inmateData.walletId || `WAL-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         prisonId: jailId || inmateData.prisonId || inmateData.facility,
         facility: jailId || inmateData.facility || inmateData.prisonId,
-        assignedKioskId: kioskId || inmateData.assignedKioskId,
+        ...assignment,
         status: inmateData.status || 'active',
         pin: inmateData.pin ? await hashSecret(String(inmateData.pin)) : await hashSecret(uuidv4().substring(0, 8)),
         biometricData: await hashBiometricData(inmateData.biometricData || {
           fingerprintRegistered: false, rfidRegistered: false, lastBiometricUpdate: null
-        }),
+        }, inmateId),
         ...(biometrics.length ? { biometrics } : {}),
         createdAt: new Date().toISOString()
       };
@@ -302,7 +301,7 @@ async function inmateCreateHandler(req, res) {
     );
     await auditFromReq(req, 'prisoner.created', {
       entityType: 'prisoner', entityId: newInmate.inmateId, prisonId: newInmate.prisonId || null,
-      metadata: { name: newInmate.name || null, kioskId: newInmate.assignedKioskId || null }
+      metadata: { name: newInmate.name || null, kioskIds: assignedKioskIdsOf(newInmate), allKiosks: isAllKiosks(newInmate) }
     });
     // normalizeInmate strips the bcrypt PIN — the raw row must never leave.
     return sendSuccess(res, normalizeInmate(newInmate), 201);
@@ -320,39 +319,39 @@ async function inmateUpdateHandler(req, res) {
   INMATE_IMMUTABLE_FIELDS.forEach((f) => delete updates[f]);
   const jailId = jailScopeOf(req);
   const kioskId = kioskScopeOf(req);
+  const hasAssignmentUpdate = ['allKiosks', 'assignedKioskIds', 'assignedKioskId']
+    .some((key) => Object.prototype.hasOwnProperty.call(updates, key));
+  const assignment = hasAssignmentUpdate ? normalizeKioskAssignment(updates, kioskId) : null;
   if (jailId && updates.prisonId && updates.prisonId !== jailId) {
     return sendError(res, 'FORBIDDEN', 'Cannot move an inmate to another jail', 403);
   }
-  if (kioskId && updates.assignedKioskId && updates.assignedKioskId !== kioskId) {
-    return sendError(res, 'FORBIDDEN', 'Cannot reassign an inmate to another kiosk', 403);
-  }
-  // Verify assigned kiosk belongs to the same prison
-  if (jailId && updates.assignedKioskId) {
-    const kiosks = await readDb('kiosks.json');
-    const kiosk = kiosks.find((k) => k.kioskId === updates.assignedKioskId);
-    if (!kiosk) {
-      return sendError(res, 'NOT_FOUND', 'Assigned kiosk not found', 404);
+  if (assignment) {
+    if (kioskId && !assignment.allKiosks && assignment.assignedKioskIds.some((kid) => kid !== kioskId)) {
+      return sendError(res, 'FORBIDDEN', 'Cannot reassign an inmate to another kiosk', 403);
     }
-    if (kiosk.prisonId && kiosk.prisonId !== jailId) {
-      return sendError(res, 'FORBIDDEN', 'Cannot assign a kiosk from another prison', 403);
+    const kioskValidation = await validateKioskAssignments(assignment.assignedKioskIds, jailId);
+    if (!kioskValidation.ok) {
+      return sendError(res, kioskValidation.code || 'INVALID_REFERENCE', kioskValidation.message, kioskValidation.code === 'NOT_FOUND' ? 404 : 403);
     }
   }
   delete updates.prisonId;
   if (updates.biometricData) {
     const bioError = biometricValidationError(updates.biometricData);
     if (bioError) return sendError(res, 'INVALID_BIOMETRIC', bioError, 422);
-    const fpError = fingerprintTemplateValidationError(updates.biometricData.fingerprintTemplate);
+    const fpError = fingerprintTemplatesValidationError(updates.biometricData, id);
     if (fpError) return sendError(res, 'INVALID_BIOMETRIC', fpError, 422);
     const current = (await readDb('inmates.json')).find((i) => i.inmateId === id && inAdminScope(req, i));
     if (!current) return sendError(res, 'NOT_FOUND', 'Inmate not found', 404);
     updates.biometricData = await hashBiometricData(
-      mergeBiometricData(current.biometricData, updates.biometricData)
+      mergeBiometricData(current.biometricData, updates.biometricData),
+      id
     );
   }
   const updatedRefs = await validateInmateRefs({
-    assignedKioskId: updates.assignedKioskId,
+    assignedKioskId: assignment ? assignment.assignedKioskId : undefined,
   });
   if (!updatedRefs.ok) return sendError(res, 'INVALID_REFERENCE', updatedRefs.message, 422);
+  if (assignment) Object.assign(updates, assignment);
   const updated = await updateDb('inmates.json', (inmates) => {
     const idx = inmates.findIndex((i) => i.inmateId === id && inAdminScope(req, i));
     if (idx === -1) return { data: inmates, result: null };
@@ -498,3 +497,5 @@ module.exports.stripRemovedInmateFields = stripRemovedInmateFields;
 module.exports.hashBiometricData = hashBiometricData;
 module.exports.mergeBiometricData = mergeBiometricData;
 module.exports.foldTopLevelBiometrics = foldTopLevelBiometrics;
+module.exports.normalizeInmate = normalizeInmate;
+module.exports.enrichInmates = enrichInmates;

@@ -2,7 +2,7 @@ const express = require('express');
 const { readDb, updateDb } = require('../lib/db');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { sendSuccess, sendError, asyncRoute } = require('../lib/response');
-const { inScopeOf, scopeList, inAdminScope } = require('../lib/scoping');
+const { inScopeOf, scopeList, inAdminScope, assignedKioskIdsOf } = require('../lib/scoping');
 const { paginate } = require('../lib/paginate');
 const { auditFromReq } = require('../lib/audit');
 
@@ -171,7 +171,7 @@ function createContactsRouter() {
 
     const inmates = await readDb('inmates.json');
     const inmate = inmates.find((i) => i.inmateId === id) ||
-                   inmates.find((i) => i.assignedKioskId === id) ||
+                   inmates.find((i) => assignedKioskIdsOf(i).includes(String(id))) ||
                    inmates.find((i) => i.prisonerNumber === id);
     if (inmate && !(await inScopeOf(req, inmate))) {
       return sendError(res, 'NOT_FOUND', 'Inmate not found in your kiosk/jail', 404);

@@ -133,7 +133,7 @@ const BROADCAST_SECRET_KEYS = new Set([
   'password', 'pin', 'resetCodeHash', 'resetCodeExpiresAt', 'setupPassword',
   'refreshToken', 'accessToken', 'deviceToken',
   // biometrics / device identifiers
-  'rfidToken', 'fingerprintTemplate', 'deviceFingerprints', 'hash',
+  'rfidToken', 'fingerprintTemplate', 'fingerprintTemplates', 'deviceFingerprints', 'hash',
 ]);
 const BROADCAST_FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
