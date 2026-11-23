@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.dssmeet.kiosk.models.admin.Prisoner
 import com.dssmeet.kiosk.models.admin.UpdatePrisonerStatusRequest
 import com.dssmeet.kiosk.models.wallet.WalletStatement
+import com.dssmeet.kiosk.models.wallet.safeBalance
 import com.dssmeet.kiosk.network.NetworkResult
 import com.dssmeet.kiosk.repository.AdminRepository
 import com.dssmeet.kiosk.repository.InmateRepository
@@ -117,13 +118,15 @@ class ManagePrisonersViewModel @Inject constructor(
         viewModelScope.launch {
             val balances = prisoners.map { prisoner ->
                 async(Dispatchers.IO) {
-                    val balance = inmateRepository.peekWalletStatement(prisoner.inmateId)?.wallet?.balance
-                        ?: when (val result = inmateRepository.getWalletStatement(prisoner.inmateId)
-                            .filter { it !is NetworkResult.Loading }
-                            .firstOrNull()) {
-                            is NetworkResult.Success -> result.data.wallet.balance
-                            else -> null
-                        }
+                    val balance = runCatching {
+                        inmateRepository.peekWalletStatement(prisoner.inmateId)?.wallet?.safeBalance()
+                            ?: when (val result = inmateRepository.getWalletStatement(prisoner.inmateId)
+                                .filter { it !is NetworkResult.Loading }
+                                .firstOrNull()) {
+                                is NetworkResult.Success -> result.data.wallet?.safeBalance()
+                                else -> null
+                            }
+                    }.getOrNull()
                     prisoner.inmateId to balance
                 }
             }.awaitAll()

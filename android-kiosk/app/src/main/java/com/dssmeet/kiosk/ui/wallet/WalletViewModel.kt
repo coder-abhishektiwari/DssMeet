@@ -6,6 +6,7 @@ import com.dssmeet.kiosk.core.JailBalanceSync
 import com.dssmeet.kiosk.core.UiState
 import com.dssmeet.kiosk.models.wallet.WalletStatement
 import com.dssmeet.kiosk.models.wallet.WalletTransaction
+import com.dssmeet.kiosk.models.wallet.safeBalance
 import com.dssmeet.kiosk.repository.AuthRepository
 import com.dssmeet.kiosk.repository.InmateRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -41,7 +42,7 @@ class WalletViewModel @Inject constructor(
             // refresh in the background (a fresh cache read is also instant).
             val cached = inmateRepository.peekWalletStatement(inmateId)
             if (cached != null) {
-                jailBalanceSync.push(cached.wallet.balance)
+                jailBalanceSync.push(cached.wallet.safeBalance() ?: 0.0)
                 _walletState.value = UiState.Success(cached.toUiData())
             } else {
                 _walletState.value = UiState.Loading
@@ -50,7 +51,7 @@ class WalletViewModel @Inject constructor(
             inmateRepository.getWalletStatement(inmateId).collect { result ->
                 when (result) {
                     is com.dssmeet.kiosk.network.NetworkResult.Success -> {
-                        jailBalanceSync.push(result.data.wallet.balance)
+                        jailBalanceSync.push(result.data.wallet.safeBalance() ?: 0.0)
                         _walletState.value = UiState.Success(result.data.toUiData())
                     }
                     is com.dssmeet.kiosk.network.NetworkResult.Failure -> {
@@ -67,11 +68,11 @@ class WalletViewModel @Inject constructor(
     }
 
     private fun WalletStatement.toUiData() = WalletUiData(
-        balance = wallet.balance,
-        currency = wallet.currency,
-        lastRecharge = wallet.lastRecharge,
-        lastRechargeAmount = wallet.lastRechargeAmount,
-        transactions = transactions
+        balance = wallet.safeBalance() ?: 0.0,
+        currency = wallet?.currency ?: "INR",
+        lastRecharge = wallet?.lastRecharge,
+        lastRechargeAmount = wallet?.lastRechargeAmount,
+        transactions = transactions.orEmpty()
             .filter { it.isSettled }
             .sortedByDescending { it.timestamp }
     )

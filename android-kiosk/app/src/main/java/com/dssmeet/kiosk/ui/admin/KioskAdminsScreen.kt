@@ -69,10 +69,9 @@ fun KioskAdminsScreen(
         fingerprintCaptureState = state.captureState,
         pendingFingerprints = state.pendingFingerprints,
         fingerprintError = state.fingerprintError,
-        onStartFingerprintCapture = viewModel::startFingerprintCapture,
+        onStartFingerprintCapture = { adminId -> viewModel.startFingerprintCapture(adminId) },
         onStopFingerprintCapture = viewModel::stopFingerprintCapture,
         onClearPendingFingerprints = viewModel::clearPendingFingerprints,
-        onSaveFingerprints = viewModel::savePendingFingerprints,
         onRemoveFingerprint = viewModel::removeFingerprint,
         onDialogDismissed = viewModel::clearSaveError,
         onMessageShown = viewModel::consumeMessage
@@ -90,10 +89,9 @@ fun KioskAdminsContent(
     fingerprintCaptureState: FingerprintCaptureState,
     pendingFingerprints: List<String>,
     fingerprintError: String?,
-    onStartFingerprintCapture: () -> Unit,
+    onStartFingerprintCapture: (String?) -> Unit,
     onStopFingerprintCapture: () -> Unit,
     onClearPendingFingerprints: () -> Unit,
-    onSaveFingerprints: (String) -> Unit,
     onRemoveFingerprint: (String, String) -> Unit,
     onDialogDismissed: () -> Unit,
     onMessageShown: () -> Unit
@@ -105,9 +103,12 @@ fun KioskAdminsContent(
     // A successful save closes whichever dialog was open and confirms with a snackbar.
     LaunchedEffect(state.message) {
         val message = state.message ?: return@LaunchedEffect
-        showAddDialog = false
-        editing = null
         snackbarMessage = message
+        if (message.startsWith("Kiosk admin added") || message == "Changes saved") {
+            showAddDialog = false
+            editing = null
+            onClearPendingFingerprints()
+        }
         onMessageShown()
     }
 
@@ -119,8 +120,8 @@ fun KioskAdminsContent(
     }
 
     LaunchedEffect(showAddDialog, editing?.adminId) {
-        if (showAddDialog || editing != null) {
-            onStartFingerprintCapture()
+        if (showAddDialog) {
+            onStartFingerprintCapture(null)
         } else {
             onStopFingerprintCapture()
         }
@@ -223,7 +224,7 @@ fun KioskAdminsContent(
             pendingFingerprints = pendingFingerprints,
             fingerprintError = fingerprintError,
             onRemoveFingerprint = onRemoveFingerprint,
-            onSaveFingerprints = onSaveFingerprints,
+            onStartFingerprintCapture = onStartFingerprintCapture,
             onDismiss = {
                 showAddDialog = false
                 onClearPendingFingerprints()
@@ -235,7 +236,8 @@ fun KioskAdminsContent(
         )
     }
 
-    editing?.let { admin ->
+    editing?.let { stale ->
+        val admin = state.admins.firstOrNull { it.adminId == stale.adminId } ?: stale
         KioskAdminDialog(
             title = "Edit Kiosk Admin",
             initial = admin,
@@ -245,7 +247,7 @@ fun KioskAdminsContent(
             pendingFingerprints = pendingFingerprints,
             fingerprintError = fingerprintError,
             onRemoveFingerprint = onRemoveFingerprint,
-            onSaveFingerprints = onSaveFingerprints,
+            onStartFingerprintCapture = onStartFingerprintCapture,
             onDismiss = {
                 editing = null
                 onClearPendingFingerprints()
@@ -581,7 +583,7 @@ private fun KioskAdminDialog(
     pendingFingerprints: List<String>,
     fingerprintError: String?,
     onRemoveFingerprint: (String, String) -> Unit,
-    onSaveFingerprints: (String) -> Unit,
+    onStartFingerprintCapture: (String?) -> Unit,
     onDismiss: () -> Unit,
     onConfirm: (String, String, String?, String, List<String>) -> Unit
 ) {
@@ -685,9 +687,10 @@ private fun KioskAdminDialog(
                     captureState = captureState,
                     pendingCount = pendingFingerprints.size,
                     error = fingerprintError,
+                    saving = saving,
                     enabled = !saving,
                     onRemoveFingerprint = onRemoveFingerprint,
-                    onSaveFingerprints = onSaveFingerprints
+                    onStartFingerprintCapture = onStartFingerprintCapture
                 )
 
                 serverError?.let {
@@ -734,12 +737,15 @@ private fun AdminFingerprintCaptureSection(
     captureState: FingerprintCaptureState,
     pendingCount: Int,
     error: String?,
+    saving: Boolean,
     enabled: Boolean,
     onRemoveFingerprint: (String, String) -> Unit,
-    onSaveFingerprints: (String) -> Unit
+    onStartFingerprintCapture: (String?) -> Unit
 ) {
     val registered = initial?.fingerprintCount ?: 0
     val total = registered + pendingCount
+    val scanning = captureState is FingerprintCaptureState.Searching ||
+        captureState is FingerprintCaptureState.Captured
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -749,29 +755,42 @@ private fun AdminFingerprintCaptureSection(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             FingerprintFeedbackIcon(
-                isScanning = captureState is FingerprintCaptureState.Searching ||
-                    captureState is FingerprintCaptureState.Captured,
+                isScanning = scanning,
                 isMismatch = false,
                 isDeviceError = captureState is FingerprintCaptureState.Failed,
                 modifier = Modifier.size(32.dp)
             )
             Spacer(Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text("Fingerprint (optional)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Text(
+                    if (initial == null) "Fingerprint (optional)" else "Fingerprints",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp
+                )
                 Text(
                     "$total of 3 registered" + if (pendingCount > 0) " • $pendingCount new" else "",
                     fontSize = 12.sp,
                     color = TextGray
                 )
             }
-            if (initial != null && pendingCount > 0) {
-                TextButton(
-                    onClick = { onSaveFingerprints(initial.adminId) },
-                    enabled = enabled
+            if (initial != null) {
+                Button(
+                    onClick = { onStartFingerprintCapture(initial.adminId) },
+                    enabled = enabled && !saving && !scanning && total < MAX_VISIBLE_FINGERPRINTS
                 ) {
-                    Text("Save", fontSize = 12.sp)
+                    Text(
+                        when {
+                            saving -> "Saving..."
+                            scanning -> "Scanning..."
+                            else -> "Add"
+                        },
+                        fontSize = 12.sp
+                    )
                 }
             }
+        }
+        if (initial == null && scanning) {
+            Text("Place finger on the scanner now", fontSize = 12.sp, color = TextGray)
         }
         error?.let { Text(it, color = DangerRed, fontSize = 12.sp) }
         initial?.fingerprints?.forEach { fingerprint ->
@@ -808,6 +827,8 @@ private fun AdminFingerprintCaptureSection(
     }
 }
 
+private const val MAX_VISIBLE_FINGERPRINTS = 3
+
 @Composable
 private fun PreviewKioskAdminsContent() {
     KioskAdminsContent(
@@ -830,10 +851,9 @@ private fun PreviewKioskAdminsContent() {
         fingerprintCaptureState = FingerprintCaptureState.Idle,
         pendingFingerprints = emptyList(),
         fingerprintError = null,
-        onStartFingerprintCapture = {},
+        onStartFingerprintCapture = { _ -> },
         onStopFingerprintCapture = {},
         onClearPendingFingerprints = {},
-        onSaveFingerprints = { _ -> },
         onRemoveFingerprint = { _, _ -> },
         onDialogDismissed = {},
         onMessageShown = {}

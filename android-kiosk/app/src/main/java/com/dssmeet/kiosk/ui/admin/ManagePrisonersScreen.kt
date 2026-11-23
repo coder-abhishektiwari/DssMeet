@@ -44,6 +44,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.dssmeet.kiosk.models.admin.Prisoner
 import com.dssmeet.kiosk.models.wallet.WalletStatement
 import com.dssmeet.kiosk.models.wallet.WalletTransaction
+import com.dssmeet.kiosk.models.wallet.safeBalance
 import com.dssmeet.kiosk.network.NetworkResult
 import com.dssmeet.kiosk.ui.components.ConfirmDeleteDialog
 import com.dssmeet.kiosk.ui.components.KioskPasswordField
@@ -917,9 +918,11 @@ private fun InmateLedgerDialog(
 
                     is InmateLedgerUiState.Success -> {
                         val statement = state.statement
+                        val currentBalance = statement.wallet.safeBalance() ?: 0.0
+                        val transactions = statement.transactions.orEmpty()
                         val runningRows = remember(statement) {
-                            var running = statement.wallet.balance
-                            statement.transactions
+                            var running = currentBalance
+                            transactions
                                 .sortedByDescending { parseLedgerTime(it.timestamp) }
                                 .map { transaction ->
                                     val row = transaction to running
@@ -939,14 +942,14 @@ private fun InmateLedgerDialog(
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text("Current balance", fontSize = 12.sp, color = TextGray)
                                     Text(
-                                        text = formatPaise(statement.wallet.balance),
+                                        text = formatPaise(currentBalance),
                                         fontSize = 24.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = PrimaryDarkNavy
                                     )
                                 }
                                 Text(
-                                    text = "${statement.transactions.size} entries",
+                                    text = "${transactions.size} entries",
                                     fontSize = 12.sp,
                                     color = TextGray
                                 )
@@ -1065,7 +1068,7 @@ private fun LedgerEntryRow(transaction: WalletTransaction, balanceAfter: Double)
 }
 
 private fun ledgerSignedAmount(transaction: WalletTransaction): Double {
-    val amount = Math.abs(transaction.amount)
+    val amount = Math.abs(runCatching { transaction.amount }.getOrNull() ?: 0.0)
     return if (transaction.type?.equals("charge", ignoreCase = true) == true) -amount else amount
 }
 

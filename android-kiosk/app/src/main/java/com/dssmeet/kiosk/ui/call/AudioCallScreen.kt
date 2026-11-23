@@ -6,7 +6,6 @@ import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -40,8 +39,8 @@ import com.dssmeet.kiosk.models.inmate.InmateProfile
 import com.dssmeet.kiosk.ui.components.KioskButton
 import com.dssmeet.kiosk.ui.components.KioskProgressIndicator
 import com.dssmeet.kiosk.ui.theme.AccentGreen
-import com.dssmeet.kiosk.ui.theme.DangerRed
 import com.dssmeet.kiosk.ui.theme.ControlBtnBg
+import com.dssmeet.kiosk.ui.theme.DangerRed
 import com.dssmeet.kiosk.ui.theme.LightBg
 import com.dssmeet.kiosk.ui.theme.PrimaryNavy
 import com.dssmeet.kiosk.ui.theme.PrisonKioskTheme
@@ -49,7 +48,6 @@ import com.dssmeet.kiosk.ui.theme.TextDark
 import com.dssmeet.kiosk.ui.theme.TextGray
 import com.dssmeet.kiosk.ui.theme.WarningOrange
 import kotlinx.coroutines.delay
-
 
 @Composable
 fun AudioCallScreen(
@@ -94,12 +92,8 @@ fun AudioCallScreen(
         if (!hasPermissions && !permissionDeniedOnce) {
             launcher.launch(arrayOf(Manifest.permission.RECORD_AUDIO))
         }
-        // initCall already ran on CallProgressScreen (shared singleton engine).
     }
 
-    // Track whether the call ever reached CONNECTED so a peer-side disconnect
-    // (call ended remotely) exits via the billing summary, while a call that
-    // never connected (join failed / media failed) simply goes back.
     var everConnected by remember { mutableStateOf(false) }
 
     LaunchedEffect(callState) {
@@ -154,24 +148,38 @@ fun AudioPermissionDeniedUI(onRetry: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(LightBg),
+            .background(LightBg)
+            .padding(24.dp),
         contentAlignment = Alignment.Center
     ) {
         Card(
-            modifier = Modifier.padding(32.dp).fillMaxWidth(0.6f),
+            modifier = Modifier
+                .widthIn(min = 280.dp, max = 520.dp)
+                .fillMaxWidth(),
             shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White)
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
         ) {
             Column(
-                modifier = Modifier.padding(32.dp),
+                modifier = Modifier.padding(28.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Icon(Icons.Default.MicOff, null, tint = DangerRed, modifier = Modifier.size(64.dp))
-                Spacer(modifier = Modifier.height(24.dp))
-                Text("Microphone Required", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = TextDark)
-                Spacer(modifier = Modifier.height(12.dp))
-                Text("We need access to your microphone to start the audio call. Please grant permission to continue.", style = MaterialTheme.typography.bodyLarge, color = TextGray, textAlign = TextAlign.Center)
-                Spacer(modifier = Modifier.height(32.dp))
+                Icon(Icons.Default.MicOff, null, tint = DangerRed, modifier = Modifier.size(56.dp))
+                Spacer(modifier = Modifier.height(20.dp))
+                Text(
+                    text = "Microphone Required",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = TextDark
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                    text = "We need access to your microphone to start the audio call. Please grant permission to continue.",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = TextGray,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(28.dp))
                 KioskButton(text = "Grant Permission", onClick = onRetry, modifier = Modifier.fillMaxWidth())
             }
         }
@@ -199,7 +207,6 @@ fun AudioCallContent(
 ) {
     var showInfoDialog by remember { mutableStateOf(false) }
 
-    // Warden-controlled max call length (from the dashboard Settings).
     val remainingSeconds = (maxCallSeconds - timerSeconds).coerceAtLeast(0)
 
     val formatTime = { seconds: Int ->
@@ -208,7 +215,6 @@ fun AudioCallContent(
         String.format("%02d:%02d", mins, secs)
     }
 
-    // Live billing from the engine: ceil(minutes) × actual per-minute rate.
     val currentCost = liveCost
 
     Scaffold(
@@ -222,66 +228,92 @@ fun AudioCallContent(
         ) {
             val isTablet = maxWidth >= 600.dp
             val contentWidth = if (isTablet) {
-                minOf(maxWidth - 80.dp, 900.dp)
+                minOf(maxWidth - 64.dp, 880.dp)
             } else {
-                minOf(maxWidth - 40.dp, 520.dp)
+                minOf(maxWidth - 32.dp, 520.dp)
             }.coerceAtLeast(240.dp)
-
-            // Top Status Bar (Recording & Signal)
-            Row(
-                modifier = Modifier
-                    .width(contentWidth)
-                    .padding(vertical = 24.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                if (isRecording) {
-                    RecordingBadge()
-                } else {
-                    Spacer(modifier = Modifier.width(1.dp))
-                }
-                ConnectionQualityBadge(connectionQuality, isTablet)
-            }
 
             Column(
                 modifier = Modifier
                     .width(contentWidth)
-                    .verticalScroll(rememberScrollState())
-                    .padding(vertical = if (isTablet) 40.dp else 20.dp),
+                    .fillMaxHeight()
+                    .padding(
+                        top = if (isTablet) 24.dp else 16.dp,
+                        bottom = if (isTablet) 32.dp else 20.dp
+                    ),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
-                // The badge alone is easy to miss mid-conversation — spell out
-                // a bad line the way consumer calling apps do.
-                if (connectionQuality == "poor") {
-                    Surface(
-                        color = DangerRed.copy(alpha = 0.12f),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth()
+                // -------------------------------------------------------------
+                // 1. TOP STATUS BAR (Recording & Connection Quality)
+                // -------------------------------------------------------------
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "Poor network quality — audio may break up",
-                            color = DangerRed,
-                            fontSize = if (isTablet) 13.sp else 12.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                        )
+                        if (isRecording) {
+                            RecordingBadge()
+                        } else {
+                            Spacer(modifier = Modifier.width(1.dp))
+                        }
+                        ConnectionQualityBadge(connectionQuality, isTablet)
+                    }
+
+                    if (connectionQuality == "poor") {
+                        Surface(
+                            color = DangerRed.copy(alpha = 0.12f),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "Poor network quality — audio may break up",
+                                color = DangerRed,
+                                fontSize = if (isTablet) 13.sp else 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                            )
+                        }
+                    }
+
+                    if (!isNetworkAvailable) {
+                        Surface(
+                            color = WarningOrange,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "Network Lost. Connecting...",
+                                color = Color.White,
+                                fontSize = if (isTablet) 14.sp else 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
+                            )
+                        }
                     }
                 }
 
                 // -------------------------------------------------------------
-                // 1. CENTER PROFILE & CONTACT DETAILS
+                // 2. CENTER PROFILE & CONTACT DETAILS
                 // -------------------------------------------------------------
                 Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .padding(vertical = 16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
-                    modifier = Modifier.weight(1f)
+                    verticalArrangement = Arrangement.Center
                 ) {
-                    // Profile Avatar
                     Surface(
                         modifier = Modifier
-                            .size(if (isTablet) 200.dp else 120.dp)
+                            .size(if (isTablet) 180.dp else 116.dp)
                             .clip(CircleShape)
                             .border(4.dp, PrimaryNavy.copy(alpha = 0.15f), CircleShape),
                         color = Color.White,
@@ -291,22 +323,24 @@ fun AudioCallContent(
                             Icon(
                                 imageVector = Icons.Default.Person,
                                 contentDescription = null,
-                                modifier = Modifier.size(if (isTablet) 120.dp else 70.dp),
+                                modifier = Modifier.size(if (isTablet) 108.dp else 66.dp),
                                 tint = PrimaryNavy
                             )
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(if (isTablet) 32.dp else 20.dp))
+                    Spacer(modifier = Modifier.height(if (isTablet) 28.dp else 18.dp))
 
                     Text(
                         text = contactName,
-                        fontSize = if (isTablet) 36.sp else 24.sp,
+                        fontSize = if (isTablet) 32.sp else 22.sp,
                         fontWeight = FontWeight.Bold,
-                        color = TextDark
+                        color = TextDark,
+                        textAlign = TextAlign.Center,
+                        maxLines = 2
                     )
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
                     if (callState == CallUIState.CONNECTED) {
                         Surface(
@@ -314,9 +348,9 @@ fun AudioCallContent(
                             shape = RoundedCornerShape(50)
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 7.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Box(
                                     modifier = Modifier
@@ -332,15 +366,14 @@ fun AudioCallContent(
                                 )
                             }
                         }
-                        // Family member's location (from device verification),
-                        // shown right under the call timer. Shared pill — same look as video.
+
                         familyLocation?.let { loc ->
                             Spacer(modifier = Modifier.height(10.dp))
                             com.dssmeet.kiosk.ui.components.FamilyLocationPill(location = loc)
                         }
                     } else {
                         Text(
-                            text = when(callState) {
+                            text = when (callState) {
                                 CallUIState.WAITING -> "Waiting for participant..."
                                 CallUIState.RECONNECTING -> "Reconnecting..."
                                 CallUIState.FAILED -> "Call Failed"
@@ -348,37 +381,19 @@ fun AudioCallContent(
                                 else -> "Connecting..."
                             },
                             fontSize = if (isTablet) 20.sp else 16.sp,
-                            color = TextGray
+                            color = TextGray,
+                            textAlign = TextAlign.Center
                         )
                         if (callState != CallUIState.FAILED) {
-                            Spacer(modifier = Modifier.height(12.dp))
+                            Spacer(modifier = Modifier.height(14.dp))
                             KioskProgressIndicator()
                         }
                     }
                 }
 
-                // Network lost overlay
-                if (!isNetworkAvailable) {
-                    Surface(
-                        color = WarningOrange,
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.padding(bottom = 20.dp)
-                    ) {
-                        Text(
-                            "Network Lost. Connecting...",
-                            color = Color.White,
-                            modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-
                 // -------------------------------------------------------------
-                // 2. BOTTOM CONTROL TOOLBAR
+                // 3. BOTTOM CONTROL TOOLBAR
                 // -------------------------------------------------------------
-                // Wrap-content + centered: on a big screen a full-width bar
-                // flings the buttons to the far edges. The container is only
-                // ever as wide as its controls.
                 Surface(
                     modifier = Modifier.wrapContentWidth(),
                     shape = RoundedCornerShape(if (isTablet) 32.dp else 24.dp),
@@ -389,10 +404,10 @@ fun AudioCallContent(
                         modifier = Modifier
                             .wrapContentWidth()
                             .padding(
-                                horizontal = if (isTablet) 32.dp else 20.dp,
-                                vertical = if (isTablet) 24.dp else 16.dp
+                                horizontal = if (isTablet) 32.dp else 18.dp,
+                                vertical = if (isTablet) 20.dp else 14.dp
                             ),
-                        horizontalArrangement = Arrangement.spacedBy(if (isTablet) 44.dp else 20.dp),
+                        horizontalArrangement = Arrangement.spacedBy(if (isTablet) 40.dp else 18.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         CallActionButton(
@@ -436,13 +451,14 @@ fun AudioCallContent(
             }
 
             // -------------------------------------------------------------
-            // 3. CALL INFO DIALOG MODAL
+            // 4. CALL INFO DIALOG MODAL
             // -------------------------------------------------------------
             if (showInfoDialog) {
                 Dialog(onDismissRequest = { showInfoDialog = false }) {
                     Card(
                         modifier = Modifier
-                            .fillMaxWidth(if (isTablet) 0.85f else 0.95f),
+                            .fillMaxWidth(if (isTablet) 0.75f else 0.95f)
+                            .widthIn(max = 520.dp),
                         shape = RoundedCornerShape(24.dp),
                         colors = CardDefaults.cardColors(containerColor = Color.White),
                         elevation = CardDefaults.cardElevation(defaultElevation = 10.dp)
@@ -485,24 +501,31 @@ fun AudioCallContent(
                                 }
                             }
 
-                            Spacer(modifier = Modifier.height(20.dp))
+                            Spacer(modifier = Modifier.height(16.dp))
                             HorizontalDivider(color = BorderColor)
-                            Spacer(modifier = Modifier.height(20.dp))
+                            Spacer(modifier = Modifier.height(16.dp))
 
-                            // Inmate Detail
                             Surface(
                                 color = LightBg,
                                 shape = RoundedCornerShape(12.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Column(modifier = Modifier.padding(12.dp)) {
-                                    Text("INMATE DETAILS", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextGray)
+                                Column(
+                                    modifier = Modifier.padding(14.dp),
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    Text("INMATE DETAILS", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TextGray)
                                     Text(
-                                        inmateProfile?.displayName ?: "Inmate",
+                                        text = inmateProfile?.displayName ?: "Inmate",
                                         fontSize = 16.sp,
-                                        fontWeight = FontWeight.Bold
+                                        fontWeight = FontWeight.Bold,
+                                        color = TextDark
                                     )
-                                    Text("Facility: ${inmateProfile?.facility}", fontSize = 12.sp, color = TextGray)
+                                    Text(
+                                        text = "Facility: ${inmateProfile?.facility ?: "—"}",
+                                        fontSize = 12.sp,
+                                        color = TextGray
+                                    )
                                 }
                             }
 
@@ -599,7 +622,12 @@ private fun RecordingBadge() {
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(DangerRed.copy(alpha = alpha)))
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(DangerRed.copy(alpha = alpha))
+            )
             Spacer(modifier = Modifier.width(6.dp))
             Text("SECURE RECORDING", color = DangerRed, fontSize = 12.sp, fontWeight = FontWeight.Bold)
         }
@@ -608,7 +636,6 @@ private fun RecordingBadge() {
 
 @Composable
 private fun ConnectionQualityBadge(quality: String, isTablet: Boolean) {
-    // Sampled from the live peer connection — never a static label.
     val (label, tint) = when (quality) {
         "excellent" -> "Excellent Connection" to AccentGreen
         "good" -> "Stable Connection" to AccentGreen
@@ -638,9 +665,6 @@ private fun ConnectionQualityBadge(quality: String, isTablet: Boolean) {
     }
 }
 
-// -----------------------------------------------------------------------------
-// COMPONENT: Reusable Call Control Button with Tablet Support
-// -----------------------------------------------------------------------------
 @Composable
 private fun CallActionButton(
     icon: ImageVector,
@@ -660,17 +684,17 @@ private fun CallActionButton(
     val iconColor = if (isEndCall || isActive) Color.White else TextDark
 
     val buttonSize = when {
-        isTablet && isEndCall -> 80.dp
-        isTablet -> 72.dp
-        isEndCall -> 64.dp
-        else -> 56.dp
+        isTablet && isEndCall -> 76.dp
+        isTablet -> 68.dp
+        isEndCall -> 60.dp
+        else -> 52.dp
     }
 
     val iconSize = when {
-        isTablet && isEndCall -> 36.dp
-        isTablet -> 30.dp
-        isEndCall -> 30.dp
-        else -> 24.dp
+        isTablet && isEndCall -> 34.dp
+        isTablet -> 28.dp
+        isEndCall -> 28.dp
+        else -> 22.dp
     }
 
     Column(
@@ -701,28 +725,6 @@ private fun CallActionButton(
     }
 }
 
-// --- PREVIEWS ---
-
-//@Preview(name = "Tablet Portrait", device = "spec:width=800dp,height=1280dp,orientation=portrait", showBackground = true)
-//@Composable
-//fun PreviewAudioCallTabletPortrait() {
-//    PrisonKioskTheme {
-//        AudioCallContent(
-//            contactName = "Suresh Kumar (Brother)",
-//            timerSeconds = 125,
-//            isMuted = false,
-//            isSpeakerOn = true,
-//            callState = CallUIState.CONNECTED,
-//            isNetworkAvailable = true,
-//            isRecording = true,
-//            inmateProfile = null,
-//            onMuteToggle = {},
-//            onSpeakerToggle = {},
-//            onEndCall = {}
-//        )
-//    }
-//}
-
 @Preview(name = "Mobile View", device = "spec:width=360dp,height=800dp", showBackground = true)
 @Composable
 fun PreviewAudioCallMobile() {
@@ -738,6 +740,29 @@ fun PreviewAudioCallMobile() {
             inmateProfile = null,
             liveCost = 3.00,
             maxCallSeconds = 300,
+            onMuteToggle = {},
+            onSpeakerToggle = {},
+            onEndCall = {}
+        )
+    }
+}
+
+@Preview(name = "Tablet Landscape", device = "spec:width=1280dp,height=800dp,orientation=landscape", showBackground = true)
+@Composable
+fun PreviewAudioCallTabletLandscape() {
+    PrisonKioskTheme {
+        AudioCallContent(
+            contactName = "Suresh Kumar (Brother)",
+            timerSeconds = 125,
+            isMuted = false,
+            isSpeakerOn = true,
+            callState = CallUIState.CONNECTED,
+            isNetworkAvailable = true,
+            isRecording = true,
+            inmateProfile = null,
+            liveCost = 3.00,
+            maxCallSeconds = 300,
+            connectionQuality = "fair",
             onMuteToggle = {},
             onSpeakerToggle = {},
             onEndCall = {}

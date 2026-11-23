@@ -1,5 +1,6 @@
 package com.dssmeet.kiosk.core
 
+import com.dssmeet.kiosk.models.wallet.safeBalance
 import com.dssmeet.kiosk.repository.AuthRepository
 import com.dssmeet.kiosk.repository.InmateRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -35,7 +36,7 @@ class JailBalanceSync @Inject constructor(
             inmateRepository.getWalletStatement(inmateId).collect { result ->
                 when (result) {
                     is com.dssmeet.kiosk.network.NetworkResult.Success -> {
-                        _balance.value = result.data.wallet.balance
+                        _balance.value = result.data.wallet.safeBalance() ?: 0.0
                         success = true
                     }
                     is com.dssmeet.kiosk.network.NetworkResult.Failure -> {

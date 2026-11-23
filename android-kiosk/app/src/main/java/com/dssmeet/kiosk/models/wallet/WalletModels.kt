@@ -4,15 +4,15 @@ import com.google.gson.annotations.SerializedName
 
 /** Jail-account statement returned by GET /inmate/wallet/:id (nested under API `data`). */
 data class WalletStatement(
-    @SerializedName("wallet") val wallet: WalletInfo,
-    @SerializedName("transactions") val transactions: List<WalletTransaction>
+    @SerializedName("wallet") val wallet: WalletInfo? = null,
+    @SerializedName("transactions") val transactions: List<WalletTransaction>? = null
 )
 
 data class WalletInfo(
-    @SerializedName("walletId") val walletId: String,
-    @SerializedName("inmateId") val inmateId: String,
+    @SerializedName("walletId") val walletId: String? = null,
+    @SerializedName("inmateId") val inmateId: String? = null,
     /** Paise — the server ledger's unit; divide by 100 for ₹ display. */
-    @SerializedName("balance") val balance: Double,
+    @SerializedName("balance") val balance: Double? = null,
     @SerializedName("currency") val currency: String = "INR",
     @SerializedName("status") val status: String = "active",
     /** Paise. */
@@ -22,6 +22,8 @@ data class WalletInfo(
     @SerializedName("lastRechargeAmount") val lastRechargeAmount: Double? = null,
     @SerializedName("remainingMinutes") val remainingMinutes: Int = 0
 )
+
+fun WalletInfo?.safeBalance(): Double? = this?.balance?.takeIf { !it.isNaN() && !it.isInfinite() }
 
 data class WalletTransaction(
     @SerializedName("transactionId") val transactionId: String,

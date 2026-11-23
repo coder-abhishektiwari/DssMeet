@@ -129,34 +129,37 @@ fun MisReportContent(
                 .fillMaxSize()
         ) {
             val wide = maxWidth >= 900.dp
-            if (wide) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    MisReportFilterColumn(
-                        state = state,
-                        modifier = Modifier
-                            .weight(0.4f)
-                            .fillMaxHeight(),
-                        modernFilters = true,
-                        onPresetClick = onPresetClick,
-                        onFromClick = { showFromPicker = true },
-                        onToClick = { showToPicker = true },
-                        onGenerate = onGenerate,
-                        onPrint = onPrint
-                    )
-                    MisReportPreviewPanel(
-                        reportText = state.reportText,
-                        isLoading = state.isLoading,
-                        modifier = Modifier
-                            .weight(0.6f)
-                            .fillMaxHeight()
-                    )
-                }
-            } else {
+            // MisReportContent ke wide (`maxWidth >= 900.dp`) branch mein:
+if (wide) {
+    Row(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
+        verticalAlignment = Alignment.Top
+    ) {
+        MisReportFilterColumn(
+            state = state,
+            modifier = Modifier
+                .weight(0.4f, fill = false)
+                .widthIn(min = 340.dp, max = 460.dp)
+                .fillMaxHeight(),
+            modernFilters = true,
+            onPresetClick = onPresetClick,
+            onFromClick = { showFromPicker = true },
+            onToClick = { showToPicker = true },
+            onGenerate = onGenerate,
+            onPrint = onPrint
+        )
+        MisReportPreviewPanel(
+            reportText = state.reportText,
+            isLoading = state.isLoading,
+            modifier = Modifier
+                .weight(0.6f, fill = false)
+                .fillMaxHeight()
+        )
+    }
+} else {
                 com.dssmeet.kiosk.ui.components.KioskResponsiveBox(
                     maxWidth = 900.dp,
                     modifier = Modifier.fillMaxSize()
@@ -223,21 +226,21 @@ private fun MisReportPreviewPanel(
 ) {
     Box(
         modifier = modifier,
-        contentAlignment = Alignment.TopStart
+        contentAlignment = Alignment.TopCenter
     ) {
         Card(
             modifier = Modifier
                 .wrapContentWidth()
                 .widthIn(min = 320.dp, max = 680.dp)
-                .fillMaxHeight(),
+                .wrapContentHeight(),
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = Color.White),
             elevation = CardDefaults.cardElevation(3.dp)
         ) {
-            Column(modifier = Modifier.fillMaxSize()) {
+            Column(modifier = Modifier.wrapContentSize()) {
                 Row(
                     modifier = Modifier
-                        .fillMaxWidth()
+                        .widthIn(min = 320.dp)
                         .padding(horizontal = 24.dp, vertical = 18.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
@@ -272,11 +275,10 @@ private fun MisReportPreviewPanel(
                 if (reportText != null) {
                     Box(
                         modifier = Modifier
-                            .weight(1f)
                             .verticalScroll(rememberScrollState())
                             .horizontalScroll(rememberScrollState())
                             .padding(20.dp),
-                        contentAlignment = Alignment.TopStart
+                        contentAlignment = Alignment.Center
                     ) {
                         Surface(
                             shape = RoundedCornerShape(12.dp),
@@ -296,9 +298,7 @@ private fun MisReportPreviewPanel(
                     }
                 } else {
                     Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth(),
+                        modifier = Modifier.widthIn(min = 320.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Column(
@@ -771,37 +771,42 @@ private fun ReportDatePicker(
     val pickerState = rememberDatePickerState(
         initialSelectedDateMillis = initialDate.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
     )
+
     DatePickerDialog(
         onDismissRequest = onDismissed,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier
+            .widthIn(min = 320.dp, max = 420.dp)
+            .heightIn(max = 580.dp),
+        dismissButton = {
+            OutlinedButton(
+                onClick = onDismissed,
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Text("Cancel", fontWeight = FontWeight.SemiBold, color = PrimaryDarkNavy)
+            }
+        },
         confirmButton = {
             Button(
                 onClick = { onConfirmed(pickerState.selectedDateMillis) },
                 shape = RoundedCornerShape(10.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = PrimaryNavy),
-                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp)
+                colors = ButtonDefaults.buttonColors(containerColor = PrimaryNavy)
             ) {
                 Text("OK", fontWeight = FontWeight.Bold, color = Color.White)
-            }
-        },
-        dismissButton = {
-            OutlinedButton(
-                onClick = onDismissed,
-                shape = RoundedCornerShape(10.dp),
-                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp)
-            ) {
-                Text("Cancel", fontWeight = FontWeight.SemiBold, color = PrimaryDarkNavy)
             }
         }
     ) {
         Column(
-            modifier = Modifier.verticalScroll(rememberScrollState())
+            modifier = Modifier
+                .weight(1f, fill = false)
+                .verticalScroll(rememberScrollState())
         ) {
             Text(
                 text = "Select $title",
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
                 color = PrimaryDarkNavy,
-                modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp)
+                modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 16.dp, bottom = 4.dp)
             )
             DatePicker(
                 state = pickerState,

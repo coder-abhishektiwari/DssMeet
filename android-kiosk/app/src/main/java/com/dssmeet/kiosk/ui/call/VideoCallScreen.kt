@@ -28,7 +28,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -61,15 +60,9 @@ import org.webrtc.SurfaceViewRenderer
 import org.webrtc.VideoTrack
 import kotlin.math.roundToInt
 
-// Color Tokens (VideoAccentGreen kept local � different shade from theme)
 private val DarkControlsBg = Color(0xD90F172A)
 private val VideoAccentGreen = Color(0xFF10B981)
 
-/**
- * Compose wrapper around a WebRTC [SurfaceViewRenderer] that renders a
- * [VideoTrack] (local preview or remote peer). Falls back to a black surface
- * while no track is attached so the layout never collapses.
- */
 @Composable
 fun WebRtcSurfaceView(
     videoTrack: VideoTrack?,
@@ -78,21 +71,21 @@ fun WebRtcSurfaceView(
     mirror: Boolean = false,
     fit: Boolean = false
 ) {
-    // Track attached to the renderer, so swaps detach the previous sink.
     val attachedTrack = remember { mutableStateOf<VideoTrack?>(null) }
     val rendererInit = remember { mutableStateOf(false) }
+    val targetScaling = if (fit) {
+        RendererCommon.ScalingType.SCALE_ASPECT_FIT
+    } else {
+        RendererCommon.ScalingType.SCALE_ASPECT_FILL
+    }
 
     AndroidView(
         modifier = modifier.background(Color.Black),
         factory = { ctx ->
             SurfaceViewRenderer(ctx).apply {
                 setMirror(mirror)
-                // FIT shows the WHOLE remote frame (letterboxed); FILL crops.
-                // The remote peer must never be cropped � use FIT there.
-                setScalingType(
-                    if (fit) RendererCommon.ScalingType.SCALE_ASPECT_FIT
-                    else RendererCommon.ScalingType.SCALE_ASPECT_FILL
-                )
+                setEnableHardwareScaler(true)
+                setScalingType(targetScaling)
             }
         },
         update = { view ->
@@ -114,11 +107,12 @@ fun WebRtcSurfaceView(
                 if (videoTrack != null) {
                     videoTrack.addSink(view)
                     com.dssmeet.kiosk.core.Logger.d(
-                        "WebRtcSurfaceView: addSink track=${System.identityHashCode(videoTrack)} view=${System.identityHashCode(view)} init=$rendererInit"
+                        "WebRtcSurfaceView: addSink track=${System.identityHashCode(videoTrack)} view=${System.identityHashCode(view)} init=${rendererInit.value}"
                     )
                 }
                 attachedTrack.value = videoTrack
             }
+            view.setScalingType(targetScaling)
             view.setMirror(mirror)
         },
         onRelease = { view ->
@@ -184,13 +178,8 @@ fun VideoCallScreen(
         if (!hasPermissions && !permissionDeniedOnce) {
             launcher.launch(arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO))
         }
-        // NOTE: initCall already happened on CallProgressScreen � the engine
-        // is a singleton, so we just attach to the live session here.
     }
 
-    // Track whether the call ever reached CONNECTED so a peer-side disconnect
-    // (call ended remotely) exits via the billing summary, while a call that
-    // never connected (join failed / media failed) simply goes back.
     var everConnected by remember { mutableStateOf(false) }
 
     LaunchedEffect(callState) {
@@ -252,37 +241,38 @@ fun PermissionDeniedUI(onRetry: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0F172A)),
+            .background(Color(0xFF0F172A))
+            .padding(24.dp),
         contentAlignment = Alignment.Center
     ) {
         Card(
             modifier = Modifier
-                .padding(24.dp)
-                .fillMaxWidth(0.85f),
+                .widthIn(min = 280.dp, max = 560.dp)
+                .fillMaxWidth(0.9f),
             shape = RoundedCornerShape(24.dp),
             colors = CardDefaults.cardColors(containerColor = Color.White)
         ) {
             Column(
-                modifier = Modifier.padding(24.dp),
+                modifier = Modifier.padding(28.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Icon(
                     imageVector = Icons.Default.Security,
                     contentDescription = null,
                     tint = DangerRed,
-                    modifier = Modifier.size(56.dp)
+                    modifier = Modifier.size(64.dp)
                 )
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(18.dp))
                 Text(
                     text = "Permissions Required",
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
                     color = TextDark
                 )
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(10.dp))
                 Text(
                     text = "Access to Camera and Microphone is required for secure video calling.",
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodyLarge,
                     color = TextGray,
                     textAlign = TextAlign.Center
                 )
@@ -328,15 +318,6 @@ fun VideoCallContent(
     var lastInteractionTime by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
     val density = LocalDensity.current
-    val configuration = LocalConfiguration.current
-    val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
-    val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
-
-    // Offset positioned strictly BELOW top header to prevent overlap
-    val initialTopOffsetPx = with(density) { 110.dp.toPx().toInt() }
-    var pipOffset by remember { mutableStateOf(IntOffset(0, initialTopOffsetPx)) }
-
-    // Warden-controlled max call length (from the dashboard Settings).
     val remainingSeconds = (maxCallSeconds - timerSeconds).coerceAtLeast(0)
 
     val formatTime = { seconds: Int ->
@@ -345,8 +326,6 @@ fun VideoCallContent(
         String.format("%02d:%02d", mins, secs)
     }
 
-    // Live billing from the engine: ceil(minutes) � actual per-minute rate.
-    // ?0.00 until the first second of connected talk time.
     val currentCost = liveCost
 
     LaunchedEffect(lastInteractionTime) {
@@ -367,10 +346,13 @@ fun VideoCallContent(
             }
     ) {
         val isTablet = maxWidth >= 600.dp
+        val containerWidthPx = with(density) { maxWidth.toPx() }
+        val containerHeightPx = with(density) { maxHeight.toPx() }
+
         val overlayWidth = if (isTablet) {
-            minOf(maxWidth - 80.dp, 900.dp)
+            minOf(maxWidth - 96.dp, 880.dp)
         } else {
-            minOf(maxWidth - 48.dp, 520.dp)
+            minOf(maxWidth - 40.dp, 500.dp)
         }.coerceAtLeast(240.dp)
 
         // 1. REMOTE FULLSCREEN VIDEO FEED
@@ -403,7 +385,7 @@ fun VideoCallContent(
                             else -> "Connecting..."
                         },
                         color = Color.White,
-                        fontSize = if (isTablet) 20.sp else 16.sp,
+                        fontSize = if (isTablet) 24.sp else 16.sp,
                         fontWeight = FontWeight.SemiBold,
                         textAlign = TextAlign.Center
                     )
@@ -412,25 +394,29 @@ fun VideoCallContent(
         }
 
         // 2. DRAGGABLE PIP LOCAL CAMERA PREVIEW
-        val pipWidth = if (isTablet) 160.dp else 105.dp
-        val pipHeight = if (isTablet) 210.dp else 145.dp
+        val pipWidth = if (isTablet) 210.dp else 108.dp
+        val pipHeight = if (isTablet) 270.dp else 148.dp
         val pipWidthPx = with(density) { pipWidth.toPx() }
         val pipHeightPx = with(density) { pipHeight.toPx() }
+        val initialTopOffsetPx = with(density) { if (isTablet) 136.dp.toPx().toInt() else 112.dp.toPx().toInt() }
+        var pipOffset by remember { mutableStateOf(IntOffset(0, initialTopOffsetPx)) }
 
         Surface(
             modifier = Modifier
                 .zIndex(3f)
                 .offset { pipOffset }
-                .padding(end = 12.dp)
+                .padding(end = if (isTablet) 20.dp else 12.dp)
                 .size(pipWidth, pipHeight)
                 .align(Alignment.TopEnd)
-                .clip(RoundedCornerShape(16.dp))
-                .border(1.5.dp, Color.White.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
-                .pointerInput(Unit) {
+                .clip(RoundedCornerShape(if (isTablet) 20.dp else 16.dp))
+                .border(1.5.dp, Color.White.copy(alpha = 0.55f), RoundedCornerShape(if (isTablet) 20.dp else 16.dp))
+                .pointerInput(containerWidthPx, containerHeightPx, pipWidthPx, pipHeightPx) {
                     detectDragGestures { change, dragAmount ->
                         change.consume()
-                        val newX = (pipOffset.x + dragAmount.x).coerceIn(-screenWidthPx + pipWidthPx + 24, 0f)
-                        val newY = (pipOffset.y + dragAmount.y).coerceIn(0f, screenHeightPx - pipHeightPx - 80)
+                        val minX = -(containerWidthPx - pipWidthPx - 24f).coerceAtLeast(0f)
+                        val maxY = (containerHeightPx - pipHeightPx - 120f).coerceAtLeast(0f)
+                        val newX = (pipOffset.x + dragAmount.x).coerceIn(minX, 0f)
+                        val newY = (pipOffset.y + dragAmount.y).coerceIn(0f, maxY)
                         pipOffset = IntOffset(newX.roundToInt(), newY.roundToInt())
                     }
                 },
@@ -443,11 +429,15 @@ fun VideoCallContent(
                         Icon(
                             imageVector = Icons.Default.VideocamOff,
                             contentDescription = null,
-                            tint = Color.White.copy(alpha = 0.6f),
-                            modifier = Modifier.size(24.dp)
+                            tint = Color.White.copy(alpha = 0.65f),
+                            modifier = Modifier.size(if (isTablet) 36.dp else 24.dp)
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text("Off", color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp)
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Off",
+                            color = Color.White.copy(alpha = 0.65f),
+                            fontSize = if (isTablet) 15.sp else 12.sp
+                        )
                     }
                 } else if (localTrack != null) {
                     WebRtcSurfaceView(
@@ -457,12 +447,16 @@ fun VideoCallContent(
                         modifier = Modifier.fillMaxSize()
                     )
                 } else {
-                    Text("Preview", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+                    Text(
+                        text = "Preview",
+                        color = Color.White.copy(alpha = 0.7f),
+                        fontSize = if (isTablet) 15.sp else 12.sp
+                    )
                 }
             }
         }
 
-        // 3. CLEAN COMPACT TOP HEADER BAR
+        // 3. TOP HEADER BAR
         AnimatedVisibility(
             visible = controlsVisible,
             enter = fadeIn() + slideInVertically(),
@@ -479,36 +473,41 @@ fun VideoCallContent(
                             colors = listOf(Color.Black.copy(alpha = 0.9f), Color.Transparent)
                         )
                     )
-                    .padding(horizontal = 12.dp, vertical = 10.dp)
+                    .padding(
+                        horizontal = if (isTablet) 24.dp else 12.dp,
+                        vertical = if (isTablet) 16.dp else 10.dp
+                    )
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Left Header Details
                     Column(modifier = Modifier.weight(1f, fill = false)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             if (isRecording) {
                                 Surface(
                                     color = DangerRed,
-                                    shape = RoundedCornerShape(4.dp),
-                                    modifier = Modifier.padding(end = 6.dp)
+                                    shape = RoundedCornerShape(6.dp),
+                                    modifier = Modifier.padding(end = 8.dp)
                                 ) {
                                     Row(
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                        modifier = Modifier.padding(
+                                            horizontal = if (isTablet) 8.dp else 6.dp,
+                                            vertical = if (isTablet) 4.dp else 2.dp
+                                        ),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Box(
                                             modifier = Modifier
-                                                .size(6.dp)
+                                                .size(if (isTablet) 8.dp else 6.dp)
                                                 .background(Color.White, CircleShape)
                                         )
-                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Spacer(modifier = Modifier.width(5.dp))
                                         Text(
                                             text = "REC",
                                             color = Color.White,
-                                            fontSize = 12.sp,
+                                            fontSize = if (isTablet) 14.sp else 12.sp,
                                             fontWeight = FontWeight.Bold
                                         )
                                     }
@@ -519,83 +518,81 @@ fun VideoCallContent(
                                 imageVector = Icons.Default.Security,
                                 contentDescription = null,
                                 tint = VideoAccentGreen,
-                                modifier = Modifier.size(14.dp)
+                                modifier = Modifier.size(if (isTablet) 18.dp else 14.dp)
                             )
-                            Spacer(modifier = Modifier.width(4.dp))
+                            Spacer(modifier = Modifier.width(5.dp))
                             Text(
                                 text = "MONITORED",
                                 color = Color.White,
-                                fontSize = 12.sp,
+                                fontSize = if (isTablet) 15.sp else 12.sp,
                                 fontWeight = FontWeight.Bold
                             )
                         }
+                        Spacer(modifier = Modifier.height(2.dp))
                         Text(
                             text = "Inmate: ${inmateProfile?.displayName ?: "Unknown"} | $contactName",
-                            color = Color.White.copy(alpha = 0.8f),
-                            fontSize = 12.sp,
+                            color = Color.White.copy(alpha = 0.85f),
+                            fontSize = if (isTablet) 15.sp else 12.sp,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
                     }
 
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    // Live connection quality � sampled from the peer
-                    // connection, so a bad line is visible instead of silent.
-                    QualityChip(connectionQuality)
+                    Spacer(modifier = Modifier.width(12.dp))
+                    QualityChip(connectionQuality, isTablet = isTablet)
                 }
             }
         }
 
-        // ALWAYS-VISIBLE call duration: the header above auto-hides after a
-        // few idle seconds, but the elapsed time (and the REC dot) must stay
-        // readable for the whole call.
+        // ALWAYS-VISIBLE CALL DURATION
         Surface(
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .padding(top = 70.dp)
+                .padding(top = if (isTablet) 82.dp else 68.dp)
                 .zIndex(2f),
-            color = Color.Black.copy(alpha = 0.7f),
-            shape = RoundedCornerShape(14.dp)
+            color = Color.Black.copy(alpha = 0.75f),
+            shape = RoundedCornerShape(16.dp)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                modifier = Modifier.padding(
+                    horizontal = if (isTablet) 16.dp else 12.dp,
+                    vertical = if (isTablet) 8.dp else 6.dp
+                )
             ) {
                 if (isRecording) {
                     Box(
                         modifier = Modifier
-                            .size(7.dp)
+                            .size(if (isTablet) 9.dp else 7.dp)
                             .background(DangerRed, CircleShape)
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
                 }
                 Text(
                     text = formatTime(timerSeconds),
                     color = Color.White,
-                    fontSize = 14.sp,
+                    fontSize = if (isTablet) 18.sp else 14.sp,
                     fontWeight = FontWeight.Bold
                 )
                 if (maxCallSeconds > 0) {
-                    Spacer(modifier = Modifier.width(4.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = "/ ${formatTime(maxCallSeconds)}",
-                        color = Color.White.copy(alpha = 0.65f),
-                        fontSize = 12.sp,
+                        color = Color.White.copy(alpha = 0.7f),
+                        fontSize = if (isTablet) 15.sp else 12.sp,
                         fontWeight = FontWeight.Medium
                     )
                 }
             }
         }
 
-        // Family member's location (from device verification), right under
-        // the always-visible timer. Shared pill � same look as audio call.
+        // FAMILY LOCATION PILL
         familyLocation?.let { loc ->
             com.dssmeet.kiosk.ui.components.FamilyLocationPill(
                 location = loc,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
-                    .padding(top = 118.dp)
+                    .padding(top = if (isTablet) 128.dp else 112.dp)
                     .zIndex(2f)
             )
         }
@@ -608,48 +605,58 @@ fun VideoCallContent(
                     .align(Alignment.Center)
                     .zIndex(4f),
                 color = WarningOrange,
-                shape = RoundedCornerShape(12.dp)
+                shape = RoundedCornerShape(14.dp)
             ) {
                 Row(
-                    modifier = Modifier.padding(14.dp),
+                    modifier = Modifier.padding(if (isTablet) 20.dp else 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center
                 ) {
-                    Icon(Icons.Default.WifiOff, contentDescription = null, tint = Color.White)
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Icon(
+                        imageVector = Icons.Default.WifiOff,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(if (isTablet) 24.dp else 18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
                     Text(
                         text = "Connection lost. Reconnecting...",
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp
+                        fontSize = if (isTablet) 17.sp else 13.sp
                     )
                 }
             }
         }
 
-        // 4b. POOR NETWORK QUALITY (video is still up, audio will break up)
+        // 4b. POOR NETWORK QUALITY BANNER
         if (connectionQuality == "poor") {
             Surface(
                 modifier = Modifier
                     .width(overlayWidth)
                     .align(Alignment.BottomCenter)
-                    .padding(vertical = 120.dp)
+                    .padding(bottom = if (isTablet) 175.dp else 125.dp)
                     .zIndex(4f),
                 color = DangerRed,
-                shape = RoundedCornerShape(12.dp)
+                shape = RoundedCornerShape(14.dp)
             ) {
                 Row(
-                    modifier = Modifier.padding(14.dp),
+                    modifier = Modifier.padding(if (isTablet) 18.dp else 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center
                 ) {
-                    Icon(Icons.Default.SignalCellularAlt, contentDescription = null, tint = Color.White)
+                    Icon(
+                        imageVector = Icons.Default.SignalCellularAlt,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(if (isTablet) 22.dp else 18.dp)
+                    )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Poor network quality � audio may break up",
+                        text = "Poor network quality — audio may break up",
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp
+                        fontSize = if (isTablet) 16.sp else 13.sp
                     )
                 }
             }
@@ -672,35 +679,42 @@ fun VideoCallContent(
                             colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.95f))
                         )
                     )
-                    .padding(bottom = 16.dp, start = 12.dp, end = 12.dp, top = 8.dp),
+                    .padding(
+                        bottom = if (isTablet) 28.dp else 16.dp,
+                        start = 16.dp,
+                        end = 16.dp,
+                        top = 12.dp
+                    ),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                verticalArrangement = Arrangement.spacedBy(if (isTablet) 14.dp else 10.dp)
             ) {
                 Surface(
                     color = VideoAccentGreen,
                     shape = RoundedCornerShape(50)
                 ) {
                     Text(
-                        text = "Live Billing: \u20B9${String.format("%.2f", currentCost)}",
+                        text = "Live Billing: ₹${String.format("%.2f", currentCost)}",
                         color = Color.White,
-                        fontSize = 12.sp,
+                        fontSize = if (isTablet) 16.sp else 12.sp,
                         fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                        modifier = Modifier.padding(
+                            horizontal = if (isTablet) 18.dp else 12.dp,
+                            vertical = if (isTablet) 6.dp else 4.dp
+                        )
                     )
                 }
 
-                // Wrap-content + centered: a full-width bar flings the side
-                // controls to the far edges on a big screen. The container
-                // is only ever as wide as the controls themselves.
                 Surface(
                     modifier = Modifier.wrapContentWidth(),
-                    shape = RoundedCornerShape(24.dp),
+                    shape = RoundedCornerShape(if (isTablet) 32.dp else 24.dp),
                     color = DarkControlsBg
                 ) {
-                    // END sits dead-center: mic+cam left of it, speaker/info right.
                     Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.padding(
+                            horizontal = if (isTablet) 28.dp else 14.dp,
+                            vertical = if (isTablet) 16.dp else 10.dp
+                        ),
+                        horizontalArrangement = Arrangement.spacedBy(if (isTablet) 32.dp else 14.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         VideoActionButton(
@@ -708,6 +722,7 @@ fun VideoCallContent(
                             label = if (isMuted) "Unmute" else "Mute",
                             isActive = isMuted,
                             activeColor = DangerRed,
+                            isTablet = isTablet,
                             onClick = {
                                 onMuteToggle()
                                 lastInteractionTime = System.currentTimeMillis()
@@ -719,6 +734,7 @@ fun VideoCallContent(
                             label = if (!isCameraOn) "Cam Off" else "Cam On",
                             isActive = !isCameraOn,
                             activeColor = DangerRed,
+                            isTablet = isTablet,
                             onClick = {
                                 onVideoToggle()
                                 lastInteractionTime = System.currentTimeMillis()
@@ -731,6 +747,7 @@ fun VideoCallContent(
                             isActive = true,
                             activeColor = DangerRed,
                             isEndCall = true,
+                            isTablet = isTablet,
                             onClick = onEndCall
                         )
 
@@ -739,6 +756,7 @@ fun VideoCallContent(
                             label = "Speaker",
                             isActive = isSpeakerOn,
                             activeColor = PrimaryBlue,
+                            isTablet = isTablet,
                             onClick = {
                                 onSpeakerToggle()
                                 lastInteractionTime = System.currentTimeMillis()
@@ -750,6 +768,7 @@ fun VideoCallContent(
                             label = "Info",
                             isActive = showInfoDialog,
                             activeColor = PrimaryBlue,
+                            isTablet = isTablet,
                             onClick = {
                                 showInfoDialog = true
                                 lastInteractionTime = System.currentTimeMillis()
@@ -764,14 +783,16 @@ fun VideoCallContent(
         if (showInfoDialog) {
             Dialog(onDismissRequest = { showInfoDialog = false }) {
                 Card(
-                    modifier = Modifier.fillMaxWidth(0.95f),
-                    shape = RoundedCornerShape(20.dp),
+                    modifier = Modifier
+                        .widthIn(min = 280.dp, max = 560.dp)
+                        .fillMaxWidth(if (isTablet) 0.8f else 0.95f),
+                    shape = RoundedCornerShape(24.dp),
                     colors = CardDefaults.cardColors(containerColor = Color.White)
                 ) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(16.dp),
+                            .padding(if (isTablet) 24.dp else 16.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Row(
@@ -781,38 +802,53 @@ fun VideoCallContent(
                         ) {
                             Text(
                                 text = "Call Information",
-                                fontSize = 16.sp,
+                                fontSize = if (isTablet) 22.sp else 16.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = TextDark
                             )
                             IconButton(
                                 onClick = { showInfoDialog = false },
-                                modifier = Modifier.size(28.dp)
+                                modifier = Modifier.size(if (isTablet) 36.dp else 28.dp)
                             ) {
                                 Icon(Icons.Default.Close, contentDescription = "Close", tint = TextGray)
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(14.dp))
 
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .background(ControlBtnBg, RoundedCornerShape(12.dp))
-                                .padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                                .background(ControlBtnBg, RoundedCornerShape(14.dp))
+                                .padding(if (isTablet) 16.dp else 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("Inmate:", fontSize = 12.sp, color = TextGray)
-                                Text(inmateProfile?.displayName ?: "Inmate", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextDark)
+                                Text("Inmate:", fontSize = if (isTablet) 15.sp else 12.sp, color = TextGray)
+                                Text(
+                                    text = inmateProfile?.displayName ?: "Inmate",
+                                    fontSize = if (isTablet) 15.sp else 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextDark
+                                )
                             }
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("Contact:", fontSize = 12.sp, color = TextGray)
-                                Text(contactName, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextDark)
+                                Text("Contact:", fontSize = if (isTablet) 15.sp else 12.sp, color = TextGray)
+                                Text(
+                                    text = contactName,
+                                    fontSize = if (isTablet) 15.sp else 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextDark
+                                )
                             }
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("Time Remaining:", fontSize = 12.sp, color = TextGray)
-                                Text(formatTime(remainingSeconds), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = DangerRed)
+                                Text("Time Remaining:", fontSize = if (isTablet) 15.sp else 12.sp, color = TextGray)
+                                Text(
+                                    text = formatTime(remainingSeconds),
+                                    fontSize = if (isTablet) 15.sp else 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = DangerRed
+                                )
                             }
                         }
                     }
@@ -828,10 +864,24 @@ fun VideoActionButton(
     label: String,
     isActive: Boolean,
     activeColor: Color,
+    isTablet: Boolean = false,
     isEndCall: Boolean = false,
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
+    val buttonSize = when {
+        isTablet && isEndCall -> 76.dp
+        isTablet -> 66.dp
+        isEndCall -> 54.dp
+        else -> 46.dp
+    }
+    val iconSize = when {
+        isTablet && isEndCall -> 34.dp
+        isTablet -> 30.dp
+        isEndCall -> 24.dp
+        else -> 22.dp
+    }
+
     Column(
         modifier = modifier,
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -841,40 +891,35 @@ fun VideoActionButton(
             onClick = onClick,
             shape = CircleShape,
             color = if (isEndCall) DangerRed else if (isActive) activeColor else Color.White.copy(alpha = 0.15f),
-            modifier = Modifier.size(42.dp)
+            modifier = Modifier.size(buttonSize)
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(
                     imageVector = icon,
                     contentDescription = label,
                     tint = Color.White,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(iconSize)
                 )
             }
         }
-        Spacer(modifier = Modifier.height(3.dp))
+        Spacer(modifier = Modifier.height(if (isTablet) 8.dp else 4.dp))
         Text(
             text = label,
-            color = Color.White.copy(alpha = 0.8f),
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Medium
+            color = Color.White.copy(alpha = 0.9f),
+            fontSize = if (isTablet) 15.sp else 12.sp,
+            fontWeight = FontWeight.SemiBold
         )
     }
 }
 
-/**
- * Compact live-quality pill for the call header. Values come from
- * [com.dssmeet.kiosk.ui.call.CallEngine.connectionQuality], which samples
- * the peer connection once a second � this chip never reports a fixed state.
- */
 @Composable
-private fun QualityChip(quality: String) {
+private fun QualityChip(quality: String, isTablet: Boolean = false) {
     val (label, tint) = when (quality) {
         "excellent" -> "Excellent" to VideoAccentGreen
         "good" -> "Stable" to VideoAccentGreen
         "fair" -> "Fair" to WarningOrange
         "poor" -> "Poor network" to DangerRed
-        else -> "Measuring�" to TextGray
+        else -> "Measuring…" to TextGray
     }
     Surface(
         color = tint.copy(alpha = 0.22f),
@@ -882,32 +927,28 @@ private fun QualityChip(quality: String) {
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+            modifier = Modifier.padding(
+                horizontal = if (isTablet) 12.dp else 8.dp,
+                vertical = if (isTablet) 6.dp else 4.dp
+            )
         ) {
             Icon(
                 imageVector = Icons.Default.SignalCellularAlt,
                 contentDescription = null,
                 tint = tint,
-                modifier = Modifier.size(12.dp)
+                modifier = Modifier.size(if (isTablet) 18.dp else 12.dp)
             )
-            Spacer(modifier = Modifier.width(4.dp))
+            Spacer(modifier = Modifier.width(6.dp))
             Text(
                 text = label,
                 color = Color.White,
-                fontSize = 12.sp,
+                fontSize = if (isTablet) 14.sp else 12.sp,
                 fontWeight = FontWeight.Bold
             )
         }
     }
 }
 
-// ============================================================================
-// PREVIEWS FOR MOBILE & TABLET
-// ============================================================================
-
-/**
- * 1. MOBILE PREVIEW
- */
 @Preview(
     name = "Mobile - Portrait Video Call",
     device = "spec:width=360dp,height=800dp,dpi=440",
@@ -953,11 +994,6 @@ fun VideoCallContentMobilePreview() {
     }
 }
 
-/*
-/**
- * 2. TABLET PREVIEW (Commented Out)
- * Uncomment this block when testing Kiosk / Large Tablet Screen layouts.
- */
 @Preview(
     name = "Tablet - Landscape Video Call",
     device = "spec:width=1280dp,height=800dp,dpi=240",
@@ -975,6 +1011,8 @@ fun VideoCallContentTabletPreview() {
             callState = CallUIState.CONNECTED,
             isNetworkAvailable = true,
             isRecording = true,
+            liveCost = 10.00,
+            maxCallSeconds = 300,
             inmateProfile = InmateProfile(
                 inmateId = "INM123",
                 firstName = "Rahul",
@@ -1000,4 +1038,3 @@ fun VideoCallContentTabletPreview() {
         )
     }
 }
-*/
